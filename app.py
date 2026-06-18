@@ -140,23 +140,38 @@ def inject_global_css():
 def get_spreadsheet():
     import json, os
     try:
+        creds = None
+
         # 1) Streamlit Cloud → st.secrets
-        if "gcp_service_account" in st.secrets:
-            info = dict(st.secrets["gcp_service_account"])
-            info["private_key"] = info["private_key"].replace("\\n", "\n")
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
-        # 2) Render / qualquer servidor → variável de ambiente GCP_CREDENTIALS_JSON
-        elif os.environ.get("GCP_CREDENTIALS_JSON"):
+        try:
+            if "gcp_service_account" in st.secrets:
+                info = dict(st.secrets["gcp_service_account"])
+                info["private_key"] = info["private_key"].replace("\\n", "\n")
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
+        except Exception:
+            pass
+
+        # 2) Variável de ambiente (Render env var)
+        if creds is None and os.environ.get("GCP_CREDENTIALS_JSON"):
             info = json.loads(os.environ["GCP_CREDENTIALS_JSON"])
             creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
-        # 3) Local → arquivo credentials.json
-        else:
+
+        # 3) Secret File do Render (/etc/secrets/credentials.json)
+        if creds is None and os.path.exists("/etc/secrets/credentials.json"):
+            creds = ServiceAccountCredentials.from_json_keyfile_name(
+                "/etc/secrets/credentials.json", SCOPE
+            )
+
+        # 4) Arquivo local (desenvolvimento)
+        if creds is None and os.path.exists("credentials.json"):
             creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", SCOPE)
+
+        if creds is None:
+            st.error("Credenciais não encontradas. Configure o Secret File no Render.")
+            st.stop()
+
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID)
-    except FileNotFoundError:
-        st.error("Arquivo credentials.json não encontrado.")
-        st.stop()
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("Planilha não encontrada. Verifique as permissões da service account.")
         st.stop()
