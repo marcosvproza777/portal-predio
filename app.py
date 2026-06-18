@@ -70,6 +70,10 @@ def inject_global_css():
         /* ── Hide Streamlit chrome ── */
         #MainMenu, footer, header {{ visibility: hidden; }}
 
+        /* Esconde o botão de colapsar sidebar para não sumir a barra */
+        [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
+        button[kind="header"] {{ display: none !important; }}
+
         /* ── Sidebar ── */
         [data-testid="stSidebar"] {{
             background: {COLOR_NAVY} !important;
@@ -554,6 +558,7 @@ def main():
         page_title="Portal do Cliente — Pred.IO",
         page_icon="⚙️",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
 
     inject_global_css()
