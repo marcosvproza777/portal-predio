@@ -297,19 +297,18 @@ def render_login_page(spreadsheet, logo_b64: str):
     with col:
         st.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
 
-        # Card principal com logo + formulário
+        logo_html = (
+            f"<div style='text-align:center;margin-bottom:1.4rem;'>"
+            f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:210px;max-width:100%;'/>"
+            f"</div>"
+        ) if logo_b64 else ""
+
         st.markdown(
             f"""<div style='background:rgba(255,255,255,0.97);
                 border:1px solid {COLOR_BORDER};border-radius:18px;
                 padding:2.5rem 2.5rem 1.5rem;
                 box-shadow:0 8px 40px rgba(27,42,107,0.18);'>
-
-              <!-- Logo -->
-              {"<div style='text-align:center;margin-bottom:1.2rem;'>"
-               f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:200px;'/>"
-               "</div>" if logo_b64 else ""}
-
-              <!-- Título -->
+              {logo_html}
               <h1 style='color:{COLOR_NAVY};text-align:center;margin:0 0 0.2rem;
                   font-size:1.8rem;font-weight:800;letter-spacing:-0.5px;'>
                   Portal do Cliente
@@ -432,33 +431,78 @@ def render_asset_card(row: pd.Series):
 
 # ─── Resumo lateral ───────────────────────────────────────────────────────────
 
-def render_summary(tipo_status: dict):
-    """tipo_status: {tipo_label: cfg_dict | None} — último status por tipo de relatório."""
+def render_summary(ativos: pd.DataFrame, has_ns: bool):
+    """Para cada máquina (TAG + NS), mostra o último status por tipo de relatório."""
+    has_tipo = "Tipo" in ativos.columns
+    has_data = "Data" in ativos.columns
+    group_cols = ["Tag", "Ns"] if has_ns else ["Tag"]
+
+    # Ordem das máquinas: pior status primeiro
+    PRIORITY = {"Crítico": 0, "Atenção": 1, "Bom": 2}
+    machines = (
+        ativos.sort_values("_priority")
+        .groupby(group_cols, sort=False)
+        .first()
+        .reset_index()[group_cols]
+    )
+
     rows_html = ""
-    for tipo_label, cfg in tipo_status.items():
-        if cfg is None:
-            dot    = "#cbd5e1"
-            label  = "Sem dados"
-            bg     = "#f8fafc"
-        else:
+    for _, mrow in machines.iterrows():
+        tag = str(mrow["Tag"]).strip()
+        ns  = str(mrow.get("Ns", "")).strip() if has_ns else ""
+
+        mask = ativos["Tag"].astype(str).str.strip() == tag
+        if has_ns and ns and ns.lower() not in ("", "nan"):
+            mask &= ativos["Ns"].astype(str).str.strip() == ns
+        mdf = ativos[mask].copy()
+
+        ns_txt = f" · Nº {ns}" if ns and ns.lower() not in ("", "nan") else ""
+
+        # Cabeçalho da máquina
+        rows_html += (
+            f"<div style='margin-bottom:10px;'>"
+            f"<div style='font-size:0.82rem;font-weight:800;color:{COLOR_NAVY};"
+            f"padding:5px 10px;background:#e8edf4;border-radius:6px;margin-bottom:5px;'>"
+            f"{tag}{ns_txt}</div>"
+        )
+
+        # Status por tipo
+        tem_dado = False
+        for tipo_key, tipo_label in TIPOS_LAUDOS:
+            if has_tipo:
+                tdf = mdf[mdf["Tipo"].astype(str).apply(
+                    lambda v: _sem_acento(v.strip())) == tipo_key].copy()
+            else:
+                tdf = pd.DataFrame()
+            if tdf.empty:
+                continue
+            tem_dado = True
+            if has_data:
+                tdf["_dt"] = pd.to_datetime(
+                    tdf["Data"].astype(str).str.strip(), dayfirst=True, errors="coerce")
+                tdf = tdf.sort_values("_dt", ascending=False)
+            cfg = get_status_cfg(str(tdf.iloc[0].get("Status", "")))
             dot   = cfg["dot"]
             label = cfg["label"]
-            bg    = cfg["bg"]
-        badge_text = "#000" if dot == "#f59e0b" else ("#94a3b8" if cfg is None else "#fff")
-        rows_html += (
-            f"<div style='padding:10px 14px;margin-bottom:8px;background:#fff;"
-            f"border-left:4px solid {dot};border-radius:8px;'>"
-            f"<div style='font-size:0.72rem;color:#94a3b8;font-weight:700;"
-            f"text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>{tipo_label}</div>"
-            f"<span style='display:inline-block;background:{dot};color:{badge_text};"
-            f"-webkit-text-fill-color:{badge_text};font-size:0.78rem;font-weight:700;"
-            f"padding:3px 12px;border-radius:20px;'>{label}</span>"
-            f"</div>"
-        )
+            badge_text = "#000" if dot == "#f59e0b" else "#fff"
+            rows_html += (
+                f"<div style='display:flex;justify-content:space-between;align-items:center;"
+                f"padding:4px 8px;margin-bottom:3px;background:#fff;"
+                f"border-left:3px solid {dot};border-radius:5px;'>"
+                f"<span style='font-size:0.7rem;color:#64748b;'>{tipo_label}</span>"
+                f"<span style='background:{dot};color:{badge_text};-webkit-text-fill-color:{badge_text};"
+                f"font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:10px;'>{label}</span>"
+                f"</div>"
+            )
+        if not tem_dado:
+            rows_html += "<div style='font-size:0.72rem;color:#94a3b8;padding:3px 8px;'>Sem laudos</div>"
+        rows_html += "</div>"
+
     st.markdown(
-        f"<div style='background:{COLOR_BG};border:1px solid {COLOR_BORDER};border-radius:10px;padding:16px;'>"
-        f"<p style='font-size:0.75rem;font-weight:700;color:#94a3b8;letter-spacing:.08em;"
-        f"margin:0 0 12px;text-transform:uppercase;'>Último Status por Tipo</p>"
+        f"<div style='background:{COLOR_BG};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:14px;max-height:80vh;overflow-y:auto;'>"
+        f"<p style='font-size:0.72rem;font-weight:700;color:#94a3b8;letter-spacing:.08em;"
+        f"margin:0 0 10px;text-transform:uppercase;'>Status por Máquina</p>"
         f"{rows_html}</div>",
         unsafe_allow_html=True,
     )
@@ -466,9 +510,17 @@ def render_summary(tipo_status: dict):
 
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
 
-def render_dashboard(spreadsheet, empresa: str):
-    # Cabeçalho com botão de logout
-    col_title, col_logout = st.columns([5, 1])
+def render_dashboard(spreadsheet, empresa: str, logo_b64: str = ""):
+    # Cabeçalho com logo + título + botão de logout
+    col_logo, col_title, col_logout = st.columns([1, 5, 1])
+    with col_logo:
+        if logo_b64:
+            st.markdown(
+                f"<div style='padding-top:0.3rem;'>"
+                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:90px;max-width:100%;'/>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
     with col_title:
         st.markdown(
             f"<h1 style='color:{COLOR_NAVY};margin-bottom:0;'>Dashboard de Saúde de Ativos</h1>"
@@ -537,29 +589,6 @@ def render_dashboard(spreadsheet, empresa: str):
     )
     group_order = group_order.sort_values("_sort")[group_cols]
 
-    # ── Resumo: último status por tipo de relatório ────────────────────────────
-    tipo_status = {}
-    has_tipo = "Tipo" in ativos.columns
-    has_data = "Data" in ativos.columns
-    for tipo_key, tipo_label in TIPOS_LAUDOS:
-        if has_tipo:
-            grupo_tipo = ativos[
-                ativos["Tipo"].astype(str).apply(lambda v: _sem_acento(v.strip())) == tipo_key
-            ].copy()
-        else:
-            grupo_tipo = pd.DataFrame()
-
-        if grupo_tipo.empty:
-            tipo_status[tipo_label] = None
-        else:
-            if has_data:
-                grupo_tipo["_dt"] = pd.to_datetime(
-                    grupo_tipo["Data"].astype(str).str.strip(), dayfirst=True, errors="coerce"
-                )
-                grupo_tipo = grupo_tipo.sort_values("_dt", ascending=False)
-            ultimo = grupo_tipo.iloc[0]
-            tipo_status[tipo_label] = get_status_cfg(str(ultimo.get("Status", "")))
-
     col_cards, col_summary = st.columns([3, 1])
     with col_cards:
         for _, g in group_order.iterrows():
@@ -588,7 +617,7 @@ def render_dashboard(spreadsheet, empresa: str):
                 render_asset_card(row)
 
     with col_summary:
-        render_summary(tipo_status)
+        render_summary(ativos, has_ns)
 
     # ── Central de Laudos: todos os relatórios, por tipo, ordenados por data ───
     laudos = ativos[
@@ -674,7 +703,7 @@ def main():
         render_login_page(spreadsheet, logo_b64)
     else:
         render_sidebar_user(logo_b64)
-        render_dashboard(spreadsheet, st.session_state["empresa"])
+        render_dashboard(spreadsheet, st.session_state["empresa"], logo_b64)
 
 
 if __name__ == "__main__":
