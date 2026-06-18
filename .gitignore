@@ -1,0 +1,11 @@
+# Credenciais — NUNCA enviar ao GitHub
+credentials.json
+
+# Arquivos temporários de desenvolvimento
+screenshot_*.png
+inspect_btn.py
+
+# Python
+*.pyc
+__pycache__/
+.env
