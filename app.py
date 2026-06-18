@@ -70,25 +70,16 @@ def inject_global_css():
 
         /* ── Hide Streamlit chrome ── */
         #MainMenu, footer {{ visibility: hidden; }}
+        /* Esconde o header mas mantém o botão de reabrir sidebar visível */
         header {{ visibility: hidden; }}
-        /* Botão de expandir/colapsar sidebar — manter visível */
-        [data-testid="stSidebarCollapsedControl"] {{
+        header [data-testid="stSidebarCollapsedControl"],
+        section[data-testid="stSidebarCollapsedControl"] {{
             visibility: visible !important;
             background: {COLOR_NAVY} !important;
             border-radius: 0 8px 8px 0 !important;
         }}
-        [data-testid="stSidebarCollapsedControl"] svg,
-        [data-testid="stSidebarCollapsedControl"] path {{
+        section[data-testid="stSidebarCollapsedControl"] svg path {{
             fill: #ffffff !important;
-            color: #ffffff !important;
-        }}
-        [data-testid="stSidebarCollapseButton"] {{
-            visibility: visible !important;
-        }}
-        [data-testid="stSidebarCollapseButton"] svg,
-        [data-testid="stSidebarCollapseButton"] path {{
-            fill: #ffffff !important;
-            color: #ffffff !important;
         }}
 
         /* ── Sidebar ── */
