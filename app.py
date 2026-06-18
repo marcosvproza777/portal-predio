@@ -70,9 +70,31 @@ def inject_global_css():
         /* ── Hide Streamlit chrome ── */
         #MainMenu, footer, header {{ visibility: hidden; }}
 
-        /* Esconde o botão de colapsar sidebar para não sumir a barra */
+        /* Esconde o botão nativo de colapsar sidebar */
         [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
         button[kind="header"] {{ display: none !important; }}
+
+        /* Botão flutuante de abrir/fechar sidebar */
+        #menu-toggle {{
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 999999;
+            background: {COLOR_NAVY};
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            width: 44px;
+            height: 44px;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }}
+        #menu-toggle:hover {{ background: {COLOR_CYAN}; color: #000; }}
 
         /* ── Sidebar ── */
         [data-testid="stSidebar"] {{
@@ -133,6 +155,13 @@ def inject_global_css():
         /* ── Divider ── */
         hr {{ border-color: {COLOR_BORDER}; }}
         </style>
+
+        <button id="menu-toggle" title="Abrir/fechar menu"
+            onclick="(function(){{
+                var s = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl]');
+                if (!s) s = window.parent.document.querySelector('[data-testid=stSidebarCollapseButton]');
+                if (s) s.click();
+            }})()">&#9776;</button>
         """,
         unsafe_allow_html=True,
     )
