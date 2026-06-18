@@ -60,28 +60,12 @@ def logo_base64(path: str) -> str:
         return ""
 
 
-def inject_global_css(bg_b64: str = ""):
-    bg_css = (
-        f".stApp {{ background-image: url('data:image/jpeg;base64,{bg_b64}') !important;"
-        f" background-size: cover !important; background-position: center !important;"
-        f" background-attachment: fixed !important; }}"
-        if bg_b64 else
-        f".stApp {{ background-color: {COLOR_BG}; }}"
-    )
+def inject_global_css():
     st.markdown(
         f"""
         <style>
         /* ── Page background ── */
-        {bg_css}
-        /* Overlay escuro sobre o fundo para legibilidade */
-        .stApp::before {{
-            content: '';
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 50, 0.55);
-            pointer-events: none;
-            z-index: 0;
-        }}
+        .stApp {{ background-color: {COLOR_BG}; }}
 
         /* ── Hide Streamlit chrome ── */
         #MainMenu, footer, header {{ visibility: hidden; }}
@@ -133,10 +117,6 @@ def inject_global_css(bg_b64: str = ""):
             background: #7dd3fc !important;
         }}
 
-        /* ── Conteúdo principal sobre o fundo ── */
-        section.main > div {{ position: relative; z-index: 1; }}
-        [data-testid="stSidebar"] {{ position: relative; z-index: 2; }}
-
         /* ── Metric cards ── */
         [data-testid="stMetric"] {{
             background: {COLOR_CARD};
@@ -154,6 +134,33 @@ def inject_global_css(bg_b64: str = ""):
         hr {{ border-color: {COLOR_BORDER}; }}
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_login_background(bg_b64: str):
+    """Aplica a foto como marca d'água apenas na tela de login."""
+    if not bg_b64:
+        return
+    st.markdown(
+        f"""<style>
+        .stApp {{
+            background-image: url('data:image/jpeg;base64,{bg_b64}') !important;
+            background-size: cover !important;
+            background-position: center !important;
+            background-attachment: fixed !important;
+        }}
+        /* Overlay claro para efeito de marca d'água */
+        .stApp::before {{
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: rgba(245, 247, 250, 0.78);
+            pointer-events: none;
+            z-index: 0;
+        }}
+        section.main > div {{ position: relative; z-index: 1; }}
+        </style>""",
         unsafe_allow_html=True,
     )
 
@@ -597,13 +604,14 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    bg_b64   = logo_base64("bg.jpg")
-    inject_global_css(bg_b64)
+    inject_global_css()
 
     logo_b64    = logo_base64("logo.jpg")
+    bg_b64      = logo_base64("bg.jpg")
     spreadsheet = get_spreadsheet()
 
     if not st.session_state.get("logged_in"):
+        inject_login_background(bg_b64)
         render_login_page(spreadsheet, logo_b64)
     else:
         render_sidebar_user(logo_b64)
