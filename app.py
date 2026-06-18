@@ -60,12 +60,28 @@ def logo_base64(path: str) -> str:
         return ""
 
 
-def inject_global_css():
+def inject_global_css(bg_b64: str = ""):
+    bg_css = (
+        f".stApp {{ background-image: url('data:image/jpeg;base64,{bg_b64}') !important;"
+        f" background-size: cover !important; background-position: center !important;"
+        f" background-attachment: fixed !important; }}"
+        if bg_b64 else
+        f".stApp {{ background-color: {COLOR_BG}; }}"
+    )
     st.markdown(
         f"""
         <style>
         /* ── Page background ── */
-        .stApp {{ background-color: {COLOR_BG}; }}
+        {bg_css}
+        /* Overlay escuro sobre o fundo para legibilidade */
+        .stApp::before {{
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 50, 0.55);
+            pointer-events: none;
+            z-index: 0;
+        }}
 
         /* ── Hide Streamlit chrome ── */
         #MainMenu, footer, header {{ visibility: hidden; }}
@@ -116,6 +132,10 @@ def inject_global_css():
         [data-testid="stSidebar"] .stButton > button:hover {{
             background: #7dd3fc !important;
         }}
+
+        /* ── Conteúdo principal sobre o fundo ── */
+        section.main > div {{ position: relative; z-index: 1; }}
+        [data-testid="stSidebar"] {{ position: relative; z-index: 2; }}
 
         /* ── Metric cards ── */
         [data-testid="stMetric"] {{
@@ -577,7 +597,8 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    inject_global_css()
+    bg_b64   = logo_base64("bg.jpg")
+    inject_global_css(bg_b64)
 
     logo_b64    = logo_base64("logo.jpg")
     spreadsheet = get_spreadsheet()
