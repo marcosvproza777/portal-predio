@@ -355,22 +355,33 @@ def render_asset_card(row: pd.Series):
 
 # ─── Resumo lateral ───────────────────────────────────────────────────────────
 
-def render_summary(counts: dict):
+def render_summary(tipo_status: dict):
+    """tipo_status: {tipo_label: cfg_dict | None} — último status por tipo de relatório."""
     rows_html = ""
-    for key, dot, icon in [("Bom", "#22c55e", "🟢"), ("Atenção", "#f59e0b", "🟡"), ("Crítico", "#ef4444", "🔴")]:
-        n = counts.get(key, 0)
+    for tipo_label, cfg in tipo_status.items():
+        if cfg is None:
+            dot    = "#cbd5e1"
+            label  = "Sem dados"
+            bg     = "#f8fafc"
+        else:
+            dot   = cfg["dot"]
+            label = cfg["label"]
+            bg    = cfg["bg"]
+        badge_text = "#000" if dot == "#f59e0b" else ("#94a3b8" if cfg is None else "#fff")
         rows_html += (
-            f"<div style='display:flex;justify-content:space-between;align-items:center;"
-            f"padding:10px 14px;margin-bottom:8px;background:#fff;"
+            f"<div style='padding:10px 14px;margin-bottom:8px;background:#fff;"
             f"border-left:4px solid {dot};border-radius:8px;'>"
-            f"<span style='font-size:0.9rem;color:{COLOR_NAVY};font-weight:600;'>{icon} {key}</span>"
-            f"<span style='font-size:1.4rem;font-weight:800;color:{dot};'>{n}</span>"
+            f"<div style='font-size:0.72rem;color:#94a3b8;font-weight:700;"
+            f"text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;'>{tipo_label}</div>"
+            f"<span style='display:inline-block;background:{dot};color:{badge_text};"
+            f"-webkit-text-fill-color:{badge_text};font-size:0.78rem;font-weight:700;"
+            f"padding:3px 12px;border-radius:20px;'>{label}</span>"
             f"</div>"
         )
     st.markdown(
         f"<div style='background:{COLOR_BG};border:1px solid {COLOR_BORDER};border-radius:10px;padding:16px;'>"
         f"<p style='font-size:0.75rem;font-weight:700;color:#94a3b8;letter-spacing:.08em;"
-        f"margin:0 0 12px;text-transform:uppercase;'>Resumo de Status</p>"
+        f"margin:0 0 12px;text-transform:uppercase;'>Último Status por Tipo</p>"
         f"{rows_html}</div>",
         unsafe_allow_html=True,
     )
@@ -440,16 +451,37 @@ def render_dashboard(spreadsheet, empresa: str):
     )
     group_order = group_order.sort_values("_sort")[group_cols]
 
+    # ── Resumo: último status por tipo de relatório ────────────────────────────
+    tipo_status = {}
+    has_tipo = "Tipo" in ativos.columns
+    has_data = "Data" in ativos.columns
+    for tipo_key, tipo_label in TIPOS_LAUDOS:
+        if has_tipo:
+            grupo_tipo = ativos[
+                ativos["Tipo"].astype(str).apply(lambda v: _sem_acento(v.strip())) == tipo_key
+            ].copy()
+        else:
+            grupo_tipo = pd.DataFrame()
+
+        if grupo_tipo.empty:
+            tipo_status[tipo_label] = None
+        else:
+            if has_data:
+                grupo_tipo["_dt"] = pd.to_datetime(
+                    grupo_tipo["Data"].astype(str).str.strip(), dayfirst=True, errors="coerce"
+                )
+                grupo_tipo = grupo_tipo.sort_values("_dt", ascending=False)
+            ultimo = grupo_tipo.iloc[0]
+            tipo_status[tipo_label] = get_status_cfg(str(ultimo.get("Status", "")))
+
     col_cards, col_summary = st.columns([3, 1])
     with col_cards:
         for _, g in group_order.iterrows():
-            # Filtrar todas as linhas deste ativo
             mask = ativos["Tag"].astype(str).str.strip() == str(g["Tag"]).strip()
             if has_ns:
                 mask &= ativos["Ns"].astype(str).str.strip() == str(g["Ns"]).strip()
             grupo = ativos[mask].sort_values("_priority")
 
-            # Cabeçalho do grupo
             primeiro = grupo.iloc[0]
             tag   = str(primeiro.get("Tag", "")).strip()
             equip = str(primeiro.get("Equipamentos", "")).strip()
@@ -470,7 +502,7 @@ def render_dashboard(spreadsheet, empresa: str):
                 render_asset_card(row)
 
     with col_summary:
-        render_summary(counts)
+        render_summary(tipo_status)
 
     # ── Central de Laudos: todos os relatórios, por tipo, ordenados por data ───
     laudos = ativos[
