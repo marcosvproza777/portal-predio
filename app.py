@@ -69,18 +69,7 @@ def inject_global_css():
         .stApp {{ background-color: {COLOR_BG}; }}
 
         /* ── Hide Streamlit chrome ── */
-        #MainMenu, footer {{ visibility: hidden; }}
-        /* Esconde o header mas mantém o botão de reabrir sidebar visível */
-        header {{ visibility: hidden; }}
-        header [data-testid="stSidebarCollapsedControl"],
-        section[data-testid="stSidebarCollapsedControl"] {{
-            visibility: visible !important;
-            background: {COLOR_NAVY} !important;
-            border-radius: 0 8px 8px 0 !important;
-        }}
-        section[data-testid="stSidebarCollapsedControl"] svg path {{
-            fill: #ffffff !important;
-        }}
+        #MainMenu, footer, header {{ visibility: hidden; }}
 
         /* ── Sidebar ── */
         [data-testid="stSidebar"] {{
@@ -572,7 +561,6 @@ def main():
         page_title="Portal do Cliente — Pred.IO",
         page_icon="⚙️",
         layout="wide",
-        initial_sidebar_state="expanded",
     )
 
     inject_global_css()
