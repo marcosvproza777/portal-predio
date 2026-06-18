@@ -74,28 +74,6 @@ def inject_global_css():
         [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
         button[kind="header"] {{ display: none !important; }}
 
-        /* Botão flutuante de abrir/fechar sidebar */
-        #menu-toggle {{
-            position: fixed;
-            top: 12px;
-            left: 12px;
-            z-index: 999999;
-            background: {COLOR_NAVY};
-            color: #ffffff;
-            border: none;
-            border-radius: 8px;
-            width: 44px;
-            height: 44px;
-            font-size: 22px;
-            cursor: pointer;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            line-height: 1;
-        }}
-        #menu-toggle:hover {{ background: {COLOR_CYAN}; color: #000; }}
-
         /* ── Sidebar ── */
         [data-testid="stSidebar"] {{
             background: {COLOR_NAVY} !important;
@@ -155,13 +133,6 @@ def inject_global_css():
         /* ── Divider ── */
         hr {{ border-color: {COLOR_BORDER}; }}
         </style>
-
-        <button id="menu-toggle" title="Abrir/fechar menu"
-            onclick="(function(){{
-                var s = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl]');
-                if (!s) s = window.parent.document.querySelector('[data-testid=stSidebarCollapseButton]');
-                if (s) s.click();
-            }})()">&#9776;</button>
         """,
         unsafe_allow_html=True,
     )
@@ -256,41 +227,50 @@ def authenticate(spreadsheet, email: str, password: str):
     return str(row["Empresa"]).strip(), str(row["Telefone"]).strip()
 
 
-def render_sidebar_login(spreadsheet, logo_b64: str):
-    with st.sidebar:
+def render_login_page(spreadsheet, logo_b64: str):
+    """Formulário de login centralizado na página principal."""
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
+
+        # Logo
         if logo_b64:
             st.markdown(
-                f"<div style='text-align:center;padding:1.2rem 0 0.5rem;'>"
-                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:160px;border-radius:8px;'/>"
+                f"<div style='text-align:center;margin-bottom:1.5rem;'>"
+                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:220px;'/>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+        # Card de login
         st.markdown(
-            "<p style='text-align:center;font-size:0.8rem;opacity:0.7;margin-bottom:1.2rem;'>"
-            "Análises Preditivas para a Indústria</p>",
+            f"""<div style='background:#ffffff;border:1px solid {COLOR_BORDER};
+                border-radius:14px;padding:2rem 2.2rem;
+                box-shadow:0 4px 24px rgba(27,42,107,0.10);'>
+            <h2 style='color:{COLOR_NAVY};text-align:center;margin:0 0 0.3rem;font-size:1.4rem;'>
+                Portal do Cliente</h2>
+            <p style='color:#64748b;text-align:center;font-size:0.85rem;margin:0 0 1.6rem;'>
+                Pred.IO — Análises Preditivas para a Indústria</p>
+            </div>""",
             unsafe_allow_html=True,
         )
-        st.markdown("---")
-        st.markdown("### Acesso ao Portal")
 
         with st.form("login_form"):
             email    = st.text_input("E-mail", placeholder="seu@email.com")
             password = st.text_input("Senha", type="password", placeholder="••••••••")
             submitted = st.form_submit_button("Entrar", use_container_width=True)
 
-    if submitted:
-        if not email or not password:
-            st.sidebar.warning("Preencha e-mail e senha.")
-            return
-
-        with st.spinner("Verificando credenciais…"):
-            empresa, telefone = authenticate(spreadsheet, email, password)
-
-        if empresa:
-            st.session_state.update(logged_in=True, empresa=empresa, telefone=telefone)
-            st.rerun()
-        else:
-            st.sidebar.error("E-mail ou senha incorretos.")
+        if submitted:
+            if not email or not password:
+                st.warning("Preencha e-mail e senha.")
+                return
+            with st.spinner("Verificando credenciais…"):
+                empresa, telefone = authenticate(spreadsheet, email, password)
+            if empresa:
+                st.session_state.update(logged_in=True, empresa=empresa, telefone=telefone)
+                st.rerun()
+            else:
+                st.error("E-mail ou senha incorretos.")
 
 
 def render_sidebar_user(logo_b64: str):
@@ -319,31 +299,6 @@ def render_sidebar_user(logo_b64: str):
                 st.session_state.pop(key, None)
             st.rerun()
 
-# ─── Landing page ──────────────────────────────────────────────────────────────
-
-def render_landing(logo_b64: str):
-    _, col, _ = st.columns([1, 1.6, 1])
-    with col:
-        st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
-        if logo_b64:
-            st.markdown(
-                f"<div style='text-align:center;margin-bottom:1rem;'>"
-                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:280px;'/>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        st.markdown(
-            f"<h2 style='text-align:center;color:{COLOR_NAVY};margin-bottom:0.2rem;'>"
-            f"Portal do Cliente</h2>"
-            f"<p style='text-align:center;color:#64748b;font-size:0.95rem;'>"
-            f"Monitoramento de Confiabilidade Industrial</p>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"<p style='text-align:center;margin-top:2rem;color:#94a3b8;font-size:0.8rem;'>"
-            f"Faça login na barra lateral para acessar seu painel.</p>",
-            unsafe_allow_html=True,
-        )
 
 # ─── Asset card ───────────────────────────────────────────────────────────────
 
@@ -596,8 +551,7 @@ def main():
     spreadsheet = get_spreadsheet()
 
     if not st.session_state.get("logged_in"):
-        render_landing(logo_b64)
-        render_sidebar_login(spreadsheet, logo_b64)
+        render_login_page(spreadsheet, logo_b64)
     else:
         render_sidebar_user(logo_b64)
         render_dashboard(spreadsheet, st.session_state["empresa"])
