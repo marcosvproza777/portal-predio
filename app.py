@@ -1,7 +1,6 @@
 import base64
 import unicodedata
 import streamlit as st
-import extra_streamlit_components as stx
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
@@ -256,9 +255,6 @@ def render_sidebar_login(spreadsheet, logo_b64: str):
 
         if empresa:
             st.session_state.update(logged_in=True, empresa=empresa, telefone=telefone)
-            cm = stx.CookieManager(key="set_cookie")
-            cm.set("predio_empresa",  empresa,  max_age=7*24*3600)
-            cm.set("predio_telefone", telefone, max_age=7*24*3600)
             st.rerun()
         else:
             st.sidebar.error("E-mail ou senha incorretos.")
@@ -286,9 +282,6 @@ def render_sidebar_user(logo_b64: str):
             )
         st.markdown("---")
         if st.button("Sair", use_container_width=True):
-            cm = stx.CookieManager(key="del_cookie")
-            cm.delete("predio_empresa")
-            cm.delete("predio_telefone")
             for key in ("logged_in", "empresa", "telefone"):
                 st.session_state.pop(key, None)
             st.rerun()
@@ -564,15 +557,6 @@ def main():
     )
 
     inject_global_css()
-
-    # ── Restaurar sessão a partir de cookie ────────────────────────────────────
-    cm = stx.CookieManager(key="read_cookie")
-    if not st.session_state.get("logged_in"):
-        empresa_cookie = cm.get("predio_empresa")
-        if empresa_cookie:
-            st.session_state["logged_in"]  = True
-            st.session_state["empresa"]    = empresa_cookie
-            st.session_state["telefone"]   = cm.get("predio_telefone") or ""
 
     logo_b64    = logo_base64("logo.jpg")
     spreadsheet = get_spreadsheet()
