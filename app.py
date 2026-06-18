@@ -151,7 +151,13 @@ def get_spreadsheet():
         except Exception:
             pass
 
-        # 2) Variável de ambiente (Render env var)
+        # 2a) Variável base64 (mais segura para env vars)
+        if creds is None and os.environ.get("GCP_CREDENTIALS_B64"):
+            raw = base64.b64decode(os.environ["GCP_CREDENTIALS_B64"]).decode("utf-8")
+            info = json.loads(raw)
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
+
+        # 2b) Variável JSON direta
         if creds is None and os.environ.get("GCP_CREDENTIALS_JSON"):
             info = json.loads(os.environ["GCP_CREDENTIALS_JSON"])
             creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
