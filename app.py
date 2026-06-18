@@ -132,6 +132,18 @@ def inject_global_css():
 
         /* ── Divider ── */
         hr {{ border-color: {COLOR_BORDER}; }}
+
+        /* ── Botão Sair do dashboard ── */
+        [data-testid="stBaseButton-secondary"] {{
+            background: {COLOR_NAVY} !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+        }}
+        [data-testid="stBaseButton-secondary"]:hover {{
+            background: {COLOR_BLUE} !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -256,36 +268,74 @@ def authenticate(spreadsheet, email: str, password: str):
 
 def render_login_page(spreadsheet, logo_b64: str):
     """Formulário de login centralizado na página principal."""
-    _, col, _ = st.columns([1, 1.2, 1])
+    # Estilos específicos da tela de login
+    st.markdown(
+        f"""<style>
+        /* Campos de input da tela de login */
+        .stTextInput label {{
+            color: {COLOR_NAVY} !important;
+            font-weight: 700 !important;
+            font-size: 0.95rem !important;
+        }}
+        .stTextInput input {{
+            background: #ffffff !important;
+            border: 2px solid {COLOR_BORDER} !important;
+            border-radius: 8px !important;
+            color: #1e293b !important;
+            font-size: 1rem !important;
+            padding: 0.6rem 0.8rem !important;
+        }}
+        .stTextInput input:focus {{
+            border-color: {COLOR_BLUE} !important;
+            box-shadow: 0 0 0 3px rgba(21,101,192,0.15) !important;
+        }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+    _, col, _ = st.columns([1, 1.1, 1])
     with col:
-        st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
 
-        # Logo
-        if logo_b64:
-            st.markdown(
-                f"<div style='text-align:center;margin-bottom:1.5rem;'>"
-                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:220px;'/>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-        # Card de login
+        # Card principal com logo + formulário
         st.markdown(
-            f"""<div style='background:#ffffff;border:1px solid {COLOR_BORDER};
-                border-radius:14px;padding:2rem 2.2rem;
-                box-shadow:0 4px 24px rgba(27,42,107,0.10);'>
-            <h2 style='color:{COLOR_NAVY};text-align:center;margin:0 0 0.3rem;font-size:1.4rem;'>
-                Portal do Cliente</h2>
-            <p style='color:#64748b;text-align:center;font-size:0.85rem;margin:0 0 1.6rem;'>
-                Pred.IO — Análises Preditivas para a Indústria</p>
+            f"""<div style='background:rgba(255,255,255,0.97);
+                border:1px solid {COLOR_BORDER};border-radius:18px;
+                padding:2.5rem 2.5rem 1.5rem;
+                box-shadow:0 8px 40px rgba(27,42,107,0.18);'>
+
+              <!-- Logo -->
+              {"<div style='text-align:center;margin-bottom:1.2rem;'>"
+               f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:200px;'/>"
+               "</div>" if logo_b64 else ""}
+
+              <!-- Título -->
+              <h1 style='color:{COLOR_NAVY};text-align:center;margin:0 0 0.2rem;
+                  font-size:1.8rem;font-weight:800;letter-spacing:-0.5px;'>
+                  Portal do Cliente
+              </h1>
+              <p style='color:#475569;text-align:center;font-size:0.9rem;margin:0 0 1.8rem;'>
+                  Pred.IO — Análises Preditivas para a Indústria
+              </p>
             </div>""",
             unsafe_allow_html=True,
         )
 
         with st.form("login_form"):
-            email    = st.text_input("E-mail", placeholder="seu@email.com")
-            password = st.text_input("Senha", type="password", placeholder="••••••••")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
+            st.markdown(
+                f"<p style='color:{COLOR_NAVY};font-weight:700;font-size:0.95rem;"
+                f"margin:0.8rem 0 0.2rem;'>E-mail</p>",
+                unsafe_allow_html=True,
+            )
+            email = st.text_input("E-mail", placeholder="seu@email.com", label_visibility="collapsed")
+            st.markdown(
+                f"<p style='color:{COLOR_NAVY};font-weight:700;font-size:0.95rem;"
+                f"margin:0.6rem 0 0.2rem;'>Senha</p>",
+                unsafe_allow_html=True,
+            )
+            password = st.text_input("Senha", type="password", placeholder="••••••••", label_visibility="collapsed")
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("🔐  Entrar", use_container_width=True)
 
         if submitted:
             if not email or not password:
@@ -417,11 +467,20 @@ def render_summary(tipo_status: dict):
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
 
 def render_dashboard(spreadsheet, empresa: str):
-    st.markdown(
-        f"<h1 style='color:{COLOR_NAVY};margin-bottom:0;'>Dashboard de Saúde de Ativos</h1>"
-        f"<p style='color:#64748b;margin-top:4px;'>Empresa: <strong>{empresa}</strong></p>",
-        unsafe_allow_html=True,
-    )
+    # Cabeçalho com botão de logout
+    col_title, col_logout = st.columns([5, 1])
+    with col_title:
+        st.markdown(
+            f"<h1 style='color:{COLOR_NAVY};margin-bottom:0;'>Dashboard de Saúde de Ativos</h1>"
+            f"<p style='color:#64748b;margin-top:4px;'>Empresa: <strong>{empresa}</strong></p>",
+            unsafe_allow_html=True,
+        )
+    with col_logout:
+        st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
+        if st.button("⬅️ Sair", use_container_width=True, help="Voltar para o login"):
+            for key in ("logged_in", "empresa", "telefone"):
+                st.session_state.pop(key, None)
+            st.rerun()
     st.markdown("---")
 
     df = load_sheet(spreadsheet, "Ativos")
