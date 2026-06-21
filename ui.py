@@ -342,18 +342,9 @@ def render_supervisao_sidebar(logo_b64: str, nome: str, perfil: str) -> None:
         sv_view = st.session_state.get("sv_view", "dashboard")
         for key, icon, label in SV_NAV_ITEMS:
             is_active = sv_view == key or (key == "chamados" and sv_view == "chamado_detalhe")
-            bg = "rgba(56,189,248,0.15)" if is_active else "transparent"
-            border = "2px solid #38BDF8" if is_active else "2px solid transparent"
-            txt_color = "#38BDF8" if is_active else "#CBD5E1"
-            st.markdown(
-                f"<div style='background:{bg};border-left:{border};border-radius:0 8px 8px 0;"
-                f"padding:8px 12px;margin-bottom:2px;cursor:pointer;'>"
-                f"<span style='color:{txt_color};font-size:0.88rem;font-weight:600;'>"
-                f"{icon} &nbsp; {label}</span></div>",
-                unsafe_allow_html=True,
-            )
-            if st.button(label, key=f"sv_nav_{key}", use_container_width=True,
-                         label_visibility="collapsed"):
+            prefix = "▶" if is_active else "   "
+            if st.button(f"{prefix} {icon}  {label}", key=f"sv_nav_{key}",
+                         use_container_width=True):
                 st.session_state["sv_view"] = key
                 st.session_state.pop("sv_chamado_id", None)
                 st.rerun()
