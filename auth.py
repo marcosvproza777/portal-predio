@@ -34,10 +34,14 @@ def get_client_id(empresa: str) -> str:
 
 
 def checar_email(email: str) -> tuple:
-    """Verifica se e-mail existe. Retorna (existe: bool, primeiro_acesso: bool)."""
+    """Verifica se e-mail existe. Retorna (existe, primeiro_acesso, nome)."""
     from sheets import verificar_email
-    existe, primeiro, _ = verificar_email(email)
-    return existe, primeiro
+    existe, primeiro, row = verificar_email(email)
+    nome = ""
+    if row:
+        empresa = str(row.get("Empresa", "")).strip()
+        nome = str(row.get("Nome", empresa)).strip() or empresa
+    return existe, primeiro, nome
 
 
 def definir_senha(email: str, nova_senha: str) -> tuple:

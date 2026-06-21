@@ -152,11 +152,12 @@ def _step_email() -> None:
             st.warning("Digite seu e-mail ou telefone.")
             return
         with st.spinner("Verificando…"):
-            existe, primeiro_acesso = checar_email(email)
+            existe, primeiro_acesso, nome = checar_email(email)
         if not existe:
             st.error("E-mail não encontrado. Verifique com a equipe Pred.IO.")
             return
         st.session_state["lx_email"] = email
+        st.session_state["lx_nome"]  = nome
         st.session_state["lx_step"]  = "primeiro_acesso" if primeiro_acesso else "senha"
         st.rerun()
 
@@ -204,12 +205,12 @@ def _step_primeiro_acesso() -> None:
 
 def _step_senha() -> None:
     email = st.session_state.get("lx_email", "")
+    nome  = st.session_state.get("lx_nome", "")
     _voltar_email()
 
-    _card(
-        "Bem-vindo de volta",
-        f"<span style='color:#64748B;'>{_html.escape(email)}</span>",
-    )
+    titulo   = f"Olá, {_html.escape(nome)}!" if nome else "Bem-vindo de volta"
+    subtitulo = f"<span style='color:#64748B;'>{_html.escape(email)}</span>"
+    _card(titulo, subtitulo)
 
     with st.form("form_lx_senha"):
         _lbl("SENHA")

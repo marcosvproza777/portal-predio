@@ -34,8 +34,11 @@ def inject_global_css() -> None:
     st.markdown(f"""<style>
     /* ── Base ── */
     .stApp {{ background-color: {COLOR_BG}; }}
-    #MainMenu, footer, header {{ visibility: hidden; }}
-    [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
+    #MainMenu, footer {{ visibility: hidden; }}
+    /* Esconde a barra de ferramentas do Streamlit (menu/Deploy/status),
+       mantendo o header transparente para o toggle da sidebar continuar visivel */
+    [data-testid="stToolbar"] {{ display: none !important; }}
+    header[data-testid="stHeader"] {{ background: transparent !important; }}
 
     /* ── Sidebar ── */
     [data-testid="stSidebar"] {{
@@ -200,14 +203,10 @@ def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
         )
 
         st.markdown(
-            "<p style='font-size:0.68rem;opacity:0.4;text-align:center;margin:0 0 0.75rem;'>"
+            "<p style='font-size:0.68rem;opacity:0.4;text-align:center;margin:0;'>"
             "Portal do Cliente · Pred.IO</p>",
             unsafe_allow_html=True,
         )
-
-        if st.button("⬅️  Sair da conta", use_container_width=True, key="nav_logout"):
-            logout()
-            st.rerun()
 
 
 # Alias para compatibilidade

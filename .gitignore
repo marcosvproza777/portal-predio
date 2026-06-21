@@ -1,5 +1,7 @@
 # Credenciais — NUNCA enviar ao GitHub
 credentials.json
+credentials_b64.txt
+credentials_oneline.txt
 
 # Arquivos temporários de desenvolvimento
 screenshot_*.png
