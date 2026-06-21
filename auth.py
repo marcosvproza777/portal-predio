@@ -1,15 +1,45 @@
 """Autenticação e controle de acesso — Pred.IO."""
+import hashlib
 import secrets
 import streamlit as st
 from sheets import load_sheet
+
+
+def _hash(senha: str) -> str:
+    """SHA-256 da senha. Senhas são sempre armazenadas como hash."""
+    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
 
 
 def get_client_id(empresa: str) -> str:
     return empresa.strip().lower()
 
 
+def checar_email(email: str) -> tuple:
+    """Verifica se e-mail existe. Retorna (existe: bool, primeiro_acesso: bool)."""
+    from sheets import verificar_email
+    existe, primeiro, _ = verificar_email(email)
+    return existe, primeiro
+
+
+def definir_senha(email: str, nova_senha: str) -> tuple:
+    """Define senha no primeiro acesso. Retorna (ok, empresa, telefone, perfil, nome)."""
+    from sheets import verificar_email, set_user_senha
+    existe, primeiro, row = verificar_email(email)
+    if not existe or not primeiro or row is None:
+        return False, None, None, None, None
+    if not set_user_senha(email.strip().lower(), _hash(nova_senha)):
+        return False, None, None, None, None
+    empresa  = str(row.get("Empresa", "")).strip()
+    telefone = str(row.get("Telefone", "")).strip()
+    perfil   = str(row.get("Perfil", "cliente")).strip().lower() or "cliente"
+    nome     = str(row.get("Nome", empresa)).strip() or empresa
+    return True, empresa, telefone, perfil, nome
+
+
 def authenticate(email: str, password: str):
-    """Valida credenciais. Retorna (empresa, telefone, perfil, nome) ou (None,)*4."""
+    """Valida credenciais. Suporta hash SHA-256 e texto puro legado.
+    Retorna (empresa, telefone, perfil, nome) ou (None,)*4.
+    """
     df = load_sheet("Clientes")
     if df.empty:
         df = load_sheet("Usuarios")
@@ -19,13 +49,31 @@ def authenticate(email: str, password: str):
     if not required.issubset(df.columns):
         st.error("Planilha sem as colunas obrigatórias: Empresa, Email, Senha.")
         return None, None, None, None
-    match = df[
-        (df["Email"].str.strip().str.lower() == email.strip().lower()) &
-        (df["Senha"].astype(str).str.strip() == password.strip())
-    ]
+
+    # 1. Busca por e-mail
+    match = df[df["Email"].str.strip().str.lower() == email.strip().lower()]
     if match.empty:
         return None, None, None, None
-    row      = match.iloc[0]
+    row    = match.iloc[0]
+    stored = str(row.get("Senha", "")).strip()
+    if not stored:
+        return None, None, None, None  # senha não definida → primeiro acesso
+
+    # 2. Verifica senha: hash SHA-256 ou plaintext legado
+    pwd = password.strip()
+    pwd_hash = _hash(pwd)
+    if stored == pwd_hash:
+        pass  # hash correto
+    elif len(stored) != 64 and stored == pwd:
+        # Legado: plaintext — re-hashear silenciosamente
+        try:
+            from sheets import set_user_senha
+            set_user_senha(email.strip().lower(), pwd_hash)
+        except Exception:
+            pass
+    else:
+        return None, None, None, None
+
     empresa  = str(row["Empresa"]).strip()
     telefone = str(row.get("Telefone", "")).strip()
     perfil   = str(row.get("Perfil", "cliente")).strip().lower() or "cliente"

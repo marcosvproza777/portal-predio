@@ -268,6 +268,51 @@ def _mock_mensagens(chamado_id: str) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+# ── Autenticação — verificação de e-mail e gravação de senha ─────────────────
+
+def verificar_email(email: str) -> tuple:
+    """Verifica se e-mail existe na planilha.
+    Retorna (existe: bool, primeiro_acesso: bool, dados: dict | None).
+    Primeiro acesso = coluna Senha vazia ou com valor 'PRIMEIRO_ACESSO'.
+    """
+    for tab in ("Clientes", "Usuarios"):
+        df = load_sheet(tab)
+        if df.empty or "Email" not in df.columns:
+            continue
+        match = df[df["Email"].str.strip().str.lower() == email.strip().lower()]
+        if match.empty:
+            continue
+        row   = match.iloc[0]
+        senha = str(row.get("Senha", "")).strip()
+        primeiro = senha == "" or senha.upper() == "PRIMEIRO_ACESSO"
+        return True, primeiro, row.to_dict()
+    return False, False, None
+
+
+def set_user_senha(email: str, senha_hash: str) -> bool:
+    """Grava o hash da senha do usuário na planilha. Retorna True se OK."""
+    for tab in ("Clientes", "Usuarios"):
+        try:
+            ss = get_spreadsheet()
+            ws = ss.worksheet(tab)
+            raw     = ws.row_values(1)
+            headers = [h.strip().title() for h in raw]
+            if "Email" not in headers or "Senha" not in headers:
+                continue
+            email_col = headers.index("Email") + 1  # 1-based
+            senha_col = headers.index("Senha") + 1  # 1-based
+            vals = ws.col_values(email_col)          # index 0 = linha 1 (cabeçalho)
+            for row_num, val in enumerate(vals, start=1):
+                if row_num == 1:
+                    continue  # pula cabeçalho
+                if val.strip().lower() == email.strip().lower():
+                    ws.update_cell(row_num, senha_col, senha_hash)
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 # ── Relatórios ────────────────────────────────────────────────────────────────
 
 def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
