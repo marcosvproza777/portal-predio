@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timedelta
 
@@ -270,44 +271,80 @@ def _mock_mensagens(chamado_id: str) -> pd.DataFrame:
 
 # ── Autenticação — verificação de e-mail e gravação de senha ─────────────────
 
-def verificar_email(email: str) -> tuple:
-    """Verifica se e-mail existe na planilha.
+def _digits(s: str) -> str:
+    """Extrai apenas dígitos de uma string (para comparação de telefones)."""
+    return re.sub(r"[^\d]", "", s)
+
+
+def _match_row(df: pd.DataFrame, login: str):
+    """Busca uma linha por e-mail OU telefone. Retorna Series ou None."""
+    valor = login.strip().lower()
+    if "Email" in df.columns:
+        m = df[df["Email"].str.strip().str.lower() == valor]
+        if not m.empty:
+            return m.iloc[0]
+    if "Telefone" in df.columns:
+        digs = _digits(login)
+        if digs:
+            df2 = df.copy()
+            df2["_tel"] = df2["Telefone"].astype(str).apply(_digits)
+            m = df2[df2["_tel"] == digs]
+            if not m.empty:
+                return m.iloc[0]
+    return None
+
+
+def verificar_email(login: str) -> tuple:
+    """Verifica se e-mail ou telefone existe na planilha.
     Retorna (existe: bool, primeiro_acesso: bool, dados: dict | None).
     Primeiro acesso = coluna Senha vazia ou com valor 'PRIMEIRO_ACESSO'.
     """
     for tab in ("Clientes", "Usuarios"):
         df = load_sheet(tab)
-        if df.empty or "Email" not in df.columns:
+        if df.empty:
             continue
-        match = df[df["Email"].str.strip().str.lower() == email.strip().lower()]
-        if match.empty:
+        row = _match_row(df, login)
+        if row is None:
             continue
-        row   = match.iloc[0]
-        senha = str(row.get("Senha", "")).strip()
+        senha    = str(row.get("Senha", "")).strip()
         primeiro = senha == "" or senha.upper() == "PRIMEIRO_ACESSO"
         return True, primeiro, row.to_dict()
     return False, False, None
 
 
-def set_user_senha(email: str, senha_hash: str) -> bool:
-    """Grava o hash da senha do usuário na planilha. Retorna True se OK."""
+def set_user_senha(login: str, senha_hash: str) -> bool:
+    """Grava o hash da senha buscando por e-mail ou telefone. Retorna True se OK."""
+    valor = login.strip().lower()
+    digs  = _digits(login)
     for tab in ("Clientes", "Usuarios"):
         try:
-            ss = get_spreadsheet()
-            ws = ss.worksheet(tab)
+            ss      = get_spreadsheet()
+            ws      = ss.worksheet(tab)
             raw     = ws.row_values(1)
             headers = [h.strip().title() for h in raw]
-            if "Email" not in headers or "Senha" not in headers:
+            if "Senha" not in headers:
                 continue
-            email_col = headers.index("Email") + 1  # 1-based
-            senha_col = headers.index("Senha") + 1  # 1-based
-            vals = ws.col_values(email_col)          # index 0 = linha 1 (cabeçalho)
-            for row_num, val in enumerate(vals, start=1):
-                if row_num == 1:
-                    continue  # pula cabeçalho
-                if val.strip().lower() == email.strip().lower():
-                    ws.update_cell(row_num, senha_col, senha_hash)
-                    return True
+            senha_col = headers.index("Senha") + 1
+
+            # Tenta por e-mail
+            if "Email" in headers:
+                email_col = headers.index("Email") + 1
+                for row_num, v in enumerate(ws.col_values(email_col), start=1):
+                    if row_num == 1:
+                        continue
+                    if v.strip().lower() == valor:
+                        ws.update_cell(row_num, senha_col, senha_hash)
+                        return True
+
+            # Tenta por telefone
+            if "Telefone" in headers and digs:
+                tel_col = headers.index("Telefone") + 1
+                for row_num, v in enumerate(ws.col_values(tel_col), start=1):
+                    if row_num == 1:
+                        continue
+                    if _digits(v) == digs:
+                        ws.update_cell(row_num, senha_col, senha_hash)
+                        return True
         except Exception:
             continue
     return False

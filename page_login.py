@@ -129,16 +129,16 @@ def _step_email() -> None:
     _card("Portal do Cliente", "Pred.IO — Análises Preditivas para a Indústria")
 
     with st.form("form_lx_email"):
-        _lbl("E-MAIL")
-        email = st.text_input("E-mail", placeholder="seu@empresa.com.br",
+        _lbl("E-MAIL OU TELEFONE")
+        email = st.text_input("Login", placeholder="E-mail ou número de telefone",
                               label_visibility="collapsed")
         st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
         submitted = st.form_submit_button("Continuar  →", use_container_width=True)
 
     if submitted:
-        email = email.strip().lower()
+        email = email.strip()
         if not email:
-            st.warning("Digite seu e-mail.")
+            st.warning("Digite seu e-mail ou telefone.")
             return
         with st.spinner("Verificando…"):
             existe, primeiro_acesso = checar_email(email)
