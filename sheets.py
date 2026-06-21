@@ -153,6 +153,9 @@ def get_ativos(client_id: str) -> pd.DataFrame:
     df = load_sheet("Ativos")
     if df.empty:
         return df
+    # Se a planilha não tiver coluna Empresa, retorna tudo (compatibilidade)
+    if "Empresa" not in df.columns:
+        return df.copy()
     return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
 
 

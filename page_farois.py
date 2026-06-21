@@ -102,16 +102,31 @@ def render(logo_b64: str) -> None:
     empresa   = current_empresa()
     client_id = current_client_id()
 
-    ativos = get_ativos(client_id)
+    try:
+        ativos = get_ativos(client_id)
+    except Exception as e:
+        st.error(f"Erro ao carregar ativos: {e}")
+        return
+
     if ativos.empty:
         _render_empty_banner(empresa)
         empty_state("Nenhum ativo cadastrado. Adicione equipamentos na aba 'Ativos' da planilha.")
         return
 
-    required = {"Tag", "Equipamentos", "Status", "Detalhes"}
-    if not required.issubset(ativos.columns):
-        st.error(f"A aba 'Ativos' precisa das colunas: {required}")
-        return
+    # Colunas mínimas obrigatórias — preenche com vazio se faltar
+    for col in ("Tag", "Equipamentos", "Status", "Detalhes"):
+        if col not in ativos.columns:
+            ativos[col] = ""
+
+    try:
+        _render_painel(ativos, empresa, client_id)
+    except Exception as e:
+        st.error(f"Erro ao renderizar o painel: {e}")
+        st.exception(e)
+
+
+def _render_painel(ativos, empresa: str, client_id: str) -> None:
+    """Renderização principal — separada para facilitar captura de erros."""
 
     ativos["_status_key"] = ativos["Status"].astype(str).apply(
         lambda v: get_status_cfg(v)["key"])
