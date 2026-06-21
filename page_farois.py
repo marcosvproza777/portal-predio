@@ -1,7 +1,12 @@
 """Painel de Condição de Ativos — monitoramento técnico com visual premium."""
 import unicodedata
 import pandas as pd
-import plotly.graph_objects as go
+try:
+    import plotly.graph_objects as go
+    _HAS_PLOTLY = True
+except ImportError:
+    _HAS_PLOTLY = False
+
 import streamlit as st
 from auth import current_client_id, current_empresa
 from sheets import get_ativos
@@ -168,16 +173,20 @@ def render(logo_b64: str) -> None:
             tag   = str(primeiro.get("Tag",          "")).strip()
             equip = str(primeiro.get("Equipamentos", "")).strip()
             ns    = str(primeiro.get("Ns",           "")).strip() if has_ns else ""
-            pior  = get_status_cfg(str(primeiro.get("_status_key", "")))
+            pior     = get_status_cfg(str(primeiro.get("_status_key", "")))
+            pior_dot = pior["dot"]
+            pior_cls = pior["dot_cls"]
 
-            ns_txt = f"&nbsp;<span style='color:#94A3B8;font-size:0.75rem;'>Nº {ns}</span>" \
-                     if ns and ns.lower() not in ("", "nan") else ""
+            ns_txt = (
+                f"&nbsp;<span style='color:#94A3B8;font-size:0.75rem;'>Nº {ns}</span>"
+                if ns and ns.lower() not in ("", "nan") else ""
+            )
 
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:10px;"
                 f"margin:1.5rem 0 0.5rem;padding-bottom:10px;"
-                f"border-bottom:2.5px solid {pior['dot']};'>"
-                f"<span class='{pior[\"dot_cls\"]}'></span>"
+                f"border-bottom:2.5px solid {pior_dot};'>"
+                f"<span class='{pior_cls}'></span>"
                 f"<span style='font-size:1.1rem;font-weight:800;color:{COLOR_NAVY};'>"
                 f"{tag}{ns_txt}</span>"
                 f"<span style='color:{COLOR_MUTED};font-size:0.88rem;'>— {equip}</span>"
@@ -260,12 +269,30 @@ def _render_empty_banner(empresa: str) -> None:
 
 
 def _render_donut(total: int, bom: int, atencao: int, critico: int) -> None:
+    if not _HAS_PLOTLY:
+        # Fallback CSS quando plotly não está instalado
+        pct_bom = round(bom / total * 100) if total else 0
+        pct_at  = round(atencao / total * 100) if total else 0
+        pct_cr  = round(critico / total * 100) if total else 0
+        st.markdown(
+            f"<div style='text-align:center;padding:1rem 0;'>"
+            f"<p style='font-size:2.5rem;font-weight:900;color:#0F1F3D;margin:0;'>{total}</p>"
+            f"<p style='font-size:0.75rem;color:#64748B;margin:0 0 1rem;'>ativos</p>"
+            f"<div style='background:#E2E8F0;border-radius:8px;height:10px;overflow:hidden;'>"
+            f"<div style='display:flex;height:100%;'>"
+            f"<div style='width:{pct_bom}%;background:#10B981;'></div>"
+            f"<div style='width:{pct_at}%;background:#F59E0B;'></div>"
+            f"<div style='width:{pct_cr}%;background:#EF4444;'></div>"
+            f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
+        return
+
     labels = ["Bom", "Atenção", "Crítico"]
     values = [bom, atencao, critico]
     colors = ["#10B981", "#F59E0B", "#EF4444"]
 
-    # Remove zeros para gráfico mais limpo
-    filtered = [(l, v, c) for l, v, c in zip(labels, values, colors) if v > 0]
+    filtered = [(lb, v, c) for lb, v, c in zip(labels, values, colors) if v > 0]
     if not filtered:
         return
     fl, fv, fc = zip(*filtered)
@@ -279,22 +306,17 @@ def _render_donut(total: int, bom: int, atencao: int, critico: int) -> None:
         hovertemplate="<b>%{label}</b><br>%{value} ativo(s) — %{percent}<extra></extra>",
         sort=False,
     )])
+    centro = f"{total}<br>ativos"
     fig.update_layout(
         showlegend=True,
-        legend=dict(
-            orientation="h", y=-0.06, x=0.5, xanchor="center",
-            font=dict(size=11, color="#64748B"),
-        ),
+        legend=dict(orientation="h", y=-0.06, x=0.5, xanchor="center",
+                    font=dict(size=11, color="#64748B")),
         margin=dict(t=10, b=10, l=0, r=0),
         height=210,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        annotations=[dict(
-            text=f"<b style='font-size:22px'>{total}</b><br><span style='font-size:11px'>ativos</span>",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=14, color=COLOR_NAVY),
-            align="center",
-        )],
+        annotations=[dict(text=centro, x=0.5, y=0.5, showarrow=False,
+                          font=dict(size=14, color=COLOR_NAVY), align="center")],
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
