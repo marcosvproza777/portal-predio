@@ -1,21 +1,23 @@
 """Autenticação e controle de acesso."""
+import secrets
 import streamlit as st
 from sheets import load_sheet
 
 
 def get_client_id(empresa: str) -> str:
-    """Normaliza o nome da empresa como identificador de cliente."""
     return empresa.strip().lower()
 
 
 def authenticate(email: str, password: str):
-    """Valida credenciais. Retorna (empresa, telefone) ou (None, None)."""
+    """Valida credenciais contra aba 'Clientes' ou 'Usuarios'."""
     df = load_sheet("Clientes")
+    if df.empty:
+        df = load_sheet("Usuarios")
     if df.empty:
         return None, None
     required = {"Empresa", "Email", "Senha"}
     if not required.issubset(df.columns):
-        st.error("Aba 'Clientes' sem colunas esperadas.")
+        st.error("Planilha sem as colunas: Empresa, Email, Senha.")
         return None, None
     match = df[
         (df["Email"].str.strip().str.lower() == email.strip().lower()) &
@@ -28,29 +30,41 @@ def authenticate(email: str, password: str):
 
 
 def login(empresa: str, telefone: str) -> None:
-    """Salva sessão após login bem-sucedido."""
+    """Salva sessão e gera token persistente na URL para sobreviver ao refresh."""
+    client_id = get_client_id(empresa)
+    email = st.session_state.get("email_logado", "")
     st.session_state.update(
-        logged_in=True,
-        empresa=empresa,
-        telefone=telefone,
-        client_id=get_client_id(empresa),
-        page="dashboard",
+        logged_in   = True,
+        empresa     = empresa,
+        email_logado= email,
+        telefone    = telefone,
+        client_id   = client_id,
     )
+    token = secrets.token_urlsafe(32)
+    try:
+        from sheets import save_session
+        save_session(token, empresa, email, telefone, client_id)
+        st.query_params["sid"] = token
+    except Exception:
+        pass  # Se falhar, login ainda funciona — só não persiste no refresh
 
 
 def logout() -> None:
-    """Encerra a sessão."""
-    for key in ("logged_in", "empresa", "telefone", "client_id", "page",
-                "chat_history"):
+    """Encerra sessão e invalida token."""
+    try:
+        sid = st.query_params.get("sid", "")
+        if sid:
+            from sheets import delete_session
+            delete_session(sid)
+        st.query_params.clear()
+    except Exception:
+        pass
+    for key in list(st.session_state.keys()):
         st.session_state.pop(key, None)
 
 
 def require_auth() -> bool:
-    """Verifica autenticação. Redireciona para login se não autenticado."""
-    if not st.session_state.get("logged_in"):
-        st.session_state["page"] = "login"
-        return False
-    return True
+    return st.session_state.get("logged_in", False)
 
 
 def current_client_id() -> str:

@@ -41,16 +41,7 @@ def render(logo_b64: str) -> None:
     empresa   = current_empresa()
     client_id = current_client_id()
 
-    col_logo, col_title = st.columns([1, 6])
-    with col_logo:
-        if logo_b64:
-            st.markdown(
-                f"<div style='padding-top:0.4rem;'>"
-                f"<img src='data:image/jpeg;base64,{logo_b64}' style='width:80px;'/></div>",
-                unsafe_allow_html=True,
-            )
-    with col_title:
-        page_header("🚦 Faróis de Condição", f"Empresa: <strong>{empresa}</strong>")
+    page_header("🚦 Faróis de Condição", f"Empresa: <strong>{empresa}</strong>")
 
     ativos = get_ativos(client_id)
     if ativos.empty:

@@ -104,18 +104,9 @@ def inject_login_bg(bg_b64: str) -> None:
     </style>""", unsafe_allow_html=True)
 
 
-def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
-                       current_page: str) -> None:
-    """Sidebar com logo, info do usuário e navegação."""
+def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
+    """Sidebar com logo, info do usuário e botão de logout."""
     from auth import logout
-
-    nav_items = [
-        ("dashboard",   "🏠  Dashboard"),
-        ("farois",      "🚦  Faróis de Condição"),
-        ("relatorios",  "📁  Meus Relatórios"),
-        ("assistente",  "🤖  Assistente Técnico"),
-        ("chamados",    "🔧  Chamados Técnicos"),
-    ]
     with st.sidebar:
         if logo_b64:
             st.markdown(
@@ -127,26 +118,29 @@ def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
         st.markdown("---")
         st.markdown(
             f"<p style='font-size:0.82rem;opacity:0.75;margin:0;'>Bem-vindo,</p>"
-            f"<p style='font-weight:700;font-size:0.95rem;margin:2px 0 4px;'>{empresa}</p>",
+            f"<p style='font-weight:700;font-size:1rem;margin:2px 0 4px;'>{empresa}</p>",
             unsafe_allow_html=True,
         )
         if telefone:
             st.markdown(
-                f"<p style='font-size:0.75rem;opacity:0.6;'>📞 {telefone}</p>",
+                f"<p style='font-size:0.78rem;opacity:0.65;margin:0;'>📞 {telefone}</p>",
                 unsafe_allow_html=True,
             )
         st.markdown("---")
-        for page_key, label in nav_items:
-            is_active = current_page == page_key
-            bg = "rgba(255,255,255,0.18)" if is_active else "transparent"
-            border = "2px solid rgba(255,255,255,0.5)" if is_active else "2px solid transparent"
-            if st.button(label, use_container_width=True, key=f"nav_{page_key}"):
-                st.session_state["page"] = page_key
-                st.rerun()
-        st.markdown("---")
+        st.markdown(
+            f"<p style='font-size:0.72rem;opacity:0.55;margin:0;'>Portal do Cliente · Pred.IO</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         if st.button("⬅️  Sair", use_container_width=True, key="nav_logout"):
             logout()
             st.rerun()
+
+
+# Mantido por compatibilidade (não usado em produção)
+def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
+                       current_page: str) -> None:
+    render_sidebar(logo_b64, empresa, telefone)
 
 
 def page_header(title: str, subtitle: str = "") -> None:

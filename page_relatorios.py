@@ -50,7 +50,11 @@ def render() -> None:
     )
 
     if df.empty:
-        empty_state("Nenhum relatório encontrado para os filtros selecionados.")
+        st.info(
+            "Nenhum relatório encontrado. "
+            "Para aparecer aqui, adicione uma linha na aba **Relatorios** da planilha "
+            "com a coluna **Empresa** igual ao nome da sua empresa cadastrada no login."
+        )
         return
 
     # ── Listagem ──────────────────────────────────────────────────────────────

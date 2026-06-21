@@ -2,7 +2,7 @@
 import base64
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import gspread
 import pandas as pd
@@ -51,8 +51,9 @@ def get_spreadsheet():
         st.stop()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_sheet(tab_name: str) -> pd.DataFrame:
-    """Carrega uma aba e normaliza os nomes das colunas."""
+    """Carrega uma aba e normaliza os nomes das colunas. Cache de 60s."""
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet(tab_name)
@@ -68,7 +69,7 @@ def load_sheet(tab_name: str) -> pd.DataFrame:
 
 
 def append_row(tab_name: str, values: list) -> bool:
-    """Adiciona uma linha ao final da aba. Cria a aba se não existir."""
+    """Adiciona uma linha. Cria a aba se não existir. Invalida cache."""
     try:
         ss = get_spreadsheet()
         try:
@@ -76,6 +77,7 @@ def append_row(tab_name: str, values: list) -> bool:
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
         ws.append_row(values, value_input_option="USER_ENTERED")
+        load_sheet.clear()
         return True
     except Exception:
         return False
@@ -88,12 +90,10 @@ def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
     df = load_sheet("Relatorios")
     if df.empty:
         return df
-    req = {"Empresa", "Tipo_Servico", "Planta", "Equipamento", "Mes", "Ano",
-           "Data_Relatorio", "Arquivo_Url", "Titulo", "Status"}
-    for col in req:
+    for col in ("Empresa", "Tipo_Servico", "Planta", "Equipamento", "Mes", "Ano",
+                "Data_Relatorio", "Arquivo_Url", "Titulo", "Status"):
         if col not in df.columns:
             df[col] = ""
-    # Filtro de segurança — sempre por client_id
     df = df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
     if filtros:
         if filtros.get("tipo"):
@@ -101,9 +101,8 @@ def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
         if filtros.get("planta"):
             df = df[df["Planta"].str.strip().str.lower() == filtros["planta"].lower()]
         if filtros.get("equipamento"):
-            mask = df["Equipamento"].str.lower().str.contains(
-                filtros["equipamento"].lower(), na=False)
-            df = df[mask]
+            df = df[df["Equipamento"].str.lower().str.contains(
+                filtros["equipamento"].lower(), na=False)]
         if filtros.get("mes"):
             df = df[df["Mes"].astype(str) == str(filtros["mes"])]
         if filtros.get("ano"):
@@ -116,19 +115,25 @@ def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
 
 
 def get_chamados(client_id: str) -> pd.DataFrame:
-    """Retorna chamados do cliente filtrados por client_id."""
     df = load_sheet("Chamados")
     if df.empty:
         return df
-    return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].reset_index(drop=True)
+    col = "Empresa" if "Empresa" in df.columns else (
+          "Client_Id" if "Client_Id" in df.columns else None)
+    if not col:
+        return pd.DataFrame()
+    return df[df[col].str.strip().str.lower() == client_id.lower()].reset_index(drop=True)
 
 
 def get_historico_assistente(client_id: str, limit: int = 20) -> pd.DataFrame:
-    """Retorna histórico do assistente filtrado por client_id."""
     df = load_sheet("AssistenteLogs")
     if df.empty:
         return df
-    df = df[df["Empresa"].str.strip().str.lower() == client_id.lower()]
+    col = "Empresa" if "Empresa" in df.columns else (
+          "Client_Id" if "Client_Id" in df.columns else None)
+    if not col:
+        return pd.DataFrame()
+    df = df[df[col].str.strip().str.lower() == client_id.lower()]
     return df.tail(limit).iloc[::-1].reset_index(drop=True)
 
 
@@ -149,8 +154,56 @@ def abrir_chamado(client_id: str, email: str, titulo: str, descricao: str,
 
 
 def get_ativos(client_id: str) -> pd.DataFrame:
-    """Retorna ativos (faróis) do cliente."""
     df = load_sheet("Ativos")
     if df.empty:
         return df
     return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
+
+
+# ── Sessões persistentes ──────────────────────────────────────────────────────
+
+def save_session(token: str, empresa: str, email: str,
+                 telefone: str, client_id: str) -> None:
+    expiry = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y %H:%M:%S")
+    append_row("Sessions", [
+        token, empresa, email, telefone, client_id,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"), expiry, "1",
+    ])
+
+
+def get_session(token: str) -> dict | None:
+    df = load_sheet("Sessions")
+    if df.empty or "Token" not in df.columns:
+        return None
+    match = df[df["Token"].astype(str).str.strip() == token.strip()]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    if str(row.get("Ativo", "1")).strip() != "1":
+        return None
+    try:
+        expiry = datetime.strptime(
+            str(row.get("Expira_Em", "")).strip(), "%d/%m/%Y %H:%M:%S")
+        if datetime.now() > expiry:
+            return None
+    except Exception:
+        pass
+    return {
+        "empresa":    str(row.get("Empresa",   "")).strip(),
+        "email":      str(row.get("Email",     "")).strip(),
+        "telefone":   str(row.get("Telefone",  "")).strip(),
+        "client_id":  str(row.get("Client_Id", "")).strip(),
+    }
+
+
+def delete_session(token: str) -> None:
+    """Invalida o token marcando coluna Ativo=0."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Sessions")
+        cell = ws.find(token)
+        if cell:
+            ws.update_cell(cell.row, 8, "0")
+        load_sheet.clear()
+    except Exception:
+        pass

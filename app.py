@@ -1,7 +1,6 @@
-"""Portal do Cliente — Pred.IO  |  Entry point & router."""
+"""Portal do Cliente — Pred.IO  |  Entry point."""
 import streamlit as st
-
-from ui import inject_global_css, inject_login_bg, render_sidebar_nav, load_image_b64
+from ui import inject_global_css, inject_login_bg, render_sidebar, load_image_b64
 
 
 def main() -> None:
@@ -11,50 +10,62 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-
     inject_global_css()
 
     logo_b64 = load_image_b64("logo.jpg")
     bg_b64   = load_image_b64("bg.jpg")
 
-    # ── Roteamento ────────────────────────────────────────────────────────────
-    page = st.session_state.get("page", "login")
-
+    # ── Restaura sessão a partir do token na URL (sobrevive ao refresh) ───────
     if not st.session_state.get("logged_in"):
-        # Qualquer página redireciona para login se não autenticado
+        sid = st.query_params.get("sid", "")
+        if sid:
+            from sheets import get_session
+            session = get_session(sid)
+            if session:
+                st.session_state.update(
+                    logged_in   = True,
+                    empresa     = session["empresa"],
+                    email_logado= session["email"],
+                    telefone    = session["telefone"],
+                    client_id   = session["client_id"],
+                )
+                st.rerun()
+
+    # ── Não autenticado → tela de login ───────────────────────────────────────
+    if not st.session_state.get("logged_in"):
         inject_login_bg(bg_b64)
         import page_login
         page_login.render(logo_b64)
         return
 
-    # Usuário autenticado — renderiza nav + página
+    # ── Autenticado → portal com abas ─────────────────────────────────────────
     empresa  = st.session_state.get("empresa", "")
     telefone = st.session_state.get("telefone", "")
-    render_sidebar_nav(logo_b64, empresa, telefone, page)
+    render_sidebar(logo_b64, empresa, telefone)
 
-    if page == "dashboard":
-        import page_dashboard
-        page_dashboard.render(logo_b64)
+    # Faróis de Condição é a primeira aba (padrão ao entrar)
+    tab_farois, tab_rel, tab_assist, tab_cham = st.tabs([
+        "🚦  Faróis de Condição",
+        "📁  Meus Relatórios",
+        "🤖  Assistente Técnico",
+        "🔧  Chamados Técnicos",
+    ])
 
-    elif page == "farois":
+    with tab_farois:
         import page_farois
         page_farois.render(logo_b64)
 
-    elif page == "relatorios":
+    with tab_rel:
         import page_relatorios
         page_relatorios.render()
 
-    elif page == "assistente":
+    with tab_assist:
         import page_assistente
         page_assistente.render()
 
-    elif page == "chamados":
+    with tab_cham:
         import page_chamados
         page_chamados.render()
-
-    else:
-        st.session_state["page"] = "dashboard"
-        st.rerun()
 
 
 if __name__ == "__main__":
