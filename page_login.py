@@ -135,6 +135,17 @@ def _step_email() -> None:
         st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
         submitted = st.form_submit_button("Continuar  →", use_container_width=True)
 
+    st.markdown(
+        "<div style='text-align:center;margin-top:0.9rem;'>"
+        "<span style='display:inline-block;background:rgba(56,189,248,0.15);"
+        "border:1px solid rgba(56,189,248,0.35);border-radius:20px;"
+        "padding:6px 16px;font-size:0.8rem;color:#38BDF8;"
+        "font-weight:600;letter-spacing:0.02em;'>"
+        "✨ Primeiro acesso? Basta digitar seu e-mail ou telefone cadastrado"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
+
     if submitted:
         email = email.strip()
         if not email:
