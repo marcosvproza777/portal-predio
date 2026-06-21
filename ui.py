@@ -249,15 +249,185 @@ def badge(label: str, color: str, text_color: str = "#fff") -> str:
 
 
 STATUS_CFG = {
-    "aberto":       ("#F59E0B", "#000"),
-    "em andamento": ("#3B82F6", "#fff"),
-    "resolvido":    ("#10B981", "#fff"),
-    "fechado":      ("#94A3B8", "#fff"),
+    "aberto":              ("#3B82F6", "#fff"),
+    "em análise":          ("#6366F1", "#fff"),
+    "em andamento":        ("#0F1F3D", "#fff"),
+    "aguardando cliente":  ("#D97706", "#fff"),
+    "concluído":           ("#10B981", "#fff"),
+    "cancelado":           ("#94A3B8", "#fff"),
+    "reaberto":            ("#EC4899", "#fff"),
+    "resolvido":           ("#10B981", "#fff"),
+    "fechado":             ("#94A3B8", "#fff"),
 }
 
 PRIORIDADE_CFG = {
-    "baixa":   ("#10B981", "#fff"),
+    "baixa":   ("#64748B", "#fff"),
     "média":   ("#F59E0B", "#000"),
-    "alta":    ("#EF4444", "#fff"),
-    "crítica": ("#7C3AED", "#fff"),
+    "alta":    ("#F97316", "#fff"),
+    "crítica": ("#EF4444", "#fff"),
 }
+
+# ── Supervisão — constantes e componentes ─────────────────────────────────────
+
+SV_NAV_ITEMS = [
+    ("dashboard",        "🏠", "Dashboard"),
+    ("chamados",         "🔧", "Chamados"),
+    ("clientes",         "👥", "Clientes"),
+]
+
+SV_NAV_SOON = [
+    ("relatorios_sv",    "📊", "Relatórios"),
+    ("configuracoes",    "⚙️",  "Configurações"),
+]
+
+
+def render_supervisao_sidebar(logo_b64: str, nome: str, perfil: str) -> None:
+    from auth import logout
+    with st.sidebar:
+        # Logo
+        if logo_b64:
+            st.markdown(
+                f"<div style='text-align:center;padding:1.5rem 0 1rem;'>"
+                f"<img src='data:image/jpeg;base64,{logo_b64}' "
+                f"style='width:120px;border-radius:10px;"
+                f"box-shadow:0 4px 16px rgba(0,0,0,0.40);'/></div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            "<div style='text-align:center;font-size:0.62rem;font-weight:700;"
+            "letter-spacing:0.18em;text-transform:uppercase;"
+            "color:rgba(255,255,255,0.35);margin-bottom:1rem;'>"
+            "Supervisão Pred.IO</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.10);margin:0 0 1rem;'/>",
+            unsafe_allow_html=True,
+        )
+
+        # Usuário
+        iniciais = "".join(w[0].upper() for w in nome.split()[:2]) if nome else "?"
+        perfil_badge_color = "#10B981" if perfil == "admin" else "#38BDF8"
+        perfil_label       = "Admin" if perfil == "admin" else "Funcionário"
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:10px;padding:0 0.5rem 1rem;'>"
+            f"<div style='width:38px;height:38px;border-radius:50%;flex-shrink:0;"
+            f"background:linear-gradient(135deg,#38BDF8,#2563EB);"
+            f"display:flex;align-items:center;justify-content:center;"
+            f"font-weight:800;font-size:0.9rem;color:#fff;'>{iniciais}</div>"
+            f"<div>"
+            f"<p style='margin:0;font-weight:700;font-size:0.9rem;color:#F1F5F9;'>{nome}</p>"
+            f"<span style='background:{perfil_badge_color};color:#fff;-webkit-text-fill-color:#fff;"
+            f"font-size:0.65rem;font-weight:700;padding:1px 8px;border-radius:10px;'>"
+            f"{perfil_label}</span>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.10);margin:0 0 0.75rem;'/>",
+            unsafe_allow_html=True,
+        )
+
+        # Navegação
+        st.markdown(
+            "<p style='font-size:0.65rem;font-weight:700;letter-spacing:0.14em;"
+            "text-transform:uppercase;color:rgba(255,255,255,0.35);"
+            "padding:0 0.5rem;margin:0 0 0.5rem;'>Menu</p>",
+            unsafe_allow_html=True,
+        )
+
+        sv_view = st.session_state.get("sv_view", "dashboard")
+        for key, icon, label in SV_NAV_ITEMS:
+            is_active = sv_view == key or (key == "chamados" and sv_view == "chamado_detalhe")
+            bg = "rgba(56,189,248,0.15)" if is_active else "transparent"
+            border = "2px solid #38BDF8" if is_active else "2px solid transparent"
+            txt_color = "#38BDF8" if is_active else "#CBD5E1"
+            st.markdown(
+                f"<div style='background:{bg};border-left:{border};border-radius:0 8px 8px 0;"
+                f"padding:8px 12px;margin-bottom:2px;cursor:pointer;'>"
+                f"<span style='color:{txt_color};font-size:0.88rem;font-weight:600;'>"
+                f"{icon} &nbsp; {label}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if st.button(label, key=f"sv_nav_{key}", use_container_width=True,
+                         label_visibility="collapsed"):
+                st.session_state["sv_view"] = key
+                st.session_state.pop("sv_chamado_id", None)
+                st.rerun()
+
+        st.markdown(
+            "<p style='font-size:0.65rem;font-weight:700;letter-spacing:0.14em;"
+            "text-transform:uppercase;color:rgba(255,255,255,0.20);"
+            "padding:0 0.5rem;margin:1rem 0 0.5rem;'>Em breve</p>",
+            unsafe_allow_html=True,
+        )
+        for key, icon, label in SV_NAV_SOON:
+            st.markdown(
+                f"<div style='padding:8px 12px;margin-bottom:2px;opacity:0.35;'>"
+                f"<span style='color:#94A3B8;font-size:0.88rem;'>{icon} &nbsp; {label}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.10);margin:1rem 0;'/>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("⬅️  Sair da conta", use_container_width=True, key="sv_logout"):
+            logout()
+            st.rerun()
+
+
+def sv_badge(label: str, cfg: dict) -> str:
+    """Badge colorido usando dict de configuração de status ou prioridade."""
+    bg, tc = cfg.get(label.lower(), ("#94A3B8", "#fff"))
+    return (
+        f"<span style='background:{bg};color:{tc};-webkit-text-fill-color:{tc};"
+        f"font-size:0.72rem;font-weight:700;padding:3px 12px;border-radius:20px;"
+        f"white-space:nowrap;'>{label}</span>"
+    )
+
+
+def sv_metric_card(icon: str, title: str, value, color: str = COLOR_BLUE,
+                   subtitle: str = "") -> None:
+    """Card de métrica premium para dashboard de supervisão."""
+    st.markdown(
+        f"<div style='background:#fff;border:1px solid #E2E8F0;border-radius:14px;"
+        f"padding:1.25rem 1.5rem;box-shadow:0 1px 4px rgba(15,31,61,0.06);"
+        f"border-top:4px solid {color};'>"
+        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;'>"
+        f"<span style='font-size:1.5rem;'>{icon}</span>"
+        f"<span style='color:#64748B;font-size:0.75rem;font-weight:600;"
+        f"text-transform:uppercase;letter-spacing:0.06em;'>{title}</span>"
+        f"</div>"
+        f"<p style='color:{COLOR_NAVY};font-size:2rem;font-weight:800;margin:0;'>{value}</p>"
+        + (f"<p style='color:#94A3B8;font-size:0.75rem;margin:4px 0 0;'>{subtitle}</p>"
+           if subtitle else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def sv_page_header(title: str, subtitle: str = "", back_label: str = "",
+                   back_view: str = "") -> None:
+    """Cabeçalho de página da supervisão com botão voltar opcional."""
+    if back_label and back_view:
+        if st.button(f"← {back_label}", key="sv_back_btn"):
+            st.session_state["sv_view"] = back_view
+            st.session_state.pop("sv_chamado_id", None)
+            st.rerun()
+    st.markdown(
+        f"<h2 style='color:{COLOR_NAVY};margin:0.25rem 0 0;font-size:1.5rem;"
+        f"font-weight:800;'>{title}</h2>"
+        + (f"<p style='color:#64748B;margin:4px 0 0;font-size:0.88rem;'>{subtitle}</p>"
+           if subtitle else ""),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:0.75rem 0 1rem;'/>",
+        unsafe_allow_html=True,
+    )

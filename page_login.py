@@ -95,10 +95,10 @@ def render(logo_b64: str) -> None:
                 st.warning("Preencha e-mail e senha.")
                 return
             with st.spinner("Verificando credenciais…"):
-                empresa, telefone = authenticate(email, password)
+                empresa, telefone, perfil, nome = authenticate(email, password)
             if empresa:
                 st.session_state["email_logado"] = email.strip().lower()
-                login(empresa, telefone)
+                login(empresa, telefone, perfil, nome)
                 st.rerun()
             else:
                 st.error("E-mail ou senha incorretos. Verifique e tente novamente.")

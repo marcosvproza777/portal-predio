@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import uuid
 from datetime import datetime, timedelta
 
 import gspread
@@ -81,7 +82,193 @@ def append_row(tab_name: str, values: list) -> bool:
         return False
 
 
-# ── Funções de domínio ────────────────────────────────────────────────────────
+# ── Helpers internos ──────────────────────────────────────────────────────────
+
+def _gerar_id(prefixo: str = "CH") -> str:
+    """Gera ID único legível: CH-20260621-A3F8D2"""
+    suffix = str(uuid.uuid4()).replace("-", "")[:6].upper()
+    date_part = datetime.now().strftime("%Y%m%d")
+    return f"{prefixo}-{date_part}-{suffix}"
+
+
+def _mock_chamados() -> pd.DataFrame:
+    """Dados de teste quando a planilha Chamados está vazia."""
+    return pd.DataFrame([
+        {
+            "Id": "CH-20260618-C03001",
+            "Empresa": "Coca-Cola",
+            "Client_Id": "coca-cola",
+            "Email": "joao@cocacola.com",
+            "Titulo": "Ruído anormal após partida",
+            "Descricao": "Cliente informa ruído anormal e oscilação operacional.",
+            "Planta": "Jacarepaguá",
+            "Equipamento": "Compressor C-03",
+            "Prioridade": "Crítica",
+            "Status": "Em andamento",
+            "Responsavel": "Marcos",
+            "Data_Abertura": "18/06/2026 07:45:00",
+            "Data_Atualizacao": "20/06/2026 11:00:00",
+            "Data_Encerramento": "",
+        },
+        {
+            "Id": "CH-20260619-M10002",
+            "Empresa": "Sibele Alimentos",
+            "Client_Id": "sibele alimentos",
+            "Email": "maria@sibele.com",
+            "Titulo": "Solicitação de análise de óleo",
+            "Descricao": "Cliente solicita avaliação do último resultado da análise de óleo.",
+            "Planta": "Rio de Janeiro",
+            "Equipamento": "Motor M-10",
+            "Prioridade": "Média",
+            "Status": "Em análise",
+            "Responsavel": "Marcos",
+            "Data_Abertura": "19/06/2026 14:30:00",
+            "Data_Atualizacao": "19/06/2026 16:00:00",
+            "Data_Encerramento": "",
+        },
+        {
+            "Id": "CH-20260620-B204003",
+            "Empresa": "Coca-Cola",
+            "Client_Id": "coca-cola",
+            "Email": "joao@cocacola.com",
+            "Titulo": "Aumento de vibração",
+            "Descricao": "Cliente relata aumento de vibração após última partida.",
+            "Planta": "Jacarepaguá",
+            "Equipamento": "Bomba B-204",
+            "Prioridade": "Alta",
+            "Status": "Aberto",
+            "Responsavel": "",
+            "Data_Abertura": "20/06/2026 09:15:00",
+            "Data_Atualizacao": "",
+            "Data_Encerramento": "",
+        },
+    ])
+
+
+def _mock_mensagens(chamado_id: str) -> pd.DataFrame:
+    """Mensagens de teste por chamado."""
+    mocks = {
+        "CH-20260618-C03001": [
+            {
+                "Id": "MSG-00001",
+                "Id_Chamado": "CH-20260618-C03001",
+                "Autor": "joao@cocacola.com",
+                "Autor_Tipo": "cliente",
+                "Mensagem": (
+                    "Urgente: o Compressor C-03 apresentou ruído anormal após a partida "
+                    "desta manhã. Há oscilação na operação e o operador relatou cheiro de "
+                    "queimado na área. Paramos a máquina preventivamente."
+                ),
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "mensagem_cliente",
+                "Data": "18/06/2026 07:45:00",
+            },
+            {
+                "Id": "MSG-00002",
+                "Id_Chamado": "CH-20260618-C03001",
+                "Autor": "sistema",
+                "Autor_Tipo": "sistema",
+                "Mensagem": "Status alterado: Aberto → Em andamento",
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "alteracao_status",
+                "Data": "18/06/2026 08:00:00",
+            },
+            {
+                "Id": "MSG-00003",
+                "Id_Chamado": "CH-20260618-C03001",
+                "Autor": "Marcos",
+                "Autor_Tipo": "funcionario",
+                "Mensagem": (
+                    "João, recebemos o chamado com prioridade crítica. Nossa equipe está "
+                    "sendo mobilizada. Por favor mantenha a máquina desligada por segurança. "
+                    "Nosso técnico chegará à planta até as 14h de hoje."
+                ),
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "resposta_predio",
+                "Data": "18/06/2026 08:05:00",
+            },
+            {
+                "Id": "MSG-00004",
+                "Id_Chamado": "CH-20260618-C03001",
+                "Autor": "Marcos",
+                "Autor_Tipo": "funcionario",
+                "Mensagem": (
+                    "VERIFICAR: histórico indica última manutenção há 210 dias — "
+                    "acima do limite de 180 dias. Solicitar ao cliente o log do painel "
+                    "de controle antes de enviar técnico."
+                ),
+                "Visivel_Cliente": "0",
+                "Tipo_Mensagem": "observacao_interna",
+                "Data": "18/06/2026 08:10:00",
+            },
+        ],
+        "CH-20260619-M10002": [
+            {
+                "Id": "MSG-00005",
+                "Id_Chamado": "CH-20260619-M10002",
+                "Autor": "maria@sibele.com",
+                "Autor_Tipo": "cliente",
+                "Mensagem": (
+                    "Solicitamos avaliação do resultado da última análise de óleo do "
+                    "Motor M-10. O relatório chegou mas gostaríamos de uma explicação "
+                    "técnica dos resultados."
+                ),
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "mensagem_cliente",
+                "Data": "19/06/2026 14:30:00",
+            },
+            {
+                "Id": "MSG-00006",
+                "Id_Chamado": "CH-20260619-M10002",
+                "Autor": "Marcos",
+                "Autor_Tipo": "funcionario",
+                "Mensagem": (
+                    "Olá Maria. Recebemos sua solicitação e já estamos analisando os "
+                    "resultados do Motor M-10. Identificamos que o índice de viscosidade "
+                    "está no limite superior. Retornaremos com o parecer técnico completo "
+                    "até amanhã."
+                ),
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "resposta_predio",
+                "Data": "19/06/2026 16:00:00",
+            },
+            {
+                "Id": "MSG-00007",
+                "Id_Chamado": "CH-20260619-M10002",
+                "Autor": "Marcos",
+                "Autor_Tipo": "funcionario",
+                "Mensagem": (
+                    "Nota interna: verificar se a última troca de óleo foi dentro do prazo. "
+                    "O histórico indica 180 dias desde a última manutenção — acima do "
+                    "recomendado para esse equipamento. Confirmar com o relatório anterior."
+                ),
+                "Visivel_Cliente": "0",
+                "Tipo_Mensagem": "observacao_interna",
+                "Data": "19/06/2026 16:05:00",
+            },
+        ],
+        "CH-20260620-B204003": [
+            {
+                "Id": "MSG-00008",
+                "Id_Chamado": "CH-20260620-B204003",
+                "Autor": "joao@cocacola.com",
+                "Autor_Tipo": "cliente",
+                "Mensagem": (
+                    "Bom dia. Após a última partida da Bomba B-204, notamos aumento "
+                    "significativo na vibração. Verificamos na semana passada e estava "
+                    "normal. Preciso de uma análise urgente."
+                ),
+                "Visivel_Cliente": "1",
+                "Tipo_Mensagem": "mensagem_cliente",
+                "Data": "20/06/2026 09:15:00",
+            },
+        ],
+    }
+    rows = mocks.get(chamado_id, [])
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ── Relatórios ────────────────────────────────────────────────────────────────
 
 def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
     """Retorna relatórios do cliente. Filtra SEMPRE por client_id no servidor."""
@@ -112,15 +299,227 @@ def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+# ── Ativos ────────────────────────────────────────────────────────────────────
+
+def get_ativos(client_id: str) -> pd.DataFrame:
+    df = load_sheet("Ativos")
+    if df.empty:
+        return df
+    if "Empresa" not in df.columns:
+        return df.copy()
+    return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
+
+
+# ── Chamados (cliente) ────────────────────────────────────────────────────────
+
+def abrir_chamado(client_id: str, email: str, titulo: str, descricao: str,
+                  planta: str, equipamento: str, prioridade: str,
+                  empresa: str = "") -> bool:
+    """Abre um novo chamado. Gera ID único."""
+    chamado_id = _gerar_id("CH")
+    empresa    = empresa or client_id
+    return append_row("Chamados", [
+        chamado_id, empresa, client_id, email, titulo, descricao,
+        planta, equipamento, prioridade, "Aberto", "",
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "", "",
+    ])
+
+
 def get_chamados(client_id: str) -> pd.DataFrame:
+    """Chamados do cliente — filtra por Client_Id da sessão."""
     df = load_sheet("Chamados")
     if df.empty:
         return df
-    for col_candidate in ("Empresa", "Client_Id"):
-        if col_candidate in df.columns:
-            return df[df[col_candidate].str.strip().str.lower() == client_id.lower()].reset_index(drop=True)
+    # Nova schema: coluna Client_Id
+    if "Client_Id" in df.columns:
+        return df[
+            df["Client_Id"].str.strip().str.lower() == client_id.lower()
+        ].reset_index(drop=True)
+    # Schema antiga: coluna Empresa continha o client_id
+    for col in ("Empresa", "Cliente"):
+        if col in df.columns:
+            return df[
+                df[col].str.strip().str.lower() == client_id.lower()
+            ].reset_index(drop=True)
     return pd.DataFrame()
 
+
+# ── Chamados (supervisão) ─────────────────────────────────────────────────────
+
+def get_all_chamados(filtros: dict | None = None) -> pd.DataFrame:
+    """Retorna todos os chamados sem filtro de cliente (apenas para staff)."""
+    df = load_sheet("Chamados")
+    if df.empty:
+        df = _mock_chamados()
+
+    for col in ("Id", "Empresa", "Client_Id", "Email", "Titulo", "Descricao",
+                "Planta", "Equipamento", "Prioridade", "Status", "Responsavel",
+                "Data_Abertura", "Data_Atualizacao", "Data_Encerramento"):
+        if col not in df.columns:
+            df[col] = ""
+
+    if filtros:
+        if filtros.get("cliente"):
+            df = df[df["Empresa"].str.strip().str.lower().str.contains(
+                filtros["cliente"].lower(), na=False)]
+        if filtros.get("planta"):
+            df = df[df["Planta"].str.strip().str.lower().str.contains(
+                filtros["planta"].lower(), na=False)]
+        if filtros.get("equipamento"):
+            df = df[df["Equipamento"].str.lower().str.contains(
+                filtros["equipamento"].lower(), na=False)]
+        if filtros.get("status"):
+            df = df[df["Status"].str.strip().str.lower() == filtros["status"].lower()]
+        if filtros.get("prioridade"):
+            df = df[df["Prioridade"].str.strip().str.lower() == filtros["prioridade"].lower()]
+        if filtros.get("responsavel"):
+            r = filtros["responsavel"].lower()
+            mask = (
+                df["Responsavel"].str.strip().str.lower().str.contains(r, na=False) |
+                (df["Responsavel"].str.strip() == "") & (r in ("sem responsável", "nenhum"))
+            )
+            df = df[mask]
+        if filtros.get("texto"):
+            t = filtros["texto"].lower()
+            mask = (
+                df["Titulo"].str.lower().str.contains(t, na=False) |
+                df["Descricao"].str.lower().str.contains(t, na=False) |
+                df["Equipamento"].str.lower().str.contains(t, na=False) |
+                df["Empresa"].str.lower().str.contains(t, na=False)
+            )
+            df = df[mask]
+        if filtros.get("data_ini"):
+            df["_dt"] = pd.to_datetime(df["Data_Abertura"], dayfirst=True, errors="coerce")
+            df = df[df["_dt"] >= pd.to_datetime(filtros["data_ini"])]
+            df = df.drop(columns=["_dt"])
+        if filtros.get("data_fim"):
+            df["_dt"] = pd.to_datetime(df["Data_Abertura"], dayfirst=True, errors="coerce")
+            df = df[df["_dt"] <= pd.to_datetime(filtros["data_fim"])]
+            df = df.drop(columns=["_dt"])
+
+    # Ordenar: mais recentes primeiro
+    df["_dt"] = pd.to_datetime(df["Data_Abertura"], dayfirst=True, errors="coerce")
+    df = df.sort_values("_dt", ascending=False).drop(columns=["_dt"])
+    return df.reset_index(drop=True)
+
+
+def get_chamado_by_id(chamado_id: str) -> dict | None:
+    """Retorna um chamado específico pelo Id."""
+    df = load_sheet("Chamados")
+    if df.empty:
+        df = _mock_chamados()
+    if "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == str(chamado_id).strip()]
+    if match.empty:
+        return None
+    return match.iloc[0].to_dict()
+
+
+def update_chamado(chamado_id: str, campos: dict) -> bool:
+    """Atualiza campos de um chamado existente."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Chamados")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(chamado_id, in_column=id_col)
+        if not cell:
+            return False
+        row_idx = cell.row
+        campos  = dict(campos)
+        campos["Data_Atualizacao"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        for campo, valor in campos.items():
+            if campo in headers:
+                col_idx = headers.index(campo) + 1
+                ws.update_cell(row_idx, col_idx, str(valor))
+        return True
+    except Exception:
+        return False
+
+
+# ── Mensagens de chamado ──────────────────────────────────────────────────────
+
+def get_mensagens_chamado(chamado_id: str) -> pd.DataFrame:
+    """Todas as mensagens de um chamado (incluindo internas — só para staff)."""
+    df = load_sheet("ChamadoMensagens")
+    if df.empty:
+        return _mock_mensagens(chamado_id)
+    if "Id_Chamado" not in df.columns:
+        return pd.DataFrame()
+    df = df[df["Id_Chamado"].astype(str).str.strip() == str(chamado_id).strip()].copy()
+    if df.empty:
+        return df
+    df["_dt"] = pd.to_datetime(df.get("Data", pd.Series(dtype=str)),
+                               dayfirst=True, errors="coerce")
+    return df.sort_values("_dt", ascending=True).drop(columns=["_dt"]).reset_index(drop=True)
+
+
+def get_mensagens_visiveis_cliente(chamado_id: str) -> pd.DataFrame:
+    """Mensagens visíveis ao cliente (Visivel_Cliente = 1)."""
+    df = get_mensagens_chamado(chamado_id)
+    if df.empty or "Visivel_Cliente" not in df.columns:
+        return df
+    return df[df["Visivel_Cliente"].astype(str).str.strip() == "1"].reset_index(drop=True)
+
+
+def add_mensagem(chamado_id: str, autor: str, autor_tipo: str,
+                 mensagem: str, visivel_cliente: bool,
+                 tipo_mensagem: str) -> bool:
+    """Adiciona uma mensagem ao chamado."""
+    msg_id = _gerar_id("MSG")
+    return append_row("ChamadoMensagens", [
+        msg_id, chamado_id, autor, autor_tipo, mensagem,
+        "1" if visivel_cliente else "0", tipo_mensagem,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    ])
+
+
+# ── Clientes (supervisão) ─────────────────────────────────────────────────────
+
+def get_all_clientes() -> pd.DataFrame:
+    """Lista de clientes distintos — para área de supervisão."""
+    df = load_sheet("Clientes")
+    if df.empty:
+        df = load_sheet("Usuarios")
+
+    if not df.empty:
+        if "Perfil" in df.columns:
+            df = df[df["Perfil"].str.strip().str.lower() == "cliente"]
+        cols_needed = [c for c in ("Empresa", "Email", "Nome", "Telefone", "Perfil") if c in df.columns]
+        return df[cols_needed].drop_duplicates().reset_index(drop=True)
+
+    # Fallback: derivar de chamados
+    df_cham = load_sheet("Chamados")
+    if df_cham.empty:
+        df_cham = _mock_chamados()
+    if "Empresa" in df_cham.columns:
+        clientes = (
+            df_cham[["Empresa", "Client_Id", "Email"]]
+            .drop_duplicates(subset=["Client_Id"])
+            .reset_index(drop=True)
+        )
+        return clientes
+    return pd.DataFrame()
+
+
+def get_historico_cliente(client_id: str) -> dict:
+    """Histórico completo de um cliente: chamados + relatórios."""
+    chamados   = get_chamados(client_id)
+    relatorios = get_relatorios(client_id)
+    if chamados.empty:
+        # tenta no mock
+        mock = _mock_chamados()
+        chamados = mock[mock["Client_Id"].str.lower() == client_id.lower()].copy()
+    return {
+        "chamados":   chamados,
+        "relatorios": relatorios,
+    }
+
+
+# ── Assistente / logs ─────────────────────────────────────────────────────────
 
 def get_historico_assistente(client_id: str, limit: int = 20) -> pd.DataFrame:
     df = load_sheet("AssistenteLogs")
@@ -141,32 +540,29 @@ def salvar_log_assistente(client_id: str, email: str, pergunta: str,
     ])
 
 
-def abrir_chamado(client_id: str, email: str, titulo: str, descricao: str,
-                  planta: str, equipamento: str, prioridade: str) -> bool:
-    return append_row("Chamados", [
-        client_id, email, titulo, descricao, planta, equipamento,
-        prioridade, "Aberto", datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-    ])
+# ── Chamados de suporte ───────────────────────────────────────────────────────
+
+def get_chamados_sv(client_id: str) -> pd.DataFrame:
+    """Alias para compatibilidade."""
+    return get_chamados(client_id)
 
 
-def get_ativos(client_id: str) -> pd.DataFrame:
-    df = load_sheet("Ativos")
-    if df.empty:
-        return df
-    # Se a planilha não tiver coluna Empresa, retorna tudo (compatibilidade)
-    if "Empresa" not in df.columns:
-        return df.copy()
-    return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
+def abrir_chamado_sv(client_id: str, email: str, titulo: str, descricao: str,
+                     planta: str, equipamento: str, prioridade: str) -> bool:
+    """Alias legado."""
+    return abrir_chamado(client_id, email, titulo, descricao, planta, equipamento, prioridade)
 
 
 # ── Sessões persistentes ──────────────────────────────────────────────────────
 
 def save_session(token: str, empresa: str, email: str,
-                 telefone: str, client_id: str) -> None:
+                 telefone: str, client_id: str,
+                 perfil: str = "cliente", nome: str = "") -> None:
     expiry = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y %H:%M:%S")
     append_row("Sessions", [
         token, empresa, email, telefone, client_id,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"), expiry, "1",
+        perfil, nome or empresa,
     ])
 
 
@@ -188,10 +584,12 @@ def get_session(token: str) -> dict | None:
     except Exception:
         pass
     return {
-        "empresa":    str(row.get("Empresa",   "")).strip(),
-        "email":      str(row.get("Email",     "")).strip(),
-        "telefone":   str(row.get("Telefone",  "")).strip(),
-        "client_id":  str(row.get("Client_Id", "")).strip(),
+        "empresa":   str(row.get("Empresa",   "")).strip(),
+        "email":     str(row.get("Email",     "")).strip(),
+        "telefone":  str(row.get("Telefone",  "")).strip(),
+        "client_id": str(row.get("Client_Id", "")).strip(),
+        "perfil":    str(row.get("Perfil",    "cliente")).strip().lower() or "cliente",
+        "nome":      str(row.get("Nome",      "")).strip(),
     }
 
 
