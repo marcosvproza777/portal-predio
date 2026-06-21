@@ -1,6 +1,6 @@
 {
-  "name": "Pred.IO Portal",
-  "short_name": "Pred.IO",
+  "name": "Portal Pred.IO",
+  "short_name": "Portal Pred.IO",
   "description": "Portal do Cliente Pred.IO — Monitoramento de Ativos Industriais",
   "start_url": "/",
   "display": "standalone",
