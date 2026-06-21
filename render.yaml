@@ -7,3 +7,5 @@ services:
     envVars:
       - key: GCP_CREDENTIALS_JSON
         sync: false
+      - key: N8N_ASSISTANT_WEBHOOK_URL
+        sync: false
