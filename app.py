@@ -43,9 +43,9 @@ def main() -> None:
     telefone = st.session_state.get("telefone", "")
     render_sidebar(logo_b64, empresa, telefone)
 
-    # Faróis de Condição é a primeira aba (padrão ao entrar)
+    # Painel de Condição de Ativos é a primeira aba (padrão ao entrar)
     tab_farois, tab_rel, tab_assist, tab_cham = st.tabs([
-        "🚦  Faróis de Condição",
+        "🏭  Painel de Ativos",
         "📁  Meus Relatórios",
         "🤖  Assistente Técnico",
         "🔧  Chamados Técnicos",
