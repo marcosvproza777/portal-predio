@@ -226,43 +226,28 @@ def _render_banner(empresa: str, total: int, bom: int, atencao: int, critico: in
     ) if critico else ""
 
     st.markdown(
-        f"""<div style='background:linear-gradient(135deg,#08142B 0%,#1B2A6B 55%,#2563EB 100%);
-            border-radius:18px;padding:2rem 2.5rem 1.75rem;margin-bottom:1.25rem;
-            box-shadow:0 12px 40px rgba(10,22,40,0.35);position:relative;overflow:hidden;'>
-
-          <!-- Círculos decorativos -->
-          <div style='position:absolute;top:-30px;right:-30px;width:160px;height:160px;
-               border-radius:50%;background:rgba(56,189,248,0.10);pointer-events:none;'></div>
-          <div style='position:absolute;bottom:-40px;right:100px;width:100px;height:100px;
-               border-radius:50%;background:rgba(37,99,235,0.18);pointer-events:none;'></div>
-          <div style='position:absolute;top:20px;right:180px;width:50px;height:50px;
-               border-radius:50%;background:rgba(255,255,255,0.05);pointer-events:none;'></div>
-
-          <p style='color:#38BDF8;font-size:0.72rem;font-weight:700;letter-spacing:0.14em;
-               text-transform:uppercase;margin:0 0 0.5rem;'>
-               ⚙️ &nbsp;Pred.IO · Portal do Cliente · {empresa}</p>
-
-          <h1 style='color:#fff;font-size:1.9rem;font-weight:900;margin:0 0 0.3rem;
-               letter-spacing:-0.02em;line-height:1.15;'>
-               Painel de Condição de Ativos</h1>
-
-          <p style='color:rgba(255,255,255,0.65);font-size:0.88rem;margin:0 0 1.4rem;
-               line-height:1.5;'>
-               Monitoramento Técnico e Status dos Ativos Acompanhados pela Pred.IO</p>
-
-          <div style='display:flex;gap:10px;flex-wrap:wrap;align-items:center;'>
-            <span style='background:rgba(255,255,255,0.10);color:#E2E8F0;
-                 padding:5px 16px;border-radius:20px;font-size:0.8rem;font-weight:600;
-                 border:1px solid rgba(255,255,255,0.18);'>⚙️ {total} Ativos</span>
-            <span style='background:rgba(16,185,129,0.20);color:#6EE7B7;
-                 padding:5px 14px;border-radius:20px;font-size:0.8rem;font-weight:700;
-                 border:1px solid rgba(16,185,129,0.30);'>🟢 {bom} Bom</span>
-            <span style='background:rgba(245,158,11,0.20);color:#FCD34D;
-                 padding:5px 14px;border-radius:20px;font-size:0.8rem;font-weight:700;
-                 border:1px solid rgba(245,158,11,0.30);'>🟡 {atencao} Atenção</span>
-            {critico_pill}
-          </div>
-        </div>""",
+        f"<div style='background:linear-gradient(135deg,#08142B 0%,#1B2A6B 55%,#2563EB 100%);"
+        f"border-radius:18px;padding:2rem 2.5rem 1.75rem;margin-bottom:1.25rem;"
+        f"box-shadow:0 12px 40px rgba(10,22,40,0.35);'>"
+        f"<p style='color:#38BDF8;font-size:0.72rem;font-weight:700;letter-spacing:0.14em;"
+        f"text-transform:uppercase;margin:0 0 0.5rem;'>⚙️ Pred.IO · Portal do Cliente · {empresa}</p>"
+        f"<h1 style='color:#fff;font-size:1.9rem;font-weight:900;margin:0 0 0.3rem;"
+        f"letter-spacing:-0.02em;line-height:1.15;'>Painel de Condição de Ativos</h1>"
+        f"<p style='color:rgba(255,255,255,0.65);font-size:0.88rem;margin:0 0 1.4rem;line-height:1.5;'>"
+        f"Monitoramento Técnico e Status dos Ativos Acompanhados pela Pred.IO</p>"
+        f"<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:center;'>"
+        f"<span style='background:rgba(255,255,255,0.10);color:#E2E8F0;"
+        f"padding:5px 16px;border-radius:20px;font-size:0.8rem;font-weight:600;"
+        f"border:1px solid rgba(255,255,255,0.18);'>⚙️ {total} Ativos</span>"
+        f"<span style='background:rgba(16,185,129,0.20);color:#6EE7B7;"
+        f"padding:5px 14px;border-radius:20px;font-size:0.8rem;font-weight:700;"
+        f"border:1px solid rgba(16,185,129,0.30);'>🟢 {bom} Bom</span>"
+        f"<span style='background:rgba(245,158,11,0.20);color:#FCD34D;"
+        f"padding:5px 14px;border-radius:20px;font-size:0.8rem;font-weight:700;"
+        f"border:1px solid rgba(245,158,11,0.30);'>🟡 {atencao} Atenção</span>"
+        f"{critico_pill}"
+        f"</div>"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
