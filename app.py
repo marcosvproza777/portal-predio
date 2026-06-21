@@ -61,7 +61,7 @@ def main() -> None:
 
     from auth import logout
     if logo_b64:
-        col_logo, col_info, col_sair = st.columns([1, 7, 1.5])
+        col_logo, col_info, col_sair = st.columns([1, 6.5, 1.5])
         with col_logo:
             st.markdown(
                 f"<div style='padding:0.4rem 0;'>"
@@ -77,11 +77,6 @@ def main() -> None:
                 f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
                 unsafe_allow_html=True,
             )
-        with col_sair:
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-            if st.button("🚪 Sair", key="portal_logout", use_container_width=True):
-                logout()
-                st.rerun()
     else:
         col_info, col_sair = st.columns([8, 1.5])
         with col_info:
@@ -91,10 +86,12 @@ def main() -> None:
                 f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
                 unsafe_allow_html=True,
             )
-        with col_sair:
-            if st.button("🚪 Sair", key="portal_logout2", use_container_width=True):
-                logout()
-                st.rerun()
+    with col_sair:
+        st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+        if st.button("🚪 Sair", key="portal_logout", type="primary",
+                     use_container_width=True):
+            logout()
+            st.rerun()
     st.markdown(
         "<hr style='border-color:#E2E8F0;margin:0.6rem 0 0;'/>",
         unsafe_allow_html=True,
@@ -122,6 +119,13 @@ def main() -> None:
     with tab_cham:
         import page_chamados
         page_chamados.render()
+
+    st.markdown(
+        "<hr style='border-color:#E2E8F0;margin:2.5rem 0 1.5rem;'/>"
+        "<p style='text-align:center;color:#94A3B8;font-size:0.8rem;margin:0 0 0.75rem;'>"
+        "Pred.IO · Portal do Cliente</p>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_supervisao() -> None:
