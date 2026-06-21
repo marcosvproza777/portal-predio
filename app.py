@@ -3,6 +3,7 @@ import streamlit as st
 from ui import (inject_global_css, inject_login_bg, render_sidebar,
                 render_supervisao_sidebar, load_image_b64)
 from auth import is_staff, current_nome, current_perfil
+from pwa import inject_pwa
 
 
 def main() -> None:
@@ -13,6 +14,7 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
     inject_global_css()
+    inject_pwa()
 
     logo_b64 = load_image_b64("logo.jpg")
     bg_b64   = load_image_b64("bg.jpg")

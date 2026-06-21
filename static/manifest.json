@@ -1,0 +1,30 @@
+{
+  "name": "Pred.IO Portal",
+  "short_name": "Pred.IO",
+  "description": "Portal do Cliente Pred.IO — Monitoramento de Ativos Industriais",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08142B",
+  "theme_color": "#1565C0",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/app/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/static/icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
