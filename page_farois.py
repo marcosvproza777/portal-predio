@@ -67,6 +67,16 @@ _CSS_ANIMATIONS = """<style>
     height:100%; border-radius:6px;
     transition: width 0.6s ease;
 }
+.pred-banner-title {
+    color:#FFFFFF !important; -webkit-text-fill-color:#FFFFFF !important;
+    font-size:1.9rem; font-weight:900; margin:0 0 0.3rem;
+    letter-spacing:-0.02em; line-height:1.15;
+    text-shadow:0 2px 8px rgba(0,0,0,0.55);
+}
+.pred-banner-sub {
+    color:#38BDF8 !important; font-size:0.72rem; font-weight:700;
+    letter-spacing:0.14em; text-transform:uppercase; margin:0 0 0.5rem;
+}
 </style>"""
 
 
@@ -226,12 +236,6 @@ def _render_banner(empresa: str, total: int, bom: int, atencao: int, critico: in
     ) if critico else ""
 
     st.markdown(
-        f"<style>.pred-banner-title{{color:#FFFFFF!important;"
-        f"-webkit-text-fill-color:#FFFFFF!important;font-size:1.9rem;"
-        f"font-weight:900;margin:0 0 0.3rem;letter-spacing:-0.02em;line-height:1.15;"
-        f"text-shadow:0 2px 8px rgba(0,0,0,0.55);}}"
-        f".pred-banner-sub{{color:#38BDF8!important;font-size:0.72rem;font-weight:700;"
-        f"letter-spacing:0.14em;text-transform:uppercase;margin:0 0 0.5rem;}}</style>"
         f"<div style='background:linear-gradient(135deg,#08142B 0%,#1B2A6B 55%,#2563EB 100%);"
         f"border-radius:18px;padding:2rem 2.5rem 1.75rem;margin-bottom:1.25rem;"
         f"box-shadow:0 12px 40px rgba(10,22,40,0.35);'>"
@@ -258,12 +262,6 @@ def _render_banner(empresa: str, total: int, bom: int, atencao: int, critico: in
 
 def _render_empty_banner(empresa: str) -> None:
     st.markdown(
-        f"<style>.pred-banner-title{{color:#FFFFFF!important;"
-        f"-webkit-text-fill-color:#FFFFFF!important;font-size:1.9rem;"
-        f"font-weight:900;margin:0;letter-spacing:-0.02em;line-height:1.15;"
-        f"text-shadow:0 2px 8px rgba(0,0,0,0.55);}}"
-        f".pred-banner-sub{{color:#38BDF8!important;font-size:0.72rem;font-weight:700;"
-        f"letter-spacing:0.14em;text-transform:uppercase;margin:0 0 0.5rem;}}</style>"
         f"<div style='background:linear-gradient(135deg,#08142B,#1B2A6B);"
         f"border-radius:18px;padding:2rem 2.5rem;margin-bottom:1.25rem;'>"
         f"<p class='pred-banner-sub'>⚙️ &nbsp;Pred.IO · {empresa}</p>"

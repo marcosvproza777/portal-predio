@@ -88,7 +88,7 @@ def main() -> None:
             )
     with col_sair:
         st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
-        if st.button("🚪 Sair", key="portal_logout", type="primary",
+        if st.button("🚪 Sair", key="portal_logout",
                      use_container_width=True):
             logout()
             st.rerun()
@@ -120,12 +120,6 @@ def main() -> None:
         import page_chamados
         page_chamados.render()
 
-    st.markdown(
-        "<hr style='border-color:#E2E8F0;margin:2.5rem 0 1.5rem;'/>"
-        "<p style='text-align:center;color:#94A3B8;font-size:0.8rem;margin:0 0 0.75rem;'>"
-        "Pred.IO · Portal do Cliente</p>",
-        unsafe_allow_html=True,
-    )
 
 
 def _render_supervisao() -> None:

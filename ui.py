@@ -93,16 +93,23 @@ def inject_global_css() -> None:
         box-shadow: 0 6px 20px rgba(37,99,235,0.45) !important;
     }}
 
-    /* ── Botão secundário (Sair) ── */
+    /* ── Botão secundário (Sair e ações no portal) ── */
     [data-testid="stBaseButton-secondary"] {{
-        background: rgba(255,255,255,0.10) !important;
-        color: #fff !important; -webkit-text-fill-color: #fff !important;
-        border: 1px solid rgba(255,255,255,0.25) !important;
+        background: rgba(15,31,61,0.06) !important;
+        color: #0F1F3D !important; -webkit-text-fill-color: #0F1F3D !important;
+        border: 1px solid rgba(15,31,61,0.20) !important;
         border-radius: 8px !important; font-weight: 600 !important;
     }}
     [data-testid="stBaseButton-secondary"]:hover {{
-        background: rgba(239,68,68,0.75) !important;
-        border-color: transparent !important;
+        background: rgba(239,68,68,0.08) !important;
+        border-color: rgba(239,68,68,0.45) !important;
+        color: #DC2626 !important; -webkit-text-fill-color: #DC2626 !important;
+    }}
+    /* Sidebar sobrepõe para manter texto claro nos botões dela */
+    [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] {{
+        background: rgba(255,255,255,0.10) !important;
+        color: #E2E8F0 !important; -webkit-text-fill-color: #E2E8F0 !important;
+        border-color: rgba(255,255,255,0.25) !important;
     }}
 
     /* ── Metric cards ── */

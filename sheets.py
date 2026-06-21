@@ -53,8 +53,9 @@ def get_spreadsheet():
         st.stop()
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def load_sheet(tab_name: str) -> pd.DataFrame:
-    """Carrega uma aba e normaliza os nomes das colunas."""
+    """Carrega uma aba e normaliza os nomes das colunas. Cache de 30 s."""
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet(tab_name)
@@ -78,6 +79,7 @@ def append_row(tab_name: str, values: list) -> bool:
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
         ws.append_row(values, value_input_option="USER_ENTERED")
+        load_sheet.clear()
         return True
     except Exception:
         return False
@@ -334,6 +336,7 @@ def set_user_senha(login: str, senha_hash: str) -> bool:
                         continue
                     if v.strip().lower() == valor:
                         ws.update_cell(row_num, senha_col, senha_hash)
+                        load_sheet.clear()
                         return True
 
             # Tenta por telefone
@@ -344,6 +347,7 @@ def set_user_senha(login: str, senha_hash: str) -> bool:
                         continue
                     if _digits(v) == digs:
                         ws.update_cell(row_num, senha_col, senha_hash)
+                        load_sheet.clear()
                         return True
         except Exception:
             continue
@@ -517,6 +521,7 @@ def update_chamado(chamado_id: str, campos: dict) -> bool:
             if campo in headers:
                 col_idx = headers.index(campo) + 1
                 ws.update_cell(row_idx, col_idx, str(valor))
+        load_sheet.clear()
         return True
     except Exception:
         return False
@@ -680,8 +685,11 @@ def delete_session(token: str) -> None:
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet("Sessions")
+        headers = ws.row_values(1)
+        ativo_col = headers.index("Ativo") + 1 if "Ativo" in headers else 8
         cell = ws.find(token)
         if cell:
-            ws.update_cell(cell.row, 8, "0")
+            ws.update_cell(cell.row, ativo_col, "0")
+        load_sheet.clear()
     except Exception:
         pass

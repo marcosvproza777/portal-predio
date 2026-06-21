@@ -109,7 +109,7 @@ def _lbl(text: str, top: str = "0") -> None:
 
 def _voltar_email() -> None:
     if st.button("← Trocar e-mail", key="btn_voltar"):
-        for k in ("lx_step", "lx_email"):
+        for k in ("lx_step", "lx_email", "lx_nome"):
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -118,7 +118,7 @@ def _fazer_login(empresa, telefone, perfil, nome) -> None:
     email = st.session_state.get("lx_email", "")
     st.session_state["email_logado"] = email
     login(empresa, telefone, perfil, nome)
-    for k in ("lx_step", "lx_email"):
+    for k in ("lx_step", "lx_email", "lx_nome"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -154,7 +154,7 @@ def _step_email() -> None:
         with st.spinner("Verificando…"):
             existe, primeiro_acesso, nome = checar_email(email)
         if not existe:
-            st.error("E-mail não encontrado. Verifique com a equipe Pred.IO.")
+            st.error("Usuário não encontrado. Verifique com a equipe Pred.IO.")
             return
         st.session_state["lx_email"] = email
         st.session_state["lx_nome"]  = nome
@@ -164,10 +164,12 @@ def _step_email() -> None:
 
 def _step_primeiro_acesso() -> None:
     email = st.session_state.get("lx_email", "")
+    nome  = st.session_state.get("lx_nome", "")
     _voltar_email()
 
+    titulo = f"Olá, {_html.escape(nome)}!" if nome else "Primeiro Acesso"
     _card(
-        "Primeiro Acesso",
+        titulo,
         f"Crie sua senha para <b style='color:{COLOR_NAVY};'>"
         f"{_html.escape(email)}</b>",
     )
