@@ -126,7 +126,7 @@ def _fazer_login(empresa, telefone, perfil, nome) -> None:
 # ── etapas ────────────────────────────────────────────────────────────────────
 
 def _step_email() -> None:
-    _card("Portal do Cliente", "Pred.IO — Análises Preditivas para a Indústria")
+    _card("Portal de Confiabilidade", "Pred.IO — Monitoramento de Ativos Industriais")
 
     with st.form("form_lx_email"):
         _lbl("E-MAIL OU TELEFONE")

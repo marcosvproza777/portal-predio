@@ -26,7 +26,7 @@ def render() -> None:
     empresa   = current_empresa()
     email     = current_email()
 
-    st.info(AVISO_SEGURANCA)
+    st.caption(AVISO_SEGURANCA)
 
     # ── Inicializa histórico da sessão ────────────────────────────────────────
     if "chat_history" not in st.session_state:
@@ -40,28 +40,32 @@ def render() -> None:
             height=90,
             label_visibility="collapsed",
         )
-        col_btn, col_hist = st.columns([2, 3])
-        with col_btn:
-            enviar = st.form_submit_button("📨  Enviar pergunta", use_container_width=True)
-        with col_hist:
-            ver_hist = st.form_submit_button("📖  Ver histórico completo", use_container_width=True)
+        enviar = st.form_submit_button("📨  Enviar pergunta", use_container_width=True)
+
+    if st.button("📖 Ver histórico completo", use_container_width=False):
+        _mostrar_historico_sheets(client_id)
+        return
 
     if enviar and pergunta.strip():
         _processar_pergunta(pergunta.strip(), client_id, email, empresa)
 
-    if ver_hist:
-        _mostrar_historico_sheets(client_id)
-        return
-
     # ── Exibe conversa da sessão atual ────────────────────────────────────────
     if not st.session_state["chat_history"]:
         st.markdown(
-            f"<div style='text-align:center;padding:2rem;color:#94a3b8;'>"
+            f"<div style='text-align:center;padding:1.5rem;color:#94a3b8;'>"
             f"<div style='font-size:2.5rem;'>💬</div>"
             f"<p>Faça uma pergunta técnica sobre seus equipamentos ou relatórios.</p>"
             f"</div>",
             unsafe_allow_html=True,
         )
+        st.markdown("**Sugestões:**")
+        for sug in [
+            "Qual o status atual dos meus equipamentos?",
+            "Algum equipamento está em estado crítico?",
+            "Quando foi o último relatório de vibração?",
+        ]:
+            if st.button(sug, key=f"sug_{hash(sug)}"):
+                _processar_pergunta(sug, client_id, email, empresa)
         return
 
     for item in reversed(st.session_state["chat_history"]):
@@ -71,7 +75,6 @@ def render() -> None:
             if st.button("🔧 Abrir Chamado Técnico", key=f"chamado_{item['ts']}"):
                 st.session_state["page"] = "chamados"
                 st.rerun()
-        st.markdown("---")
 
 
 def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str) -> None:

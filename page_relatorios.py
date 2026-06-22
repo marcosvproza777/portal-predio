@@ -12,7 +12,7 @@ def render() -> None:
     client_id = current_client_id()  # SEMPRE da sessão
 
     # ── Filtros ───────────────────────────────────────────────────────────────
-    with st.expander("🔍 Filtros", expanded=True):
+    with st.expander("🔍 Filtros", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             tipo_opts = ["Todos"] + [label for _, label in TIPOS_LAUDOS]
@@ -50,11 +50,7 @@ def render() -> None:
     )
 
     if df.empty:
-        st.info(
-            "Nenhum relatório encontrado. "
-            "Para aparecer aqui, adicione uma linha na aba **Relatorios** da planilha "
-            "com a coluna **Empresa** igual ao nome da sua empresa cadastrada no login."
-        )
+        st.info("Nenhum relatório disponível no momento. Entre em contato com a equipe Pred.IO.")
         return
 
     # ── Listagem ──────────────────────────────────────────────────────────────

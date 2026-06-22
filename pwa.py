@@ -57,7 +57,7 @@ _HTML = """<!DOCTYPE html>
     pd.head.appendChild(lnk);
     addMeta('apple-mobile-web-app-capable', 'yes');
     addMeta('apple-mobile-web-app-status-bar-style', 'black-translucent');
-    addMeta('apple-mobile-web-app-title', 'Portal Pred.IO');
+    addMeta('apple-mobile-web-app-title', 'Portal de Confiabilidade Pred.IO');
     addMeta('theme-color', '#1565C0');
     var ai = pd.createElement('link');
     ai.rel = 'apple-touch-icon'; ai.href = '/app/static/icons/icon-180.png';

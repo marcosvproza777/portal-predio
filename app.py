@@ -8,7 +8,7 @@ from pwa import inject_pwa
 
 def main() -> None:
     st.set_page_config(
-        page_title="Portal do Cliente — Pred.IO",
+        page_title="Portal de Confiabilidade Pred.IO",
         page_icon="⚙️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -73,7 +73,7 @@ def main() -> None:
         with col_info:
             st.markdown(
                 f"<p style='color:#0F1F3D;font-weight:700;font-size:0.95rem;margin:0.6rem 0 0;'>"
-                f"Portal do Cliente · Pred.IO</p>"
+                f"Portal de Confiabilidade Pred.IO</p>"
                 f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
                 unsafe_allow_html=True,
             )
@@ -82,7 +82,7 @@ def main() -> None:
         with col_info:
             st.markdown(
                 f"<p style='color:#0F1F3D;font-weight:700;font-size:0.95rem;margin:0.6rem 0 0;'>"
-                f"Portal do Cliente · Pred.IO</p>"
+                f"Portal de Confiabilidade Pred.IO</p>"
                 f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
                 unsafe_allow_html=True,
             )

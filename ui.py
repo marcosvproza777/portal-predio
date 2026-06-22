@@ -211,7 +211,7 @@ def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
 
         st.markdown(
             "<p style='font-size:0.68rem;opacity:0.4;text-align:center;margin:0;'>"
-            "Portal do Cliente · Pred.IO</p>",
+            "Portal de Confiabilidade Pred.IO</p>",
             unsafe_allow_html=True,
         )
 

@@ -13,23 +13,19 @@ def render() -> None:
     client_id = current_client_id()
     email     = current_email()
 
-    tab_novo, tab_lista = st.tabs(["➕ Novo Chamado", "📋 Meus Chamados"])
-
-    with tab_novo:
-        _form_novo_chamado(client_id, email)
+    tab_lista, tab_novo = st.tabs(["📋 Meus Chamados", "➕ Novo Chamado"])
 
     with tab_lista:
         _listar_chamados(client_id)
 
+    with tab_novo:
+        _form_novo_chamado(client_id, email)
+
 
 def _form_novo_chamado(client_id: str, email: str) -> None:
-    st.markdown(
-        f"<div style='background:#fff3cd;border:1px solid #ffc107;border-radius:8px;"
-        f"padding:12px 16px;margin-bottom:1rem;font-size:0.88rem;color:#856404;'>"
-        f"⚠️ Em caso de parada de máquina, risco à segurança ou emergência operacional, "
-        f"use <strong>Prioridade Crítica</strong>. Nossa equipe entrará em contato "
-        f"em até 1 hora.</div>",
-        unsafe_allow_html=True,
+    st.caption(
+        "⚠️ Em caso de parada de máquina ou emergência, use **Prioridade Crítica** "
+        "— resposta em até 1 hora."
     )
 
     with st.form("form_chamado", clear_on_submit=True):

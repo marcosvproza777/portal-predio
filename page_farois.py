@@ -158,18 +158,10 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
 
     st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
 
-    # ── Gráfico de rosca + métricas numéricas ─────────────────────────────────
-    col_donut, col_m1, col_m2, col_m3 = st.columns([1.6, 1, 1, 1])
-
+    # ── Gráfico de rosca ──────────────────────────────────────────────────────
+    col_donut, _ = st.columns([1.2, 3])
     with col_donut:
         _render_donut(total, bom, atencao, critico)
-
-    with col_m1:
-        _render_metric_card("🟢 Condição Boa", bom, total, "#10B981", "#F0FDF4")
-    with col_m2:
-        _render_metric_card("🟡 Em Atenção", atencao, total, "#F59E0B", "#FFFBEB")
-    with col_m3:
-        _render_metric_card("🔴 Estado Crítico", critico, total, "#EF4444", "#FEF2F2")
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
     st.markdown(
@@ -185,45 +177,39 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
         categories=["Crítico", "Atenção", "Bom"], ordered=True)
     group_order = group_order.sort_values("_sort")[group_cols]
 
-    col_cards, col_summary = st.columns([3, 1], gap="large")
+    for _, g in group_order.iterrows():
+        mask = ativos["Tag"].astype(str).str.strip() == str(g["Tag"]).strip()
+        if has_ns:
+            mask &= ativos["Ns"].astype(str).str.strip() == str(g["Ns"]).strip()
+        grupo = ativos[mask].sort_values("_priority")
+        primeiro = grupo.iloc[0]
 
-    with col_cards:
-        for _, g in group_order.iterrows():
-            mask = ativos["Tag"].astype(str).str.strip() == str(g["Tag"]).strip()
-            if has_ns:
-                mask &= ativos["Ns"].astype(str).str.strip() == str(g["Ns"]).strip()
-            grupo = ativos[mask].sort_values("_priority")
-            primeiro = grupo.iloc[0]
+        tag   = str(primeiro.get("Tag",          "")).strip()
+        equip = str(primeiro.get("Equipamentos", "")).strip()
+        ns    = str(primeiro.get("Ns",           "")).strip() if has_ns else ""
+        pior     = get_status_cfg(str(primeiro.get("_status_key", "")))
+        pior_dot = pior["dot"]
+        pior_cls = pior["dot_cls"]
 
-            tag   = str(primeiro.get("Tag",          "")).strip()
-            equip = str(primeiro.get("Equipamentos", "")).strip()
-            ns    = str(primeiro.get("Ns",           "")).strip() if has_ns else ""
-            pior     = get_status_cfg(str(primeiro.get("_status_key", "")))
-            pior_dot = pior["dot"]
-            pior_cls = pior["dot_cls"]
+        ns_txt = (
+            f"&nbsp;<span style='color:#94A3B8;font-size:0.75rem;'>Nº {ns}</span>"
+            if ns and ns.lower() not in ("", "nan") else ""
+        )
 
-            ns_txt = (
-                f"&nbsp;<span style='color:#94A3B8;font-size:0.75rem;'>Nº {ns}</span>"
-                if ns and ns.lower() not in ("", "nan") else ""
-            )
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:10px;"
+            f"margin:1.5rem 0 0.5rem;padding-bottom:10px;"
+            f"border-bottom:2.5px solid {pior_dot};'>"
+            f"<span class='{pior_cls}'></span>"
+            f"<span style='font-size:1.1rem;font-weight:800;color:{COLOR_NAVY};'>"
+            f"{tag}{ns_txt}</span>"
+            f"<span style='color:{COLOR_MUTED};font-size:0.88rem;'>— {equip}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-            st.markdown(
-                f"<div style='display:flex;align-items:center;gap:10px;"
-                f"margin:1.5rem 0 0.5rem;padding-bottom:10px;"
-                f"border-bottom:2.5px solid {pior_dot};'>"
-                f"<span class='{pior_cls}'></span>"
-                f"<span style='font-size:1.1rem;font-weight:800;color:{COLOR_NAVY};'>"
-                f"{tag}{ns_txt}</span>"
-                f"<span style='color:{COLOR_MUTED};font-size:0.88rem;'>— {equip}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            for _, row in grupo.iterrows():
-                _render_card(row, has_ns)
-
-    with col_summary:
-        _render_summary(ativos, has_ns)
+        for _, row in grupo.iterrows():
+            _render_card(row, has_ns)
 
 
 # ── Componentes visuais ───────────────────────────────────────────────────────
@@ -239,10 +225,10 @@ def _render_banner(empresa: str, total: int, bom: int, atencao: int, critico: in
         f"<div style='background:linear-gradient(135deg,#08142B 0%,#1B2A6B 55%,#2563EB 100%);"
         f"border-radius:18px;padding:2rem 2.5rem 1.75rem;margin-bottom:1.25rem;"
         f"box-shadow:0 12px 40px rgba(10,22,40,0.35);'>"
-        f"<p class='pred-banner-sub'>⚙️ Pred.IO · Portal do Cliente · {empresa}</p>"
+        f"<p class='pred-banner-sub'>⚙️ Pred.IO · {empresa}</p>"
         f"<p class='pred-banner-title'>Painel de Condição de Ativos</p>"
         f"<p style='color:rgba(255,255,255,0.65);font-size:0.88rem;margin:0 0 1.4rem;line-height:1.5;'>"
-        f"Monitoramento Técnico e Status dos Ativos Acompanhados pela Pred.IO</p>"
+        f"Monitoramento de Ativos Industriais</p>"
         f"<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:center;'>"
         f"<span style='background:rgba(255,255,255,0.10);color:#E2E8F0;"
         f"padding:5px 16px;border-radius:20px;font-size:0.8rem;font-weight:600;"
@@ -267,7 +253,7 @@ def _render_empty_banner(empresa: str) -> None:
         f"<p class='pred-banner-sub'>⚙️ &nbsp;Pred.IO · {empresa}</p>"
         f"<p class='pred-banner-title'>Painel de Condição de Ativos</p>"
         f"<p style='color:rgba(255,255,255,0.60);font-size:0.88rem;margin:0.3rem 0 0;'>"
-        f"Monitoramento Técnico e Status dos Ativos Acompanhados pela Pred.IO</p>"
+        f"Monitoramento de Ativos Industriais</p>"
         f"</div>",
         unsafe_allow_html=True,
     )
