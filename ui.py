@@ -290,6 +290,7 @@ SV_NAV_ITEMS = [
     ("chamados",         "🔧", "Chamados"),
     ("clientes",         "👥", "Clientes"),
     ("ativos_sv",        "⚙️",  "Ativos"),
+    ("manutencao_sv",    "📅", "Manutenção"),
 ]
 
 SV_NAV_SOON = [

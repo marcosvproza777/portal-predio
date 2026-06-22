@@ -462,6 +462,17 @@ def _render_detalhe() -> None:
         for _, comp in df_comp.iterrows():
             _render_componente_card(comp)
 
+    # ── Plano de manutenção ───────────────────────────────────────────────────
+    if usando_mock:
+        from page_ativos import _PLANO_MOCK_COMPRESSOR, _render_plano_manutencao
+        st.markdown(
+            f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.75rem;'>"
+            f"📅 Plano de Manutenção</p>",
+            unsafe_allow_html=True,
+        )
+        _render_plano_manutencao(_PLANO_MOCK_COMPRESSOR)
+
     # ── Chamados do cliente ───────────────────────────────────────────────────
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"

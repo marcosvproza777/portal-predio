@@ -97,9 +97,10 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    tab_farois, tab_ativos, tab_rel, tab_assist, tab_cham = st.tabs([
+    tab_farois, tab_ativos, tab_manut, tab_rel, tab_assist, tab_cham = st.tabs([
         "📊  Condição dos Ativos",
         "⚙️  Meus Equipamentos",
+        "📅  Plano de Manutenção",
         "📁  Meus Relatórios",
         "🤖  Assistente Técnico",
         "🔧  Chamados Técnicos",
@@ -112,6 +113,10 @@ def main() -> None:
     with tab_ativos:
         import page_ativos
         page_ativos.render()
+
+    with tab_manut:
+        import page_manutencao
+        page_manutencao.render()
 
     with tab_rel:
         import page_relatorios
@@ -149,6 +154,9 @@ def _render_supervisao() -> None:
     elif sv_view in ("ativos_sv", "ativo_detalhe", "ativo_novo", "componente_novo"):
         import page_sv_ativos
         page_sv_ativos.render()
+    elif sv_view == "manutencao_sv":
+        import page_sv_manutencao
+        page_sv_manutencao.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()
