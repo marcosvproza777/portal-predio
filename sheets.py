@@ -767,9 +767,35 @@ def abrir_chamado_sv(client_id: str, email: str, titulo: str, descricao: str,
 
 # ── Sessões persistentes ──────────────────────────────────────────────────────
 
+_HEADERS_SESSIONS = [
+    "Token", "Empresa", "Email", "Telefone", "Client_Id",
+    "Criado_Em", "Expira_Em", "Ativo", "Perfil", "Nome",
+]
+
+
+def _ensure_sessions_tab() -> None:
+    """Garante que a aba Sessions existe com cabeçalhos corretos na linha 1."""
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("Sessions")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(title="Sessions", rows=10000, cols=12)
+            ws.append_row(_HEADERS_SESSIONS, value_input_option="USER_ENTERED")
+            load_sheet.clear()
+            return
+        first = ws.row_values(1)
+        if not first or first[0].strip() != "Token":
+            ws.insert_row(_HEADERS_SESSIONS, index=1, value_input_option="USER_ENTERED")
+            load_sheet.clear()
+    except Exception:
+        pass
+
+
 def save_session(token: str, empresa: str, email: str,
                  telefone: str, client_id: str,
                  perfil: str = "cliente", nome: str = "") -> None:
+    _ensure_sessions_tab()
     expiry = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y %H:%M:%S")
     append_row("Sessions", [
         token, empresa, email, telefone, client_id,
