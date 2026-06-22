@@ -268,14 +268,26 @@ def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
             unsafe_allow_html=True,
         )
 
+        # Badge de alertas não lidos (lazy import para evitar circular)
+        _alerta_unread = 0
+        try:
+            from page_alertas import get_unread_count as _gwc
+            _alerta_unread = _gwc(st.session_state.get("client_id", ""))
+        except Exception:
+            pass
+
         for key, icon, label in PORTAL_NAV_ITEMS:
             is_active = (
                 portal_page == key
                 or (key == "ativos" and portal_page == "ativo_detalhe")
             )
             btn_type = "primary" if is_active else "secondary"
+            # Mostra contador de não lidos no item Alertas
+            display_label = label
+            if key == "alertas" and _alerta_unread > 0:
+                display_label = f"{label}  ·  {_alerta_unread}"
             if st.button(
-                f"{icon}  {label}",
+                f"{icon}  {display_label}",
                 key=f"portal_nav_{key}",
                 use_container_width=True,
                 type=btn_type,
@@ -359,6 +371,7 @@ PORTAL_NAV_ITEMS = [
     ("manutencao", "📅", "Plano de Manutenção"),
     ("relatorios", "📁", "Relatórios Técnicos"),
     ("chamados",   "🔧", "Chamados Técnicos"),
+    ("alertas",    "🔔", "Alertas"),
     ("assistente", "🤖", "Assistente Pred.IO"),
 ]
 

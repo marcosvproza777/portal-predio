@@ -79,6 +79,9 @@ def main() -> None:
     elif portal_page == "chamados":
         import page_chamados
         page_chamados.render()
+    elif portal_page == "alertas":
+        import page_alertas
+        page_alertas.render()
     else:
         import page_farois
         page_farois.render(logo_b64)

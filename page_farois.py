@@ -168,6 +168,9 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
     # ── Próximas Manutenções (card discreto) ─────────────────────────────────
     _render_proximas_manutencoes()
 
+    # ── Alertas Importantes (card discreto) ──────────────────────────────────
+    _render_alertas_importantes()
+
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:0 0 1rem;'/>",
         unsafe_allow_html=True,
@@ -497,6 +500,58 @@ def _render_summary(ativos: pd.DataFrame, has_ns: bool) -> None:
         f"{rows_html}</div>",
         unsafe_allow_html=True,
     )
+
+
+def _render_alertas_importantes() -> None:
+    """Card de alertas não lidos — máx 3 itens, link para Central de Alertas."""
+    from page_alertas import _ALERTAS_MOCK, _TIPO_CFG, _PRIO_CFG
+    from ui import COLOR_CARD, COLOR_BORDER as CB, COLOR_NAVY as CN, COLOR_MUTED as CM
+
+    nao_lidos = [a for a in _ALERTAS_MOCK if a.get("status") == "nao_lido"]
+    _PRIO_ORD = {"Alta": 0, "Média": 1, "Baixa": 2}
+    top3 = sorted(nao_lidos, key=lambda a: _PRIO_ORD.get(a.get("prioridade", "Baixa"), 3))[:3]
+
+    total_nao_lidos = len(nao_lidos)
+    if total_nao_lidos == 0:
+        return
+
+    itens_html = ""
+    for a in top3:
+        tcfg = _TIPO_CFG.get(a.get("tipo", ""), {"icone": "🔔", "label": ""})
+        pcfg = _PRIO_CFG.get(a.get("prioridade", "Baixa"), _PRIO_CFG["Baixa"])
+        itens_html += (
+            f"<div style='display:flex;align-items:center;gap:8px;padding:7px 0;"
+            f"border-bottom:1px solid {CB};'>"
+            f"<span style='font-size:1rem;flex-shrink:0;'>{tcfg['icone']}</span>"
+            f"<span style='flex:1;font-size:0.8rem;font-weight:600;color:{CN};"
+            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
+            f"{a.get('titulo','')}</span>"
+            f"<span style='width:8px;height:8px;border-radius:50%;flex-shrink:0;"
+            f"background:{pcfg[\"dot\"]};'></span>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {CB};"
+        f"border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;'>"
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:center;margin-bottom:0.6rem;'>"
+        f"<p style='font-weight:700;color:{CN};font-size:0.9rem;margin:0;'>"
+        f"🔔 Alertas Importantes</p>"
+        f"<span style='background:#EF4444;color:#fff;-webkit-text-fill-color:#fff;"
+        f"font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:10px;'>"
+        f"{total_nao_lidos} não lido{'s' if total_nao_lidos != 1 else ''}</span>"
+        f"</div>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🔔 Ver todos os alertas →", key="farois_ver_alertas"):
+        st.session_state["portal_page"] = "alertas"
+        st.rerun()
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
 
 def _render_proximas_manutencoes() -> None:
