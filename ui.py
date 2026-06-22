@@ -405,14 +405,6 @@ def render_sv_topnav() -> None:
     iniciais = "".join(w[0].upper() for w in nome.split()[:2]) if nome else "?"
     perfil_label = "Admin" if perfil == "admin" else "Funcionário"
 
-    # Navbar container
-    st.markdown(
-        f"<div style='background:{COLOR_NAVY};border-radius:14px;"
-        f"padding:8px 14px;margin-bottom:1rem;display:flex;"
-        f"align-items:center;justify-content:space-between;gap:8px;'>",
-        unsafe_allow_html=True,
-    )
-
     # ── Itens de navegação ─────────────────────────────────────────────────
     nav_col, user_col = st.columns([5, 2])
 
