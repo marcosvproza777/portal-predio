@@ -59,76 +59,29 @@ def main() -> None:
     # ── PORTAL DO CLIENTE ─────────────────────────────────────────────────────
     render_sidebar(logo_b64, empresa, telefone)
 
-    from auth import logout
-    if logo_b64:
-        col_logo, col_info, col_sair = st.columns([1, 6.5, 1.5])
-        with col_logo:
-            st.markdown(
-                f"<div style='padding:0.4rem 0;'>"
-                f"<img src='data:image/jpeg;base64,{logo_b64}' "
-                f"style='width:72px;border-radius:8px;box-shadow:0 2px 8px rgba(15,31,61,0.12);'/>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        with col_info:
-            st.markdown(
-                f"<p style='color:#0F1F3D;font-weight:700;font-size:0.95rem;margin:0.6rem 0 0;'>"
-                f"Portal de Confiabilidade Pred.IO</p>"
-                f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
-                unsafe_allow_html=True,
-            )
-    else:
-        col_info, col_sair = st.columns([8, 1.5])
-        with col_info:
-            st.markdown(
-                f"<p style='color:#0F1F3D;font-weight:700;font-size:0.95rem;margin:0.6rem 0 0;'>"
-                f"Portal de Confiabilidade Pred.IO</p>"
-                f"<p style='color:#64748B;font-size:0.78rem;margin:0;'>{empresa}</p>",
-                unsafe_allow_html=True,
-            )
-    with col_sair:
-        st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
-        if st.button("🚪 Sair", key="portal_logout",
-                     use_container_width=True):
-            logout()
-            st.rerun()
-    st.markdown(
-        "<hr style='border-color:#E2E8F0;margin:0.6rem 0 0;'/>",
-        unsafe_allow_html=True,
-    )
+    portal_page = st.session_state.get("portal_page", "farois")
 
-    tab_farois, tab_ativos, tab_manut, tab_rel, tab_assist, tab_cham = st.tabs([
-        "📊  Condição dos Ativos",
-        "⚙️  Meus Equipamentos",
-        "📅  Plano de Manutenção",
-        "📁  Meus Relatórios",
-        "🤖  Assistente Técnico",
-        "🔧  Chamados Técnicos",
-    ])
-
-    with tab_farois:
+    if portal_page == "farois":
         import page_farois
         page_farois.render(logo_b64)
-
-    with tab_ativos:
+    elif portal_page == "ativos":
         import page_ativos
         page_ativos.render()
-
-    with tab_manut:
+    elif portal_page == "manutencao":
         import page_manutencao
         page_manutencao.render()
-
-    with tab_rel:
+    elif portal_page == "relatorios":
         import page_relatorios
         page_relatorios.render()
-
-    with tab_assist:
+    elif portal_page == "assistente":
         import page_assistente
         page_assistente.render()
-
-    with tab_cham:
+    elif portal_page == "chamados":
         import page_chamados
         page_chamados.render()
+    else:
+        import page_farois
+        page_farois.render(logo_b64)
 
 
 

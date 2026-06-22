@@ -115,11 +115,37 @@ def inject_global_css() -> None:
         border-color: rgba(239,68,68,0.45) !important;
         color: #DC2626 !important; -webkit-text-fill-color: #DC2626 !important;
     }}
-    /* Sidebar sobrepõe para manter texto claro nos botões dela */
+    /* Sidebar — botões de navegação (secundário = inativo) */
     [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] {{
-        background: rgba(255,255,255,0.10) !important;
-        color: #E2E8F0 !important; -webkit-text-fill-color: #E2E8F0 !important;
-        border-color: rgba(255,255,255,0.25) !important;
+        background: rgba(255,255,255,0.06) !important;
+        color: rgba(226,232,240,0.80) !important;
+        -webkit-text-fill-color: rgba(226,232,240,0.80) !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        transition: background 0.15s !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover {{
+        background: rgba(255,255,255,0.13) !important;
+        color: #E2E8F0 !important;
+        -webkit-text-fill-color: #E2E8F0 !important;
+    }}
+    /* Sidebar — botão nav ativo (primary) */
+    [data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {{
+        background: rgba(37,99,235,0.38) !important;
+        border: 1px solid rgba(56,189,248,0.55) !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        font-weight: 700 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stBaseButton-primary"]:hover {{
+        background: rgba(37,99,235,0.50) !important;
     }}
 
     /* ── Metric cards ── */
@@ -182,48 +208,90 @@ def inject_login_bg(bg_b64: str) -> None:
 
 def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
     from auth import logout
+    portal_page = st.session_state.get("portal_page", "farois")
+
     with st.sidebar:
-        # Logo
+        # ── Logo + título ─────────────────────────────────────────────────────
         if logo_b64:
             st.markdown(
-                f"<div style='text-align:center;padding:1.5rem 0 1rem;'>"
+                f"<div style='text-align:center;padding:1.5rem 0 0.75rem;'>"
                 f"<img src='data:image/jpeg;base64,{logo_b64}' "
-                f"style='width:130px;border-radius:10px;"
-                f"box-shadow:0 4px 16px rgba(0,0,0,0.30);'/></div>",
+                f"style='width:110px;border-radius:10px;"
+                f"box-shadow:0 4px 16px rgba(0,0,0,0.40);'/></div>",
                 unsafe_allow_html=True,
             )
 
         st.markdown(
-            "<hr style='border-color:rgba(255,255,255,0.12);margin:0 0 1rem;'/>",
+            "<div style='text-align:center;padding:0 0.5rem 0.5rem;'>"
+            "<p style='font-size:0.82rem;font-weight:700;color:#E2E8F0;margin:0;line-height:1.3;'>"
+            "Portal de Confiabilidade</p>"
+            "<p style='font-size:1.1rem;font-weight:900;color:#38BDF8;margin:0;'>"
+            "Pred.IO</p>"
+            "<p style='font-size:0.6rem;font-weight:700;letter-spacing:0.16em;"
+            "text-transform:uppercase;color:rgba(255,255,255,0.32);margin:5px 0 0;'>"
+            "Área do Cliente</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
-        # Avatar + nome da empresa
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.12);margin:0.9rem 0 0.8rem;'/>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Avatar + empresa ──────────────────────────────────────────────────
         iniciais = "".join(w[0].upper() for w in empresa.split()[:2]) if empresa else "?"
         st.markdown(
-            f"<div style='display:flex;align-items:center;gap:12px;padding:0 0.5rem 1rem;'>"
-            f"<div style='width:42px;height:42px;border-radius:50%;"
+            f"<div style='display:flex;align-items:center;gap:10px;padding:0 0.4rem 0.85rem;'>"
+            f"<div style='width:36px;height:36px;border-radius:50%;flex-shrink:0;"
             f"background:linear-gradient(135deg,#38BDF8,#2563EB);"
             f"display:flex;align-items:center;justify-content:center;"
-            f"font-weight:800;font-size:1rem;color:#fff;flex-shrink:0;'>{iniciais}</div>"
-            f"<div>"
-            f"<p style='margin:0;font-size:0.7rem;opacity:0.6;'>Empresa</p>"
-            f"<p style='margin:0;font-weight:700;font-size:0.95rem;line-height:1.2;'>{empresa}</p>"
-            f"{'<p style=\"margin:2px 0 0;font-size:0.72rem;opacity:0.6;\">📞 ' + telefone + '</p>' if telefone else ''}"
+            f"font-weight:800;font-size:0.88rem;color:#fff;'>{iniciais}</div>"
+            f"<div style='min-width:0;'>"
+            f"<p style='margin:0;font-size:0.62rem;opacity:0.50;'>Empresa</p>"
+            f"<p style='margin:0;font-weight:700;font-size:0.88rem;white-space:nowrap;"
+            f"overflow:hidden;text-overflow:ellipsis;'>{empresa}</p>"
             f"</div></div>",
             unsafe_allow_html=True,
         )
 
         st.markdown(
-            "<hr style='border-color:rgba(255,255,255,0.12);margin:0 0 1rem;'/>",
+            "<hr style='border-color:rgba(255,255,255,0.12);margin:0 0 0.6rem;'/>",
             unsafe_allow_html=True,
         )
 
+        # ── Navegação ─────────────────────────────────────────────────────────
         st.markdown(
-            "<p style='font-size:0.68rem;opacity:0.4;text-align:center;margin:0;'>"
-            "Portal de Confiabilidade Pred.IO</p>",
+            "<p style='font-size:0.6rem;font-weight:700;letter-spacing:0.16em;"
+            "text-transform:uppercase;color:rgba(255,255,255,0.32);"
+            "padding:0 0.25rem;margin:0 0 0.35rem;'>Navegação</p>",
             unsafe_allow_html=True,
         )
+
+        for key, icon, label in PORTAL_NAV_ITEMS:
+            is_active = (
+                portal_page == key
+                or (key == "ativos" and portal_page == "ativo_detalhe")
+            )
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(
+                f"{icon}  {label}",
+                key=f"portal_nav_{key}",
+                use_container_width=True,
+                type=btn_type,
+            ):
+                st.session_state["portal_page"] = key
+                st.session_state.pop("portal_ativo_id", None)
+                st.rerun()
+
+        st.markdown(
+            "<hr style='border-color:rgba(255,255,255,0.12);margin:0.9rem 0 0.6rem;'/>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("⬅️  Sair da conta", use_container_width=True, key="portal_logout"):
+            logout()
+            st.rerun()
 
 
 # Alias para compatibilidade
@@ -282,6 +350,17 @@ PRIORIDADE_CFG = {
     "alta":    ("#F97316", "#fff"),
     "crítica": ("#EF4444", "#fff"),
 }
+
+# ── Portal do Cliente — navegação ────────────────────────────────────────────
+
+PORTAL_NAV_ITEMS = [
+    ("farois",     "📊", "Visão Geral"),
+    ("ativos",     "⚙️",  "Ativos Monitorados"),
+    ("manutencao", "📅", "Plano de Manutenção"),
+    ("relatorios", "📁", "Relatórios Técnicos"),
+    ("chamados",   "🔧", "Chamados Técnicos"),
+    ("assistente", "🤖", "Assistente Pred.IO"),
+]
 
 # ── Supervisão — constantes e componentes ─────────────────────────────────────
 
