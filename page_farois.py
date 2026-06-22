@@ -164,6 +164,10 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
         _render_donut(total, bom, atencao, critico)
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+    # ── Próximas Manutenções (card discreto) ─────────────────────────────────
+    _render_proximas_manutencoes()
+
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:0 0 1rem;'/>",
         unsafe_allow_html=True,
@@ -491,5 +495,55 @@ def _render_summary(ativos: pd.DataFrame, has_ns: bool) -> None:
         f"letter-spacing:.10em;margin:0 0 12px;text-transform:uppercase;'>"
         f"📊 Status por Máquina</p>"
         f"{rows_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_proximas_manutencoes() -> None:
+    """Card discreto de próximas manutenções — máx 3 itens."""
+    from page_ativos import _PLANO_MOCK_COMPRESSOR, _pm_calc_status, _pm_scfg, _norm
+
+    # Monta top 3 tarefas (horímetro ordenado por urgência + calendário)
+    horimetro = sorted(
+        [t for t in _PLANO_MOCK_COMPRESSOR if t.get("tipo") == "horimetro"],
+        key=lambda x: x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0)
+    )
+    calendario = [t for t in _PLANO_MOCK_COMPRESSOR if t.get("tipo") == "calendario"]
+    top3 = (horimetro[:2] + calendario[:1])[:3]
+
+    if not top3:
+        return
+
+    itens_html = ""
+    for t in top3:
+        status = _pm_calc_status(t)
+        scfg   = _pm_scfg(status)
+        tipo   = t.get("tipo", "")
+        nome   = t.get("nome", "")
+        if tipo == "horimetro":
+            restam  = max(0, t.get("vencimento_horas", 0) - t.get("horimetro_atual", 0))
+            detalhe = f"em {restam:,}h".replace(",", ".")
+        else:
+            detalhe = t.get("proxima_data", "")
+        itens_html += (
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;padding:6px 0;"
+            f"border-bottom:1px solid {COLOR_BORDER};'>"
+            f"<span style='font-size:0.8rem;color:{COLOR_NAVY};font-weight:600;'>{nome}</span>"
+            f"<span style='font-size:0.78rem;font-weight:700;color:{scfg['color']};"
+            f"-webkit-text-fill-color:{scfg['color']};'>{detalhe}</span>"
+            f"</div>"
+        )
+
+    from ui import COLOR_CARD, COLOR_BORDER as CB, COLOR_NAVY as CN, COLOR_MUTED as CM
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {CB};"
+        f"border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;'>"
+        f"<p style='font-weight:700;color:{CN};font-size:0.9rem;margin:0 0 0.6rem;'>"
+        f"🔔 Próximas Manutenções</p>"
+        f"{itens_html}"
+        f"<p style='font-size:0.72rem;color:{CM};margin:0.5rem 0 0;'>"
+        f"→ Acesse a aba <b>📅 Plano de Manutenção</b> para ver o plano completo."
+        f"</p></div>",
         unsafe_allow_html=True,
     )

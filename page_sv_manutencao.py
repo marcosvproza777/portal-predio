@@ -1,28 +1,42 @@
-"""Supervisão — Plano de Manutenção (gestão interna)."""
+"""Supervisão — Planos de Manutenção (gestão interna)."""
 import streamlit as st
 from auth import require_staff
 from page_ativos import (
-    _PLANO_MOCK_COMPRESSOR,
-    _render_tarefa_card,
-    _render_plano_manutencao,
-    _pm_scfg,
-    _pm_pcolor,
-    _norm,
+    _PLANO_MOCK_COMPRESSOR, _HORIMETRO_ATUAL_MOCK,
+    _pm_calc_status, _pm_scfg, _pm_pcolor, _norm,
+    _render_tarefa_card, _render_plano_manutencao,
 )
 from ui import (
     sv_page_header,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
 
-# ── Mock de ativos com plano (para fase de demonstração) ──────────────────────
+# ── Constantes do formulário ──────────────────────────────────────────────────
+_CATEGORIAS = [
+    "Análise de óleo", "Filtros", "Lubrificação", "Alinhamento",
+    "Inspeção", "Termografia", "Vibração", "Overhaul", "Rolamentos", "Outros",
+]
+_TIPOS = [
+    "Preventiva por horímetro", "Preventiva por calendário",
+    "Preditiva por condição", "Corretiva planejada", "Inspeção técnica",
+]
+_LAUDOS = ["vibração", "óleo", "termografia", "inspeção"]
+_STATUS_OPTS = [
+    "Em dia", "Próximo do vencimento", "Vencido",
+    "Depende de análise preditiva", "Concluído",
+]
+_PRIO_OPTS = ["Baixa", "Média", "Alta", "Crítica"]
+
+# ── Mock de ativos com plano ──────────────────────────────────────────────────
 _MOCK_ATIVOS_PLANO = [
     {
-        "id":     "AT-2026-001",
-        "nome":   "Unidade Compressora Parafuso 200 VLD",
-        "empresa": "Coca-Cola",
-        "planta": "Sala de Compressores",
-        "tag":    "CCP-001",
-        "plano":  _PLANO_MOCK_COMPRESSOR,
+        "id":          "AT-2026-001",
+        "nome":        "Unidade Compressora Parafuso 200 VLD",
+        "empresa":     "Coca-Cola",
+        "planta":      "Sala de Compressores",
+        "tag":         "CCP-001",
+        "horimetro":   _HORIMETRO_ATUAL_MOCK,
+        "plano":       _PLANO_MOCK_COMPRESSOR,
     },
 ]
 
@@ -30,36 +44,50 @@ _MOCK_ATIVOS_PLANO = [
 def render() -> None:
     require_staff()
     sv_page_header(
-        "📅 Plano de Manutenção",
-        "Gestão e acompanhamento das manutenções programadas dos ativos monitorados.",
+        "📅 Planos de Manutenção",
+        "Cadastre e gerencie planos preventivos e preditivos por cliente e ativo.",
     )
 
-    # ── Resumo executivo ──────────────────────────────────────────────────────
+    tab_plano, tab_form, tab_venc = st.tabs([
+        "📋 Plano Atual",
+        "➕ Cadastrar Tarefa",
+        "⚠️ Tarefas Vencidas / Próximas",
+    ])
+
+    with tab_plano:
+        _render_tab_plano()
+
+    with tab_form:
+        _render_tab_form()
+
+    with tab_venc:
+        _render_tab_urgentes()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _render_tab_plano() -> None:
     _render_resumo(_MOCK_ATIVOS_PLANO)
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-
-    # ── Plano por ativo ───────────────────────────────────────────────────────
     for ativo in _MOCK_ATIVOS_PLANO:
         _render_ativo_section(ativo)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def _render_resumo(ativos: list) -> None:
-    all_tarefas = [t for a in ativos for t in a.get("plano", [])]
-    total     = len(all_tarefas)
-    em_dia    = sum(1 for t in all_tarefas if _norm(t.get("status", "")) == "em dia")
-    proximo   = sum(1 for t in all_tarefas if _norm(t.get("status", "")) == "proximo")
-    vencido   = sum(1 for t in all_tarefas if _norm(t.get("status", "")) == "vencido")
-    aguarda   = sum(1 for t in all_tarefas if _norm(t.get("status", "")) == "aguarda analise")
+    all_t = [t for a in ativos for t in a.get("plano", [])]
+    statuses = [_pm_calc_status(t) for t in all_t]
+    total   = len(all_t)
+    em_dia  = sum(1 for s in statuses if _norm(s) == "em dia")
+    proximo = sum(1 for s in statuses if _norm(s) == "proximo do vencimento")
+    vencido = sum(1 for s in statuses if _norm(s) == "vencido")
+    aguarda = sum(1 for s in statuses if "analise" in _norm(s))
 
-    c1, c2, c3, c4 = st.columns(4)
-    for col, label, valor, cor in [
-        (c1, "Total de Tarefas",   total,   COLOR_NAVY),
-        (c2, "Em Dia",             em_dia,  "#10B981"),
-        (c3, "Próximo Vencimento", proximo, "#F59E0B"),
-        (c4, "Aguarda Análise",    aguarda, "#38BDF8"),
-    ]:
+    for col, label, valor, cor in zip(
+        st.columns(4),
+        ["Total de Tarefas", "Em Dia", "Próximo Vencimento", "Aguarda Análise"],
+        [total, em_dia, proximo, aguarda],
+        [COLOR_NAVY, "#10B981", "#F59E0B", "#38BDF8"],
+    ):
         with col:
             st.markdown(
                 f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
@@ -78,13 +106,15 @@ def _render_ativo_section(ativo: dict) -> None:
     empresa = ativo.get("empresa", "")
     planta  = ativo.get("planta", "")
     tag     = ativo.get("tag", "")
+    h       = ativo.get("horimetro", 0)
     plano   = ativo.get("plano", [])
 
-    with st.expander(f"⚙️  {nome}  —  {empresa} / {planta}", expanded=True):
+    with st.expander(f"⚙️  {nome}  —  {empresa}", expanded=True):
         meta = []
         if tag:     meta.append(f"🏷 {tag}")
         if empresa: meta.append(f"🏢 {empresa}")
         if planta:  meta.append(f"🏭 {planta}")
+        if h:       meta.append(f"⏱ Horímetro atual: {h:,}h".replace(",", "."))
         if meta:
             st.markdown(
                 f"<p style='font-size:0.78rem;color:{COLOR_MUTED};margin:0 0 0.75rem;'>"
@@ -92,76 +122,169 @@ def _render_ativo_section(ativo: dict) -> None:
                 unsafe_allow_html=True,
             )
 
-        # ── Tabs por tipo ─────────────────────────────────────────────────────
-        calendario = [t for t in plano if t.get("tipo") == "calendario"]
         horimetro  = [t for t in plano if t.get("tipo") == "horimetro"]
+        calendario = [t for t in plano if t.get("tipo") == "calendario"]
         condicao   = [t for t in plano if t.get("tipo") == "condicao"]
 
-        tab_labels = []
-        if calendario: tab_labels.append(f"📆 Calendário ({len(calendario)})")
-        if horimetro:  tab_labels.append(f"⏱ Horímetro ({len(horimetro)})")
-        if condicao:   tab_labels.append(f"🔍 Condição ({len(condicao)})")
-        tab_labels.append("📋 Todas")
+        labels = []
+        if horimetro:  labels.append(f"⏱ Horímetro ({len(horimetro)})")
+        if calendario: labels.append(f"📆 Calendário ({len(calendario)})")
+        if condicao:   labels.append(f"🔍 Condição ({len(condicao)})")
+        labels.append("📋 Todas")
 
-        tabs = st.tabs(tab_labels)
-        tab_idx = 0
-
-        if calendario:
-            with tabs[tab_idx]:
-                _render_tabela_tarefas(calendario)
-            tab_idx += 1
+        tabs = st.tabs(labels)
+        idx = 0
 
         if horimetro:
-            with tabs[tab_idx]:
-                _render_tabela_tarefas(horimetro)
-            tab_idx += 1
+            with tabs[idx]:
+                for t in sorted(horimetro, key=lambda x: (
+                        x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0))):
+                    _render_sv_card(t)
+            idx += 1
+
+        if calendario:
+            with tabs[idx]:
+                for t in calendario:
+                    _render_sv_card(t)
+            idx += 1
 
         if condicao:
-            with tabs[tab_idx]:
-                _render_tabela_tarefas(condicao)
-            tab_idx += 1
+            with tabs[idx]:
+                st.markdown(
+                    f"<p style='font-size:0.75rem;color:#3B82F6;background:#EFF6FF;"
+                    f"border-radius:8px;padding:6px 10px;margin-bottom:8px;'>"
+                    f"🔍 Estas intervenções dependem de laudos técnicos — não são automáticas "
+                    f"por horímetro.</p>",
+                    unsafe_allow_html=True,
+                )
+                for t in condicao:
+                    _render_sv_card(t)
+            idx += 1
 
-        with tabs[tab_idx]:
+        with tabs[idx]:
             _render_plano_manutencao(plano)
 
 
-def _render_tabela_tarefas(tarefas: list) -> None:
-    for t in tarefas:
-        _render_sv_tarefa_card(t)
-
-
-def _render_sv_tarefa_card(t: dict) -> None:
-    """Card de tarefa com botões de ação (Concluir / Adiar) para supervisão."""
-    scfg = _pm_scfg(t.get("status", ""))
-    pcor = _pm_pcolor(t.get("prioridade", ""))
-    tipo = t.get("tipo", "")
+def _render_sv_card(t: dict) -> None:
+    tid  = t.get("id", t.get("nome", ""))
     nome = t.get("nome", "")
-    tid  = t.get("id", nome)
+    tipo = t.get("tipo", "")
 
-    if tipo == "calendario":
-        prox = t.get("proxima_data", "")
-        per  = t.get("periodicidade_texto", "")
-        trigger = f"📅 Próxima execução: **{prox}** · {per}"
-    elif tipo == "horimetro":
-        prox_h = t.get("proxima_horas", 0)
-        per_h  = t.get("periodicidade_horas", 0)
-        trigger = f"⏱ Vencimento em **{prox_h}h** · A cada {per_h:,}h".replace(",", ".")
-    else:
-        trigger = "🔍 Decisão condicionada à interpretação dos relatórios técnicos"
-
-    col_info, col_acoes = st.columns([7, 2])
+    col_info, col_btn = st.columns([7, 2])
     with col_info:
         _render_tarefa_card(t)
-
-    with col_acoes:
-        st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
-        if st.button("✅ Concluir", key=f"sv_pm_concluir_{tid}",
-                     use_container_width=True, type="primary"):
-            st.toast(f"✅ '{nome}' marcada como concluída.", icon="✅")
-
-        if tipo in ("calendario", "horimetro"):
-            if st.button("⏩ Adiar", key=f"sv_pm_adiar_{tid}",
-                         use_container_width=True):
-                st.toast(f"⏩ '{nome}' adiada. Atualize a data/horas no painel.", icon="⏩")
-
+    with col_btn:
+        st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
+        if st.button("✅ Concluir", key=f"sv_ok_{tid}", use_container_width=True, type="primary"):
+            st.toast(f"'{nome}' marcada como concluída.", icon="✅")
+        if tipo in ("horimetro", "calendario"):
+            if st.button("⏩ Adiar", key=f"sv_adiar_{tid}", use_container_width=True):
+                st.toast(f"'{nome}' adiada. Atualize o vencimento manualmente.", icon="⏩")
     st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _render_tab_form() -> None:
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:1rem;margin:0 0 1rem;'>"
+        f"➕ Nova Tarefa de Manutenção</p>",
+        unsafe_allow_html=True,
+    )
+
+    with st.form("form_nova_tarefa", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            cliente_id  = st.text_input("Cliente ID *", placeholder="ex: coca-cola")
+            ativo_id    = st.text_input("Ativo ID *",   placeholder="ex: AT-2026-001")
+            comp_id     = st.text_input("Componente ID (opcional)")
+            nome_tarefa = st.text_input("Nome da Tarefa *", placeholder="ex: Análise de óleo")
+        with c2:
+            categoria  = st.selectbox("Categoria *", _CATEGORIAS)
+            tipo_sel   = st.selectbox("Tipo *", _TIPOS)
+            prioridade = st.selectbox("Prioridade *", _PRIO_OPTS)
+            status_sel = st.selectbox("Status inicial", _STATUS_OPTS)
+
+        st.markdown("---")
+        c3, c4, c5 = st.columns(3)
+        with c3:
+            period_horas = st.number_input("Periodicidade (horas)", min_value=0, value=0, step=500)
+            prox_horas   = st.number_input("Próx. execução (horímetro)", min_value=0, value=0, step=100)
+            h_base       = st.number_input("Horímetro base (h)", min_value=0, value=0, step=100)
+        with c4:
+            period_dias  = st.number_input("Periodicidade (dias)", min_value=0, value=0, step=30)
+            prox_data    = st.date_input("Próx. execução (data)", value=None)
+        with c5:
+            dep_laudo    = st.radio("Depende de laudo técnico?", ["Não", "Sim"], horizontal=True)
+            laudos_base  = st.multiselect("Tipos de laudo base", _LAUDOS,
+                                          disabled=(dep_laudo == "Não"))
+
+        descricao = st.text_area("Descrição da tarefa", height=90,
+                                 placeholder="Descreva o procedimento e critérios da tarefa...")
+        obs_int   = st.text_area("Observações internas (não visíveis ao cliente)", height=60)
+
+        submetido = st.form_submit_button("💾 Cadastrar Tarefa", use_container_width=True,
+                                          type="primary")
+
+    if submetido:
+        erros = []
+        if not cliente_id.strip():  erros.append("Cliente ID é obrigatório.")
+        if not ativo_id.strip():    erros.append("Ativo ID é obrigatório.")
+        if not nome_tarefa.strip(): erros.append("Nome da Tarefa é obrigatório.")
+
+        if erros:
+            for e in erros:
+                st.error(e)
+        else:
+            st.success(
+                f"✅ Tarefa **{nome_tarefa}** cadastrada com sucesso para o ativo **{ativo_id}**. "
+                f"(Integração com Google Sheets em breve — dados mockados por enquanto.)"
+            )
+            st.info(
+                "📋 Campos recebidos: cliente_id, ativo_id, nome, categoria, tipo, "
+                "prioridade, status, periodicidade, próx. execução, depende_laudo, obs_internas."
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _render_tab_urgentes() -> None:
+    all_tarefas = [
+        (a, t, _pm_calc_status(t))
+        for a in _MOCK_ATIVOS_PLANO
+        for t in a.get("plano", [])
+        if t.get("tipo") != "condicao"
+    ]
+
+    vencidas = [(a, t, s) for a, t, s in all_tarefas if _norm(s) == "vencido"]
+    proximas = [(a, t, s) for a, t, s in all_tarefas if _norm(s) == "proximo do vencimento"]
+
+    if not vencidas and not proximas:
+        st.success("✅ Nenhuma tarefa vencida ou próxima do vencimento no momento.")
+        return
+
+    if vencidas:
+        st.markdown(
+            f"<p style='font-weight:700;color:#991B1B;font-size:0.9rem;margin:0 0 0.5rem;'>"
+            f"🔴 Tarefas Vencidas ({len(vencidas)})</p>",
+            unsafe_allow_html=True,
+        )
+        for a, t, s in vencidas:
+            st.markdown(
+                f"<span style='font-size:0.72rem;color:{COLOR_MUTED};'>"
+                f"⚙️ {a['nome']}</span>",
+                unsafe_allow_html=True,
+            )
+            _render_sv_card(t)
+
+    if proximas:
+        st.markdown(
+            f"<p style='font-weight:700;color:#92400E;font-size:0.9rem;margin:0.75rem 0 0.5rem;'>"
+            f"🟡 Próximas do Vencimento ({len(proximas)})</p>",
+            unsafe_allow_html=True,
+        )
+        for a, t, s in proximas:
+            st.markdown(
+                f"<span style='font-size:0.72rem;color:{COLOR_MUTED};'>"
+                f"⚙️ {a['nome']}</span>",
+                unsafe_allow_html=True,
+            )
+            _render_sv_card(t)

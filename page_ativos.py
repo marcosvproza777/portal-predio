@@ -141,124 +141,125 @@ _MOCK = [
 ]
 
 # ── Plano de manutenção mock (Unidade Compressora Parafuso 200 VLD) ───────────
+# horimetro_atual do ativo = 4.680 h
+_HORIMETRO_ATUAL_MOCK = 4680
+
 _PLANO_MOCK_COMPRESSOR = [
-    # ─ Por calendário ─────────────────────────────────────────────────────────
-    {
-        "id": "pm-vib", "nome": "Análise de vibração",
-        "tipo": "calendario", "categoria": "Vibração",
-        "periodicidade_texto": "A cada 2 meses", "periodicidade_dias": 60,
-        "proxima_data": "17/08/2026", "status": "Em dia", "prioridade": "Média",
-        "depende_relatorio": False,
-        "descricao": (
-            "Realizar análise de vibração periódica para acompanhamento da condição mecânica "
-            "da unidade compressora e seus componentes, incluindo motor, acoplamento, "
-            "conjunto compressor e bomba de óleo, quando aplicável."
-        ),
-    },
-    {
-        "id": "pm-term", "nome": "Termografia",
-        "tipo": "calendario", "categoria": "Termografia",
-        "periodicidade_texto": "A cada 4 meses", "periodicidade_dias": 120,
-        "proxima_data": "17/10/2026", "status": "Em dia", "prioridade": "Média",
-        "depende_relatorio": False,
-        "descricao": (
-            "Realizar inspeção termográfica periódica para identificar aquecimento anormal "
-            "em componentes elétricos, motor, painéis, conexões, rolamentos, sistema de "
-            "lubrificação e pontos críticos da operação."
-        ),
-    },
-    {
-        "id": "pm-lubri", "nome": "Lubrificação/inspeção do motor",
-        "tipo": "calendario", "categoria": "Motor",
-        "periodicidade_texto": "A cada 2 meses", "periodicidade_dias": 60,
-        "proxima_data": "17/08/2026", "status": "Em dia", "prioridade": "Média",
-        "depende_relatorio": False,
-        "descricao": (
-            "Lubrificação dos rolamentos do motor e inspeção visual dos componentes, "
-            "verificando desgaste, folgas, temperatura e sinais de falha iminente."
-        ),
-    },
     # ─ Por horímetro ──────────────────────────────────────────────────────────
     {
         "id": "pm-oleo", "nome": "Análise de óleo",
-        "tipo": "horimetro", "categoria": "Lubrificação",
-        "periodicidade_horas": 5000, "proxima_horas": 320,
-        "status": "Em dia", "prioridade": "Alta", "depende_relatorio": False,
+        "tipo": "horimetro", "categoria": "Análise de óleo",
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 5000, "vencimento_horas": 5000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Média",
         "descricao": (
-            "Análise laboratorial do óleo lubrificante para monitoramento de contaminação, "
-            "viscosidade, partículas de desgaste, acidez e demais indicadores de condição."
+            "Realizar coleta e análise de óleo da unidade compressora para avaliar "
+            "viscosidade, partículas, metais de desgaste, oxidação, água e condição dos aditivos."
         ),
     },
     {
         "id": "pm-foleo", "nome": "Inspeção e limpeza do filtro de óleo",
         "tipo": "horimetro", "categoria": "Filtros",
-        "periodicidade_horas": 5000, "proxima_horas": 320,
-        "status": "Em dia", "prioridade": "Alta", "depende_relatorio": False,
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 5000, "vencimento_horas": 5000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Média",
         "descricao": (
-            "Inspeção visual, limpeza ou substituição do filtro de óleo, verificando "
-            "colmatação, integridade da malha e presença de contaminantes."
+            "Inspecionar e realizar limpeza/substituição conforme condição do filtro de óleo "
+            "e recomendação técnica."
         ),
     },
     {
         "id": "pm-fsuc", "nome": "Inspeção do filtro de sucção",
         "tipo": "horimetro", "categoria": "Filtros",
-        "periodicidade_horas": 5000, "proxima_horas": 320,
-        "status": "Em dia", "prioridade": "Média", "depende_relatorio": False,
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 5000, "vencimento_horas": 5000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Média",
         "descricao": (
-            "Inspeção e limpeza do filtro de sucção do compressor, verificando condição "
-            "do elemento filtrante, diferencial de pressão e integridade da estrutura."
+            "Verificar condição do filtro de sucção e presença de restrições, "
+            "contaminação ou perda de eficiência."
         ),
     },
     {
-        "id": "pm-coales", "nome": "Troca/inspeção dos filtros coalescentes",
+        "id": "pm-coales", "nome": "Troca ou inspeção dos filtros coalescentes",
         "tipo": "horimetro", "categoria": "Filtros",
-        "periodicidade_horas": 8000, "proxima_horas": 3320,
-        "status": "Em dia", "prioridade": "Alta", "depende_relatorio": False,
+        "tipo_label": "Preventiva programada",
+        "periodicidade_horas": 8000, "vencimento_horas": 8000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Baixa",
         "descricao": (
-            "Troca ou inspeção dos filtros coalescentes de separação de óleo do ar "
-            "comprimido, garantindo eficiência de separação e qualidade do ar produzido."
+            "Avaliar condição dos filtros coalescentes e planejar substituição conforme "
+            "condição operacional e recomendação do fabricante."
         ),
     },
     {
         "id": "pm-laser", "nome": "Conferência de alinhamento a laser",
         "tipo": "horimetro", "categoria": "Alinhamento",
-        "periodicidade_horas": 10000, "proxima_horas": 5320,
-        "status": "Em dia", "prioridade": "Média", "depende_relatorio": False,
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 10000, "vencimento_horas": 10000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Baixa",
         "descricao": (
-            "Verificação e ajuste do alinhamento a laser entre motor e compressor, "
-            "prevenindo vibração excessiva e desgaste prematuro de acoplamento e rolamentos."
+            "Conferir alinhamento a laser do conjunto conforme janela programada ou caso os "
+            "relatórios de vibração indiquem suspeita de desalinhamento."
+        ),
+    },
+    # ─ Por calendário ─────────────────────────────────────────────────────────
+    {
+        "id": "pm-lubri", "nome": "Lubrificação/inspeção do motor",
+        "tipo": "calendario", "categoria": "Lubrificação",
+        "tipo_label": "Preventiva por tempo",
+        "periodicidade_texto": "A cada 2 meses", "periodicidade_dias": 60,
+        "proxima_data": "20/08/2026",
+        "prioridade": "Baixa",
+        "descricao": (
+            "Verificar condição de lubrificação/inspeção do motor conforme orientação técnica, "
+            "regime operacional e recomendação do fabricante."
         ),
     },
     # ─ Por condição ───────────────────────────────────────────────────────────
     {
-        "id": "pm-over", "nome": "Overhaul da unidade",
+        "id": "pm-over", "nome": "Overhaul da unidade compressora",
         "tipo": "condicao", "categoria": "Overhaul",
-        "status": "Aguarda análise", "prioridade": "Alta", "depende_relatorio": True,
+        "tipo_label": "Decisão por condição",
+        "status": "Depende de análise preditiva",
+        "prioridade": "Alta", "depende_relatorio": True,
+        "tipos_relatorio_base": ["vibração", "óleo", "termografia", "inspeção"],
         "descricao": (
-            "Revisão geral da unidade compressora condicionada ao resultado das análises "
-            "preditivas. Decisão baseada em tendência de score, vibração, óleo e inspeção."
+            "A decisão de overhaul deve ser tomada com base na tendência dos relatórios técnicos, "
+            "criticidade dos achados, condição do óleo, vibração, temperatura e histórico de falhas."
         ),
     },
     {
-        "id": "pm-rolam", "nome": "Troca de rolamento",
+        "id": "pm-rolam", "nome": "Troca de rolamento do motor",
         "tipo": "condicao", "categoria": "Rolamentos",
-        "status": "Aguarda análise", "prioridade": "Alta", "depende_relatorio": True,
+        "tipo_label": "Decisão por condição",
+        "status": "Depende de análise preditiva",
+        "prioridade": "Alta", "depende_relatorio": True,
+        "tipos_relatorio_base": ["vibração", "termografia"],
         "descricao": (
-            "Substituição de rolamentos condicionada à interpretação dos relatórios de "
-            "vibração e análise de óleo. A decisão de troca requer avaliação técnica."
+            "A troca do rolamento não deve ser recomendada apenas por horímetro. Deve depender "
+            "de evidências como aumento de vibração, falhas características, elevação térmica "
+            "ou tendência de degradação."
         ),
     },
     {
-        "id": "pm-inter", "nome": "Intervenção técnica urgente",
+        "id": "pm-bomba", "nome": "Intervenção na bomba de óleo",
         "tipo": "condicao", "categoria": "Intervenção",
-        "status": "Aguarda análise", "prioridade": "Crítica", "depende_relatorio": True,
+        "tipo_label": "Decisão por condição",
+        "status": "Depende de análise técnica",
+        "prioridade": "Alta", "depende_relatorio": True,
+        "tipos_relatorio_base": ["vibração", "inspeção"],
         "descricao": (
-            "Intervenção técnica condicionada a evento crítico identificado em análises "
-            "preditivas (vibração, óleo, termografia ou inspeção visual)."
+            "A intervenção deve considerar condição operacional, perda de desempenho, ruído, "
+            "vibração, pressão, vazão e histórico de chamados."
         ),
     },
 ]
 _MOCK[0]["plano_manutencao"] = _PLANO_MOCK_COMPRESSOR
+_MOCK[0]["horimetro_atual"]   = _HORIMETRO_ATUAL_MOCK
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIG
@@ -282,10 +283,14 @@ _CRIT_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text
 _SCORE_MAP = {"bom": 90, "atencao": 65, "critico": 40, "em acompanhamento": 66}
 
 _PM_STATUS = {
-    "em dia":          {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46"},
-    "proximo":         {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E"},
-    "vencido":         {"color": "#EF4444", "bg": "#FEF2F2", "border": "#FCA5A5", "text": "#991B1B"},
-    "aguarda analise": {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E"},
+    "em dia":                        {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46"},
+    "proximo":                       {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E"},
+    "proximo do vencimento":         {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E"},
+    "vencido":                       {"color": "#EF4444", "bg": "#FEF2F2", "border": "#FCA5A5", "text": "#991B1B"},
+    "aguarda analise":               {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E"},
+    "depende de analise preditiva":  {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E"},
+    "depende de analise tecnica":    {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E"},
+    "concluido":                     {"color": "#64748B", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569"},
 }
 _PM_STATUS_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569"}
 _PM_PRIO_COLOR = {
@@ -347,47 +352,111 @@ def _pm_pcolor(prioridade: str) -> str:
     return _PM_PRIO_COLOR.get(_norm(prioridade), "#94A3B8")
 
 
-def _render_tarefa_card(t: dict) -> None:
-    scfg  = _pm_scfg(t.get("status", ""))
-    pcor  = _pm_pcolor(t.get("prioridade", ""))
-    tipo  = t.get("tipo", "")
-    nome  = t.get("nome", "")
-    cat   = t.get("categoria", "")
-    desc  = t.get("descricao", "")
-    icons = {"calendario": "📆", "horimetro": "⏱", "condicao": "🔍"}
-    icon  = icons.get(tipo, "📋")
+def _pm_calc_status(t: dict) -> str:
+    """Calcula status automaticamente baseado em horímetro ou calendário."""
+    from datetime import datetime
+    tipo = t.get("tipo", "")
+
+    if tipo == "condicao":
+        return t.get("status", "Depende de análise preditiva")
+
+    if tipo == "horimetro":
+        h_atual = t.get("horimetro_atual", 0)
+        v_horas = t.get("vencimento_horas") or t.get("periodicidade_horas", 0)
+        if v_horas:
+            restantes = v_horas - h_atual
+            if restantes <= 0:
+                return "Vencido"
+            if restantes <= v_horas * 0.10:
+                return "Próximo do vencimento"
+        return "Em dia"
 
     if tipo == "calendario":
+        proxima = t.get("proxima_data", "")
+        if proxima:
+            try:
+                diff = (datetime.strptime(proxima, "%d/%m/%Y") - datetime.now()).days
+                if diff < 0:
+                    return "Vencido"
+                if diff <= 14:
+                    return "Próximo do vencimento"
+            except Exception:
+                pass
+        return "Em dia"
+
+    return t.get("status", "Em dia")
+
+
+def _render_tarefa_card(t: dict) -> None:
+    status = _pm_calc_status(t)
+    scfg   = _pm_scfg(status)
+    pcor   = _pm_pcolor(t.get("prioridade", ""))
+    tipo   = t.get("tipo", "")
+    nome   = t.get("nome", "")
+    cat    = t.get("categoria", "")
+    label  = t.get("tipo_label", "")
+    desc   = t.get("descricao", "")
+    icons  = {"calendario": "📆", "horimetro": "⏱", "condicao": "🔍"}
+    icon   = icons.get(tipo, "📋")
+
+    if tipo == "horimetro":
+        h_atual = t.get("horimetro_atual", 0)
+        v_horas = t.get("vencimento_horas") or t.get("periodicidade_horas", 0)
+        restantes = max(0, v_horas - h_atual)
+        pct = min(100, round(h_atual / v_horas * 100)) if v_horas else 0
+        bar_color = scfg["color"]
+        trigger = (
+            f"⏱ Horímetro atual: <b>{h_atual:,}h</b> &nbsp;·&nbsp; "
+            f"Vence em: <b>{v_horas:,}h</b> &nbsp;·&nbsp; "
+            f"Faltam: <b>{restantes:,}h</b>".replace(",", ".")
+        )
+        progress_html = (
+            f"<div style='background:#E2E8F0;border-radius:4px;height:5px;"
+            f"overflow:hidden;margin:6px 0 4px;'>"
+            f"<div style='background:{bar_color};width:{pct}%;height:100%;border-radius:4px;'>"
+            f"</div></div>"
+            f"<p style='font-size:0.65rem;color:{COLOR_MUTED};margin:0 0 4px;'>"
+            f"Periodicidade: a cada {v_horas:,}h".replace(",", ".")
+            + f" &nbsp;·&nbsp; {pct}% do ciclo</p>"
+        )
+    elif tipo == "calendario":
         prox = t.get("proxima_data", "")
         per  = t.get("periodicidade_texto", "")
-        trigger = f"📅 Próxima execução: <b>{prox}</b> &nbsp;·&nbsp; {per}"
-    elif tipo == "horimetro":
-        prox_h = t.get("proxima_horas", 0)
-        per_h  = t.get("periodicidade_horas", 0)
-        trigger = f"⏱ Vencimento em <b>{prox_h}h</b> &nbsp;·&nbsp; A cada {per_h:,}h".replace(",", ".")
+        trigger = f"📅 Próxima execução: <b>{prox}</b>"
+        if per:
+            trigger += f" &nbsp;·&nbsp; {per}"
+        progress_html = ""
     else:
+        laudos = ", ".join(t.get("tipos_relatorio_base", []))
         trigger = "🔍 Decisão condicionada à interpretação dos relatórios técnicos"
+        progress_html = (
+            f"<p style='font-size:0.7rem;color:{scfg['text']};margin:4px 0 4px;"
+            f"background:{scfg['bg']};border-radius:5px;padding:3px 8px;display:inline-block;'>"
+            f"Base: {laudos}</p>" if laudos else ""
+        )
 
     st.markdown(
         f"<div style='background:{scfg['bg']};border:1px solid {scfg['border']};"
         f"border-left:4px solid {scfg['color']};border-radius:10px;"
-        f"padding:0.7rem 1rem;margin-bottom:7px;'>"
+        f"padding:0.75rem 1rem;margin-bottom:7px;'>"
         f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:flex-start;flex-wrap:wrap;gap:5px;margin-bottom:3px;'>"
+        f"align-items:flex-start;flex-wrap:wrap;gap:5px;margin-bottom:2px;'>"
         f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>{icon} {nome}</span>"
         f"<div style='display:flex;gap:5px;flex-shrink:0;'>"
         f"<span style='background:{scfg['bg']};color:{scfg['text']};"
         f"-webkit-text-fill-color:{scfg['text']};border:1px solid {scfg['border']};"
         f"font-size:0.65rem;font-weight:700;padding:2px 7px;border-radius:10px;'>"
-        f"{t.get('status','')}</span>"
+        f"{status}</span>"
         f"<span style='background:{pcor};color:#fff;-webkit-text-fill-color:#fff;"
         f"font-size:0.65rem;font-weight:700;padding:2px 7px;border-radius:10px;'>"
         f"{t.get('prioridade','')}</span>"
         f"</div></div>"
-        f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0 0 4px;'>{cat}</p>"
-        f"<p style='color:{COLOR_NAVY};font-size:0.78rem;margin:0 0 4px;line-height:1.5;'>{trigger}</p>"
-        + (f"<p style='color:#475569;font-size:0.75rem;margin:0;line-height:1.55;'>"
-           f"{desc[:180]}{'…' if len(desc) > 180 else ''}</p>" if desc else "")
+        f"<p style='color:{COLOR_MUTED};font-size:0.7rem;margin:0 0 4px;'>"
+        f"{cat}" + (f" &nbsp;·&nbsp; {label}" if label else "") + "</p>"
+        f"<p style='color:{COLOR_NAVY};font-size:0.78rem;margin:0;line-height:1.5;'>{trigger}</p>"
+        + progress_html
+        + (f"<p style='color:#475569;font-size:0.75rem;margin:4px 0 0;line-height:1.55;'>"
+           f"{desc[:200]}{'…' if len(desc) > 200 else ''}</p>" if desc else "")
         + "</div>",
         unsafe_allow_html=True,
     )
@@ -399,30 +468,41 @@ def _render_plano_manutencao(tarefas: list) -> None:
 
     st.markdown(_section("📅 Plano de Manutenção"), unsafe_allow_html=True)
 
-    calendario = [t for t in tarefas if t.get("tipo") == "calendario"]
     horimetro  = [t for t in tarefas if t.get("tipo") == "horimetro"]
+    calendario = [t for t in tarefas if t.get("tipo") == "calendario"]
     condicao   = [t for t in tarefas if t.get("tipo") == "condicao"]
 
-    def _subheader(label: str, margin_top: str = "0") -> None:
+    def _sub(label: str, mt: str = "0") -> None:
         st.markdown(
             f"<p style='font-size:0.7rem;font-weight:700;color:{COLOR_MUTED};"
-            f"text-transform:uppercase;letter-spacing:.08em;margin:{margin_top} 0 0.5rem;'>"
+            f"text-transform:uppercase;letter-spacing:.08em;margin:{mt} 0 0.5rem;'>"
             f"{label}</p>",
             unsafe_allow_html=True,
         )
 
+    if horimetro:
+        _sub("⏱ Preventivas por Horímetro")
+        for t in sorted(horimetro, key=lambda x: (
+                x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0))):
+            _render_tarefa_card(t)
+
     if calendario:
-        _subheader("📆 Por Calendário")
+        _sub("📆 Preventivas por Calendário", "0.8rem")
         for t in calendario:
             _render_tarefa_card(t)
 
-    if horimetro:
-        _subheader("⏱ Por Horímetro", "0.8rem")
-        for t in horimetro:
-            _render_tarefa_card(t)
-
     if condicao:
-        _subheader("🔍 Por Condição / Laudo Técnico", "0.8rem")
+        st.markdown(
+            f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;"
+            f"border-radius:10px;padding:0.6rem 1rem;margin:1rem 0 0.5rem;'>"
+            f"<p style='font-size:0.75rem;font-weight:700;color:#1E40AF;margin:0;'>"
+            f"🔍 Recomendações por Condição</p>"
+            f"<p style='font-size:0.72rem;color:#3B82F6;margin:3px 0 0;'>"
+            f"Estas intervenções não são automáticas por horímetro. "
+            f"A decisão depende da interpretação dos laudos técnicos.</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         for t in condicao:
             _render_tarefa_card(t)
 
