@@ -1,7 +1,7 @@
 """Supervisão Pred.IO — Clientes e Histórico."""
 import streamlit as st
 from auth import require_staff
-from sheets import get_all_clientes, get_historico_cliente, get_all_chamados
+from sheets import get_all_clientes, get_historico_cliente, get_all_chamados, cadastrar_usuario
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
 
@@ -12,12 +12,22 @@ def render() -> None:
 
     if sv_view == "cliente_historico":
         render_historico()
+    elif sv_view == "cliente_novo":
+        _render_form_novo_cliente()
     else:
         _render_lista()
 
 
 def _render_lista() -> None:
-    sv_page_header("👥 Clientes", "Histórico e status por empresa")
+    sv_page_header("👥 Clientes", "Cadastre e acompanhe os clientes da Pred.IO.")
+
+    # ── Formulário sempre visível no topo ─────────────────────────────────────
+    _form_novo_cliente_content(inline=True)
+
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:1.5rem 0;'/>",
+        unsafe_allow_html=True,
+    )
 
     clientes = get_all_clientes()
     df_todos = get_all_chamados()
@@ -248,3 +258,114 @@ def _render_relatorio_mini(row) -> None:
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         if url and url.lower() not in ("", "nan", "none"):
             st.link_button("📄", url, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FORMULÁRIO — NOVO CLIENTE (conteúdo reutilizável)
+# ═══════════════════════════════════════════════════════════════════════════════
+def _form_novo_cliente_content(inline: bool = False) -> None:
+    import hashlib
+
+    form_key = "form_novo_cliente_inline" if inline else "form_novo_cliente"
+
+    with st.form(form_key, clear_on_submit=False):
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+            f"margin:0 0 0.75rem;'>1. Empresa</p>",
+            unsafe_allow_html=True,
+        )
+        col_emp, col_nome = st.columns(2)
+        with col_emp:
+            empresa = st.text_input("Nome da empresa *", placeholder="Ex: Coca-Cola")
+        with col_nome:
+            nome = st.text_input("Nome do contato *", placeholder="Ex: João Silva")
+
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+            f"margin:0.75rem 0 0.75rem;'>2. Acesso</p>",
+            unsafe_allow_html=True,
+        )
+        col_email, col_tel = st.columns(2)
+        with col_email:
+            email = st.text_input("E-mail", placeholder="Ex: joao@empresa.com")
+        with col_tel:
+            telefone = st.text_input("Telefone", placeholder="Ex: 21999990000")
+
+        col_perfil, col_senha = st.columns(2)
+        with col_perfil:
+            perfil = st.selectbox(
+                "Perfil de acesso",
+                ["cliente", "funcionario", "admin"],
+                format_func=lambda x: {"cliente": "Cliente", "funcionario": "Funcionário", "admin": "Admin"}[x],
+            )
+        with col_senha:
+            senha = st.text_input(
+                "Senha inicial (opcional)",
+                type="password",
+                placeholder="Deixe vazio para primeiro acesso",
+                help="Se não informada, o usuário definirá a senha no primeiro login.",
+            )
+
+        st.markdown(
+            f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;"
+            f"border-radius:8px;padding:10px 14px;margin:0.5rem 0;'>"
+            f"<p style='color:#1E40AF;font-size:0.82rem;margin:0;'>"
+            f"ℹ️ Se a senha ficar em branco, o usuário vai cadastrar a própria senha "
+            f"no primeiro acesso ao portal.</p></div>",
+            unsafe_allow_html=True,
+        )
+
+        submitted = st.form_submit_button("💾 Cadastrar cliente", type="primary",
+                                          use_container_width=True)
+
+    if submitted:
+        erros = []
+        if not empresa.strip():
+            erros.append("Informe o nome da empresa.")
+        if not nome.strip():
+            erros.append("Informe o nome do contato.")
+        if not email.strip() and not telefone.strip():
+            erros.append("Informe ao menos e-mail ou telefone para o login.")
+        if erros:
+            for e in erros:
+                st.warning(e)
+            return
+
+        senha_hash = hashlib.sha256(senha.encode("utf-8")).hexdigest() if senha.strip() else ""
+
+        ok = cadastrar_usuario(
+            empresa=empresa.strip(),
+            email=email.strip().lower(),
+            telefone=telefone.strip(),
+            perfil=perfil,
+            nome=nome.strip(),
+            senha_hash=senha_hash,
+        )
+
+        if ok:
+            st.success(
+                f"✅ Cliente **{empresa.strip()}** cadastrado com sucesso! "
+                + ("O usuário deverá definir a senha no primeiro acesso."
+                   if not senha.strip() else "Acesso liberado com a senha informada.")
+            )
+            st.balloons()
+            if inline:
+                st.session_state.pop("sv_show_form_cliente", None)
+            else:
+                st.session_state["sv_view"] = "clientes"
+            st.rerun()
+        else:
+            st.error(
+                "Erro ao cadastrar o cliente. Verifique se a aba 'Usuarios' existe "
+                "na planilha e se as credenciais têm permissão de escrita."
+            )
+
+
+def _render_form_novo_cliente() -> None:
+    sv_page_header(
+        "➕ Novo Cliente",
+        subtitle="Cadastre um cliente para acessar o Portal de Confiabilidade.",
+        back_label="Clientes",
+        back_view="clientes",
+    )
+    _form_novo_cliente_content(inline=False)

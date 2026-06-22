@@ -129,6 +129,9 @@ def main() -> None:
 
 def _render_supervisao() -> None:
     """Roteador interno da Supervisão Pred.IO."""
+    from ui import render_sv_topnav
+    render_sv_topnav()
+
     sv_view = st.session_state.get("sv_view", "dashboard")
 
     if sv_view == "dashboard":
@@ -140,9 +143,12 @@ def _render_supervisao() -> None:
     elif sv_view == "chamado_detalhe":
         import page_sv_chamado_detalhe
         page_sv_chamado_detalhe.render()
-    elif sv_view in ("clientes", "cliente_historico"):
+    elif sv_view in ("clientes", "cliente_historico", "cliente_novo"):
         import page_sv_clientes
         page_sv_clientes.render()
+    elif sv_view in ("ativos_sv", "ativo_detalhe", "ativo_novo", "componente_novo"):
+        import page_sv_ativos
+        page_sv_ativos.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

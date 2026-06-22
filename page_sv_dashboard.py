@@ -12,65 +12,78 @@ def render() -> None:
     require_staff()
     sv_page_header("Dashboard", "Visão geral dos chamados e atividade dos clientes")
 
-    df = get_all_chamados()
+    tab_dash, tab_ativo, tab_cliente = st.tabs([
+        "Visao Geral",
+        "Cadastrar Ativo",
+        "Cadastrar Cliente",
+    ])
 
-    # ── Métricas ──────────────────────────────────────────────────────────────
-    total        = len(df)
-    abertos      = _count(df, "Status",    "Aberto")
-    criticos     = _count(df, "Prioridade","Crítica")
-    em_andamento = _count(df, "Status",    "Em andamento")
-    aguardando   = _count(df, "Status",    "Aguardando cliente")
+    with tab_ativo:
+        from page_sv_ativos import _form_novo_ativo_content
+        _form_novo_ativo_content(inline=True)
 
-    hoje = pd.Timestamp("today").strftime("%Y-%m")
-    concluidos_mes  = 0
-    clientes_ativos = 0
-    if not df.empty and "Data_Abertura" in df.columns:
-        df["_dt"] = pd.to_datetime(df["Data_Abertura"], dayfirst=True, errors="coerce")
-        concluidos_mes = len(df[
-            (df["Status"].str.lower().str.strip() == "concluído") &
-            (df["_dt"].dt.to_period("M").astype(str) == hoje)
-        ])
-        clientes_ativos = df[
-            df["Status"].str.lower().str.strip().isin(
-                ["aberto", "em andamento", "em análise", "aguardando cliente"])
-        ]["Empresa"].nunique()
+    with tab_cliente:
+        from page_sv_clientes import _form_novo_cliente_content
+        _form_novo_cliente_content(inline=True)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        sv_metric_card("🔧", "Chamados Abertos",   abertos,      "#3B82F6",
-                       f"{total} no total")
-    with c2:
-        sv_metric_card("🔴", "Críticos Ativos",    criticos,     "#EF4444",
-                       "Atenção imediata" if criticos else "Nenhum crítico")
-    with c3:
-        sv_metric_card("⚡", "Em Andamento",       em_andamento, "#0F1F3D")
+    with tab_dash:
+        df = get_all_chamados()
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        # ── Metricas ──────────────────────────────────────────────────────────
+        total        = len(df)
+        abertos      = _count(df, "Status",    "Aberto")
+        criticos     = _count(df, "Prioridade","Critica")
+        em_andamento = _count(df, "Status",    "Em andamento")
+        aguardando   = _count(df, "Status",    "Aguardando cliente")
 
-    c4, c5, c6 = st.columns(3)
-    with c4:
-        sv_metric_card("⏳", "Aguardando Cliente", aguardando,      "#D97706")
-    with c5:
-        sv_metric_card("✅", "Concluídos no Mês",  concluidos_mes,  "#10B981")
-    with c6:
-        sv_metric_card("👥", "Clientes Ativos",    clientes_ativos, "#6366F1")
+        hoje = pd.Timestamp("today").strftime("%Y-%m")
+        concluidos_mes  = 0
+        clientes_ativos = 0
+        if not df.empty and "Data_Abertura" in df.columns:
+            df["_dt"] = pd.to_datetime(df["Data_Abertura"], dayfirst=True, errors="coerce")
+            concluidos_mes = len(df[
+                (df["Status"].str.lower().str.strip() == "concluido") &
+                (df["_dt"].dt.to_period("M").astype(str) == hoje)
+            ])
+            clientes_ativos = df[
+                df["Status"].str.lower().str.strip().isin(
+                    ["aberto", "em andamento", "em analise", "aguardando cliente"])
+            ]["Empresa"].nunique()
 
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            sv_metric_card("🔧", "Chamados Abertos", abertos, "#3B82F6", f"{total} no total")
+        with c2:
+            sv_metric_card("🔴", "Criticos Ativos", criticos, "#EF4444",
+                           "Atencao imediata" if criticos else "Nenhum critico")
+        with c3:
+            sv_metric_card("⚡", "Em Andamento", em_andamento, "#0F1F3D")
 
-    # ── Chamados recentes ─────────────────────────────────────────────────────
-    st.markdown(
-        f"<h3 style='color:{COLOR_NAVY};font-size:1.1rem;font-weight:700;margin:0 0 0.75rem;'>"
-        f"Últimas Solicitações</h3>",
-        unsafe_allow_html=True,
-    )
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-    recentes = df.head(10) if not df.empty else df
-    if recentes.empty:
-        st.info("Nenhum chamado encontrado.")
-        return
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            sv_metric_card("⏳", "Aguardando Cliente", aguardando, "#D97706")
+        with c5:
+            sv_metric_card("✅", "Concluidos no Mes", concluidos_mes, "#10B981")
+        with c6:
+            sv_metric_card("👥", "Clientes Ativos", clientes_ativos, "#6366F1")
 
-    for idx, (_, row) in enumerate(recentes.iterrows()):
-        _render_chamado_card(row, idx)
+        st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+
+        # ── Chamados recentes ──────────────────────────────────────────────────
+        st.markdown(
+            f"<h3 style='color:{COLOR_NAVY};font-size:1.1rem;font-weight:700;margin:0 0 0.75rem;'>"
+            f"Ultimas Solicitacoes</h3>",
+            unsafe_allow_html=True,
+        )
+
+        recentes = df.head(10) if not df.empty else df
+        if recentes.empty:
+            st.info("Nenhum chamado encontrado.")
+        else:
+            for idx, (_, row) in enumerate(recentes.iterrows()):
+                _render_chamado_card(row, idx)
 
 
 def _count(df: pd.DataFrame, col: str, valor: str) -> int:

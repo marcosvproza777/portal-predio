@@ -592,6 +592,12 @@ def get_all_clientes() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def cadastrar_usuario(empresa: str, email: str, telefone: str,
+                      perfil: str, nome: str, senha_hash: str = "") -> bool:
+    """Adiciona um novo usuário na aba Usuarios."""
+    return append_row("Usuarios", [empresa, email, senha_hash, telefone, perfil, nome])
+
+
 def get_historico_cliente(client_id: str) -> dict:
     """Histórico completo de um cliente: chamados + relatórios."""
     chamados   = get_chamados(client_id)
@@ -623,6 +629,125 @@ def salvar_log_assistente(client_id: str, email: str, pergunta: str,
                           resposta: str, fontes: str = "") -> None:
     append_row("AssistenteLogs", [
         client_id, email, pergunta, resposta, fontes,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    ])
+
+
+# ── Ativos (supervisão) ──────────────────────────────────────────────────────
+
+def get_all_ativos_sv(filtros: dict | None = None) -> pd.DataFrame:
+    """Todos os ativos — sem filtro de cliente. Somente staff deve chamar."""
+    df = load_sheet("Ativos")
+    if df.empty:
+        return df
+    for col in ("Id", "Empresa", "Client_Id", "Planta", "Tag", "Tipo", "Modelo",
+                "Ns", "Mb", "Inversor", "Analise_Oleo", "Status", "Score",
+                "Criticidade", "Detalhes", "Observacoes_Internas", "Data", "Criado_Em"):
+        if col not in df.columns:
+            df[col] = ""
+    if filtros:
+        if filtros.get("cliente"):
+            df = df[df["Empresa"].str.strip().str.lower().str.contains(
+                filtros["cliente"].lower(), na=False)]
+        if filtros.get("planta"):
+            df = df[df["Planta"].str.strip().str.lower().str.contains(
+                filtros["planta"].lower(), na=False)]
+        if filtros.get("status"):
+            df = df[df["Status"].str.strip().str.lower() == filtros["status"].lower()]
+        if filtros.get("criticidade"):
+            df = df[df["Criticidade"].str.strip().str.lower() == filtros["criticidade"].lower()]
+    return df.reset_index(drop=True)
+
+
+_HEADERS_ATIVOS = [
+    "Id", "Empresa", "Client_Id", "Planta", "Tag", "Tipo", "Modelo",
+    "Ns", "Mb", "Inversor", "Analise_Oleo", "Status", "Score",
+    "Criticidade", "Detalhes", "Observacoes_Internas", "Data", "Criado_Em",
+]
+
+_HEADERS_COMPONENTES = [
+    "Id", "Ativo_Id", "Nome", "Tipo", "Modelo", "Ns", "Mb",
+    "Inversor", "Status", "Score", "Criticidade", "Detalhes", "Data", "Criado_Em",
+]
+
+
+def _ensure_tab_headers(tab_name: str, headers: list) -> None:
+    """Garante que a aba existe e tem cabeçalhos. Cria se necessário."""
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet(tab_name)
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(title=tab_name, rows=1000, cols=len(headers) + 2)
+            ws.append_row(headers, value_input_option="USER_ENTERED")
+            load_sheet.clear()
+            return
+        # Tab existe — verificar se tem cabeçalhos
+        first_row = ws.row_values(1)
+        if not first_row or first_row[0].strip() == "":
+            ws.insert_row(headers, index=1, value_input_option="USER_ENTERED")
+            load_sheet.clear()
+    except Exception:
+        pass
+
+
+def cadastrar_ativo_sv(dados: dict) -> str | None:
+    """Cadastra ativo principal. Retorna o ID gerado ou None em falha."""
+    _ensure_tab_headers("Ativos", _HEADERS_ATIVOS)
+    ativo_id = _gerar_id("AT")
+    ok = append_row("Ativos", [
+        ativo_id,
+        dados.get("empresa", ""),
+        dados.get("client_id", ""),
+        dados.get("planta", ""),
+        dados.get("nome", ""),
+        dados.get("tipo", ""),
+        dados.get("modelo", ""),
+        dados.get("numero_serie", ""),
+        dados.get("mb", ""),
+        dados.get("inversor_frequencia", ""),
+        dados.get("analise_oleo_aplicavel", "Não"),
+        dados.get("status", ""),
+        dados.get("score_saude", ""),
+        dados.get("criticidade", ""),
+        dados.get("recomendacao", ""),
+        dados.get("observacoes_internas", ""),
+        dados.get("ultima_atualizacao", datetime.now().strftime("%d/%m/%Y")),
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    ])
+    return ativo_id if ok else None
+
+
+def get_componentes_sv(ativo_id: str) -> pd.DataFrame:
+    """Componentes vinculados a um ativo. Somente staff deve chamar."""
+    df = load_sheet("ComponentesAtivos")
+    if df.empty:
+        return df
+    if "Ativo_Id" not in df.columns:
+        return pd.DataFrame()
+    return df[
+        df["Ativo_Id"].astype(str).str.strip() == str(ativo_id).strip()
+    ].reset_index(drop=True)
+
+
+def cadastrar_componente_sv(dados: dict) -> bool:
+    """Cadastra componente vinculado a um ativo principal."""
+    _ensure_tab_headers("ComponentesAtivos", _HEADERS_COMPONENTES)
+    comp_id = _gerar_id("COMP")
+    return append_row("ComponentesAtivos", [
+        comp_id,
+        dados.get("ativo_id", ""),
+        dados.get("nome", ""),
+        dados.get("tipo", ""),
+        dados.get("modelo", ""),
+        dados.get("numero_serie", ""),
+        dados.get("mb", ""),
+        dados.get("inversor_frequencia", ""),
+        dados.get("status", ""),
+        dados.get("score_saude", ""),
+        dados.get("criticidade", ""),
+        dados.get("recomendacao", ""),
+        dados.get("ultima_atualizacao", datetime.now().strftime("%d/%m/%Y")),
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
     ])
 
