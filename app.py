@@ -98,8 +98,8 @@ def main() -> None:
     )
 
     tab_farois, tab_ativos, tab_rel, tab_assist, tab_cham = st.tabs([
-        "🏭  Painel de Ativos",
-        "⚙️  Ativos Monitorados",
+        "📊  Condição dos Ativos",
+        "⚙️  Meus Equipamentos",
         "📁  Meus Relatórios",
         "🤖  Assistente Técnico",
         "🔧  Chamados Técnicos",

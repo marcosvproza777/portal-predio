@@ -118,7 +118,7 @@ def _load(client_id: str):
 
 def render() -> None:
     page_header(
-        "⚙️ Ativos Monitorados",
+        "⚙️ Meus Equipamentos",
         "Acompanhe o status dos equipamentos monitorados pela Pred.IO.",
     )
 
