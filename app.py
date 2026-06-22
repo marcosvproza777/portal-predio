@@ -97,8 +97,9 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    tab_farois, tab_rel, tab_assist, tab_cham = st.tabs([
+    tab_farois, tab_ativos, tab_rel, tab_assist, tab_cham = st.tabs([
         "🏭  Painel de Ativos",
+        "⚙️  Ativos Monitorados",
         "📁  Meus Relatórios",
         "🤖  Assistente Técnico",
         "🔧  Chamados Técnicos",
@@ -107,6 +108,10 @@ def main() -> None:
     with tab_farois:
         import page_farois
         page_farois.render(logo_b64)
+
+    with tab_ativos:
+        import page_ativos
+        page_ativos.render()
 
     with tab_rel:
         import page_relatorios
