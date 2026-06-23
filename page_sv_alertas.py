@@ -2,6 +2,7 @@
 import streamlit as st
 from auth import require_staff
 from sheets import get_all_clientes, get_alertas_sv, add_alerta_sv, delete_alerta_sv
+from assistant import send_whatsapp
 from ui import sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
 
 _PRIO_OPTS = ["Crítica", "Alta", "Média", "Baixa"]
@@ -67,7 +68,28 @@ def render() -> None:
 
             ok = add_alerta_sv(client_id, empresa_sel, titulo.strip(), descricao.strip(), prioridade, whatsapp)
             if ok:
-                st.success(f"✅ Alerta publicado para {empresa_sel}.")
+                numero = whatsapp.strip()
+                if numero:
+                    msg_wa = (
+                        f"*🔔 Alerta Pred.IO — {empresa_sel}*\n\n"
+                        f"*{titulo.strip()}*\n"
+                        + (f"{descricao.strip()}\n" if descricao.strip() else "")
+                        + f"\nPrioridade: {prioridade}"
+                    )
+                    enviado = send_whatsapp(
+                        numero, msg_wa,
+                        contexto={"empresa": empresa_sel, "client_id": client_id, "tipo": "alerta_sv"},
+                    )
+                    if enviado:
+                        st.success(f"✅ Alerta publicado e WhatsApp enviado para {numero}.")
+                    else:
+                        st.success(f"✅ Alerta publicado para {empresa_sel}.")
+                        st.warning(
+                            "WhatsApp não enviado — configure a variável **N8N_WHATSAPP_WEBHOOK_URL** "
+                            "no Render com a URL do seu webhook (n8n, Z-API, Evolution API etc.)."
+                        )
+                else:
+                    st.success(f"✅ Alerta publicado para {empresa_sel}.")
                 st.rerun()
             else:
                 st.error("Erro ao publicar. Verifique as credenciais do Google Sheets.")

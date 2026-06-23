@@ -43,6 +43,32 @@ def call_assistant(client_id: str, email: str, empresa: str, pergunta: str) -> t
         return f"Erro inesperado ao contatar o assistente: {e}", ""
 
 
+def send_whatsapp(numero: str, mensagem: str, contexto: dict | None = None) -> bool:
+    """Envia mensagem WhatsApp via webhook configurado em N8N_WHATSAPP_WEBHOOK_URL.
+
+    Payload enviado ao webhook:
+      { "numero": "5511999999999", "mensagem": "...", "contexto": {...} }
+
+    O webhook n8n (ou qualquer outra API) recebe e despacha pelo WhatsApp.
+    Retorna True se o webhook respondeu 2xx, False caso contrário.
+    """
+    webhook_url = os.environ.get("N8N_WHATSAPP_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False  # não configurado — falha silenciosa, aviso tratado pelo chamador
+
+    payload = {
+        "numero":   numero.strip(),
+        "mensagem": mensagem.strip(),
+        "contexto": contexto or {},
+        "timestamp": datetime.now().isoformat(),
+    }
+    try:
+        resp = requests.post(webhook_url, json=payload, timeout=15)
+        return resp.status_code < 300
+    except Exception:
+        return False
+
+
 CRITICAL_KEYWORDS = [
     "parada", "parou", "travou", "quebrou", "explosão", "vazamento",
     "incêndio", "risco", "urgente", "emergência", "crítico", "falha grave",
