@@ -396,6 +396,65 @@ def get_ativos(client_id: str) -> pd.DataFrame:
     return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
 
 
+# ── Horímetros ───────────────────────────────────────────────────────────────
+
+def get_horimetro(ativo_id: str) -> int | None:
+    """Retorna o horímetro persistido de um ativo. None se não houver registro."""
+    df = load_sheet("Horimetros")
+    if df.empty or "Ativo_Id" not in df.columns:
+        return None
+    match = df[df["Ativo_Id"].astype(str).str.strip() == str(ativo_id).strip()]
+    if match.empty:
+        return None
+    try:
+        return int(float(str(match.iloc[-1]["Horimetro"])))
+    except Exception:
+        return None
+
+
+def save_horimetro(ativo_id: str, horimetro: int) -> bool:
+    """Salva ou atualiza o horímetro de um ativo na aba Horimetros."""
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("Horimetros")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(title="Horimetros", rows=1000, cols=5)
+            ws.append_row(
+                ["Ativo_Id", "Horimetro", "Atualizado_Em"],
+                value_input_option="USER_ENTERED",
+            )
+        headers = ws.row_values(1)
+        if not headers or "Ativo_Id" not in headers:
+            ws.insert_row(
+                ["Ativo_Id", "Horimetro", "Atualizado_Em"],
+                index=1,
+                value_input_option="USER_ENTERED",
+            )
+            headers = ws.row_values(1)
+
+        id_col = headers.index("Ativo_Id") + 1
+        h_col  = headers.index("Horimetro") + 1
+        dt_col = headers.index("Atualizado_Em") + 1
+
+        all_ids = ws.col_values(id_col)
+        for row_num, v in enumerate(all_ids, start=1):
+            if row_num == 1:
+                continue
+            if str(v).strip() == str(ativo_id).strip():
+                ws.update_cell(row_num, h_col,  str(horimetro))
+                ws.update_cell(row_num, dt_col, agora)
+                load_sheet.clear()
+                return True
+
+        ws.append_row([ativo_id, horimetro, agora], value_input_option="USER_ENTERED")
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
 # ── Chamados (cliente) ────────────────────────────────────────────────────────
 
 def abrir_chamado(client_id: str, email: str, titulo: str, descricao: str,

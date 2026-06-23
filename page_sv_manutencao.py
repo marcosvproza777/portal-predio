@@ -10,6 +10,7 @@ from ui import (
     sv_page_header,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
+from sheets import get_horimetro, save_horimetro
 
 # ── Constantes do formulário ──────────────────────────────────────────────────
 _CATEGORIAS = [
@@ -41,10 +42,23 @@ _MOCK_ATIVOS_PLANO = [
 ]
 
 
+def _do_save_horimetro(ativo_id: str) -> None:
+    """Callback on_change: persiste o horímetro no Sheets e exibe toast."""
+    key   = f"h_sv_{ativo_id}"
+    h_novo = st.session_state.get(key, 0)
+    ok = save_horimetro(ativo_id, h_novo)
+    if ok:
+        st.toast(f"✅ Horímetro salvo: {h_novo:,} h", icon="✅")
+
+
 def _get_h(ativo: dict) -> int:
-    """Retorna horímetro atual do ativo — usa session_state se já editado."""
+    """Retorna horímetro: session_state → Sheets → valor padrão do ativo."""
     ativo_id = ativo.get("id", ativo.get("nome", ""))
-    return st.session_state.get(f"h_sv_{ativo_id}", ativo.get("horimetro", 0))
+    key = f"h_sv_{ativo_id}"
+    if key in st.session_state:
+        return st.session_state[key]
+    h = get_horimetro(ativo_id)
+    return h if h is not None else ativo.get("horimetro", 0)
 
 
 def _ativo_com_h(ativo: dict) -> dict:
@@ -122,7 +136,12 @@ def _render_ativo_section(ativo: dict) -> None:
     planta   = ativo.get("planta", "")
     tag      = ativo.get("tag", "")
     plano    = ativo.get("plano", [])
-    h_default = ativo.get("horimetro", 0)
+    key = f"h_sv_{ativo_id}"
+    if key not in st.session_state:
+        h_sheets = get_horimetro(ativo_id)
+        h_default = h_sheets if h_sheets is not None else ativo.get("horimetro", 0)
+    else:
+        h_default = st.session_state[key]
 
     with st.expander(f"⚙️  {nome}  —  {empresa}", expanded=True):
         meta = []
@@ -143,8 +162,10 @@ def _render_ativo_section(ativo: dict) -> None:
                 min_value=0,
                 value=h_default,
                 step=10,
-                key=f"h_sv_{ativo_id}",
-                help="Altere para recalcular automaticamente os status do plano de manutenção.",
+                key=key,
+                on_change=_do_save_horimetro,
+                args=(ativo_id,),
+                help="Altere e pressione Enter para salvar.",
             )
 
         # Injeta horímetro atualizado em todas as tarefas do plano
