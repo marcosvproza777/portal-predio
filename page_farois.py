@@ -675,12 +675,21 @@ def _build_pontos_atencao(client_id: str) -> list:
 def _build_proximas_acoes() -> list:
     """Calcula próximas ações usando o horímetro real salvo no Sheets."""
     try:
-        from page_ativos import _PLANO_MOCK_COMPRESSOR, _HORIMETRO_ATUAL_MOCK, _pm_calc_status, _norm
+        from page_ativos import _PLANO_MOCK_COMPRESSOR, _HORIMETRO_ATUAL_MOCK, _pm_calc_status, _norm, _MOCK
         from sheets import get_horimetro
         h = get_horimetro("AT-2026-001")
         if h is None:
             h = _HORIMETRO_ATUAL_MOCK
         plano = [{**t, "horimetro_atual": h} for t in _PLANO_MOCK_COMPRESSOR]
+
+        # Identificação do ativo principal
+        ativo       = _MOCK[0] if _MOCK else {}
+        ativo_tag   = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
+        ativo_model = str(ativo.get("modelo", "")).strip()
+        ativo_ns    = str(ativo.get("numero_serie", "")).strip()
+        ativo_label = f"{ativo_tag} {ativo_model}".strip()
+        ativo_id    = ativo_ns if ativo_ns and ativo_ns.lower() not in ("", "nan") else ativo_tag
+
         horimetro  = sorted(
             [t for t in plano if t.get("tipo") == "horimetro"],
             key=lambda x: x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0),
@@ -698,15 +707,100 @@ def _build_proximas_acoes() -> list:
                 prazo    = t.get("proxima_data", "")
                 urgencia = "normal"
             acoes.append({
-                "nome":     t.get("nome", ""),
-                "prazo":    prazo,
-                "tipo":     "Preventiva por horímetro" if tipo_t == "horimetro"
-                            else "Preventiva por calendário",
-                "urgencia": urgencia,
+                "nome":        t.get("nome", ""),
+                "prazo":       prazo,
+                "tipo":        "Preventiva por horímetro" if tipo_t == "horimetro"
+                               else "Preventiva por calendário",
+                "urgencia":    urgencia,
+                "ativo_tag":   ativo_tag,
+                "ativo_model": ativo_model,
+                "ativo_ns":    ativo_ns,
+                "ativo_label": ativo_label,
+                "ativo_id":    ativo_id,
             })
         return acoes
     except Exception:
         return []
+
+
+def _build_componentes_alarme(client_id: str) -> list:
+    """Componentes em Crítico ou Atenção com identificação completa (nome, modelo, NS, ativo pai)."""
+    try:
+        from page_ativos import _MOCK
+        alarmes = []
+        for ativo in _MOCK:
+            ativo_tag   = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
+            ativo_ns    = str(ativo.get("numero_serie", "")).strip()
+            ativo_model = str(ativo.get("modelo", "")).strip()
+            ativo_id = f"{ativo_tag} {ativo_model}".strip()
+            if ativo_ns and ativo_ns.lower() not in ("", "nan"):
+                ativo_id += f" — NS: {ativo_ns}"
+            else:
+                ativo_id += f" (tag: {ativo_tag})"
+            for comp in ativo.get("componentes", []):
+                cfg = get_status_cfg(str(comp.get("Status", "")))
+                if cfg["key"] not in ("Crítico", "Atenção"):
+                    continue
+                cns  = str(comp.get("numero_serie", "")).strip()
+                cmod = str(comp.get("modelo", "")).strip()
+                alarmes.append({
+                    "nome":         str(comp.get("nome", "")).strip(),
+                    "modelo":       cmod,
+                    "ns":           cns if cns and cns.lower() not in ("", "nan") else None,
+                    "tag":          ativo_tag,
+                    "status":       cfg["key"],
+                    "status_dot":   cfg["dot"],
+                    "status_label": cfg["label"],
+                    "ativo_id":     ativo_id,
+                })
+        priority = {"Crítico": 0, "Atenção": 1}
+        return sorted(alarmes, key=lambda x: priority.get(x["status"], 2))
+    except Exception:
+        return []
+
+
+def _build_resumo_tecnico(client_id: str) -> str:
+    """Resumo técnico dinâmico com identificação de ativos (NS ou tag) e componentes críticos."""
+    try:
+        from page_ativos import _MOCK, _HORIMETRO_ATUAL_MOCK
+        from sheets import get_horimetro
+        parts = []
+        for ativo in _MOCK:
+            tag     = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
+            modelo  = str(ativo.get("modelo", "")).strip()
+            ns      = str(ativo.get("numero_serie", "")).strip()
+            status  = str(ativo.get("Status", "")).strip()
+            score   = ativo.get("Score", "—")
+            try:
+                h = get_horimetro("AT-2026-001") or _HORIMETRO_ATUAL_MOCK
+            except Exception:
+                h = _HORIMETRO_ATUAL_MOCK
+            id_label = (
+                f"NS: {ns}" if ns and ns.lower() not in ("", "nan") else f"tag: {tag}"
+            )
+            label = f"{tag} {modelo}".strip()
+            criticos = [c for c in ativo.get("componentes", [])
+                        if get_status_cfg(str(c.get("Status", "")))["key"] == "Crítico"]
+            texto = (
+                f"{label} ({id_label}) — Status: {status}, "
+                f"Score de saúde: {score}/100, Horímetro: {h:,}h.".replace(",", ".")
+            )
+            if criticos:
+                comp_parts = []
+                for c in criticos:
+                    cns   = str(c.get("numero_serie", "")).strip()
+                    cmod  = str(c.get("modelo", "")).strip()
+                    cnome = str(c.get("nome", "")).strip()
+                    cid   = f"NS: {cns}" if cns and cns.lower() not in ("", "nan") else f"tag: {tag}"
+                    comp_parts.append(f"{cnome} ({cmod}, {cid})" if cmod else f"{cnome} ({cid})")
+                texto += f" Componente(s) crítico(s): {', '.join(comp_parts)}."
+            rec = str(ativo.get("recomendacao", "")).strip()
+            if rec:
+                texto += f" {rec}"
+            parts.append(texto)
+        return " ".join(parts) if parts else _EXEC_MOCK.get("resumo_tecnico", "")
+    except Exception:
+        return _EXEC_MOCK.get("resumo_tecnico", "")
 
 
 def _build_relatorios_recentes(client_id: str) -> list:
@@ -731,6 +825,7 @@ def _render_visao_executiva(empresa: str) -> None:
     client_id = current_client_id()
     d = dict(_EXEC_MOCK)
     d["pontos_atencao"]        = _build_pontos_atencao(client_id)
+    d["componentes_alarme"]    = _build_componentes_alarme(client_id)
     proximas                   = _build_proximas_acoes()
     d["proximas_acoes"]        = proximas
     d["manutencoes_proximas"]  = len(proximas)
@@ -745,6 +840,18 @@ def _render_visao_executiva(empresa: str) -> None:
     d["relatorios_recentes_n"] = len(relatorios)
     d["relatorios_desc"]       = (f"{len(relatorios)} relatório(s) disponível(is)"
                                   if relatorios else "Nenhum relatório publicado ainda")
+    d["resumo_tecnico"]        = _build_resumo_tecnico(client_id)
+
+    alarmes = d["componentes_alarme"]
+    n_alarme = len(alarmes)
+    n_critico = sum(1 for a in alarmes if a["status"] == "Crítico")
+    d["componentes_criticos"]      = n_critico
+    d["componentes_criticos_desc"] = (
+        ", ".join(
+            f"{a['nome']}" + (f" (NS: {a['ns']})" if a.get("ns") else f" (tag: {a['tag']})")
+            for a in alarmes if a["status"] == "Crítico"
+        )[:120] or "Nenhum componente crítico"
+    )
 
     st.markdown(
         f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1.1rem;"
@@ -757,6 +864,10 @@ def _render_visao_executiva(empresa: str) -> None:
     _render_exec_cards(d)
 
     st.markdown("<div style='height:0.9rem'></div>", unsafe_allow_html=True)
+
+    if alarmes:
+        _render_componentes_alarme(d)
+        st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -844,6 +955,64 @@ def _render_exec_cards(d: dict) -> None:
             )
 
 
+def _render_componentes_alarme(d: dict) -> None:
+    """Componentes em Crítico/Atenção com nome, modelo, NS e ativo pai."""
+    alarmes = d.get("componentes_alarme", [])
+    if not alarmes:
+        return
+
+    itens_html = ""
+    for a in alarmes:
+        dot   = a["status_dot"]
+        label = a["status_label"]
+        bt    = "#000" if dot == "#F59E0B" else "#fff"
+        ns_html = (
+            f"<span style='background:#F1F5F9;color:#475569;-webkit-text-fill-color:#475569;"
+            f"font-size:0.72rem;padding:1px 7px;border-radius:6px;font-weight:600;'>"
+            f"NS: {a['ns']}</span>"
+        ) if a.get("ns") else (
+            f"<span style='background:#F1F5F9;color:#64748B;-webkit-text-fill-color:#64748B;"
+            f"font-size:0.72rem;padding:1px 7px;border-radius:6px;'>"
+            f"tag: {a['tag']}</span>"
+        )
+        mod_html = (
+            f"<span style='background:#F1F5F9;color:#475569;-webkit-text-fill-color:#475569;"
+            f"font-size:0.72rem;padding:1px 7px;border-radius:6px;'>"
+            f"Modelo: {a['modelo']}</span>"
+        ) if a.get("modelo") else ""
+
+        itens_html += (
+            f"<div style='display:flex;align-items:flex-start;gap:10px;"
+            f"padding:9px 0;border-bottom:1px solid {dot}22;'>"
+            f"<div style='width:10px;height:10px;border-radius:50%;flex-shrink:0;"
+            f"background:{dot};margin-top:4px;'></div>"
+            f"<div style='flex:1;min-width:0;'>"
+            f"<div style='display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px;'>"
+            f"<span style='font-weight:800;color:{COLOR_NAVY};font-size:0.9rem;'>{a['nome']}</span>"
+            f"<span style='background:{dot};color:{bt};-webkit-text-fill-color:{bt};"
+            f"font-size:0.62rem;font-weight:700;padding:2px 9px;border-radius:10px;"
+            f"letter-spacing:.04em;'>{label}</span>"
+            f"</div>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px;'>"
+            f"{ns_html}{mod_html}"
+            f"</div>"
+            f"<span style='font-size:0.73rem;color:{COLOR_MUTED};'>"
+            f"⚙️ Ativo: <b style='color:{COLOR_NAVY};'>{a['ativo_id']}</b></span>"
+            f"</div></div>"
+        )
+
+    st.markdown(
+        f"<div style='background:#FEF2F2;border:1px solid #FCA5A5;"
+        f"border-left:5px solid #EF4444;border-radius:0 12px 12px 0;"
+        f"padding:1rem 1.25rem;'>"
+        f"<p style='font-weight:700;color:#991B1B;font-size:0.92rem;margin:0 0 0.75rem;'>"
+        f"🔴 Componentes em Alarme</p>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_pontos_atencao(d: dict) -> None:
     PRIO_COR = {
         "Crítica": "#EF4444",
@@ -900,29 +1069,74 @@ def _render_proximas_acoes(d: dict) -> None:
         "normal":  {"cor": "#3B82F6", "bg": "#EFF6FF"},
     }
 
-    acoes      = d.get("proximas_acoes", [])
-    itens_html = ""
-    for ac in acoes:
-        ucfg = URGENCIA.get(ac.get("urgencia", "normal"), URGENCIA["normal"])
-        itens_html += (
-            f"<div style='display:flex;justify-content:space-between;"
-            f"align-items:flex-start;padding:7px 0;border-bottom:1px solid {COLOR_BORDER};gap:8px;'>"
-            f"<div style='flex:1;min-width:0;'>"
-            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.83rem;margin:0 0 2px;"
-            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{ac['nome']}</p>"
-            f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0;'>{ac['tipo']}</p>"
-            f"</div>"
-            f"<span style='background:{ucfg['bg']};color:{ucfg['cor']};"
-            f"-webkit-text-fill-color:{ucfg['cor']};border:1px solid {ucfg['cor']}55;"
-            f"font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:8px;"
-            f"white-space:nowrap;flex-shrink:0;'>{ac['prazo']}</span>"
-            f"</div>"
-        )
+    acoes = d.get("proximas_acoes", [])
+
     if not acoes:
-        itens_html = (
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:12px;padding:1rem 1.25rem;'>"
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.75rem;'>"
+            f"🗓️ Próximas Ações</p>"
             f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>"
             f"Nenhuma manutenção preventiva próxima.</p>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        if st.button("📅 Ver plano completo →", key="exec_ver_plano"):
+            st.session_state["portal_page"] = "manutencao"
+            st.rerun()
+        return
+
+    # Agrupa ações por máquina (ativo_label) preservando ordem
+    grupos: dict = {}
+    for ac in acoes:
+        key = ac.get("ativo_label", "Equipamento")
+        if key not in grupos:
+            grupos[key] = []
+        grupos[key].append(ac)
+
+    itens_html = ""
+    for ativo_label, lista in grupos.items():
+        ac0     = lista[0]
+        ativo_ns    = ac0.get("ativo_ns", "")
+        ativo_tag   = ac0.get("ativo_tag", "")
+        ns_valid    = ativo_ns and ativo_ns.lower() not in ("", "nan")
+        id_pill = (
+            f"<span style='font-size:0.67rem;font-weight:700;color:#1E40AF;"
+            f"-webkit-text-fill-color:#1E40AF;background:#EFF6FF;"
+            f"padding:1px 7px;border-radius:6px;margin-left:5px;'>NS: {ativo_ns}</span>"
+            if ns_valid else
+            f"<span style='font-size:0.67rem;color:#64748B;-webkit-text-fill-color:#64748B;"
+            f"background:#F1F5F9;padding:1px 7px;border-radius:6px;margin-left:5px;'>"
+            f"tag: {ativo_tag}</span>"
+        )
+        # Cabeçalho da máquina
+        itens_html += (
+            f"<div style='background:{COLOR_NAVY}10;border-radius:7px;"
+            f"padding:5px 10px;margin-bottom:4px;display:flex;align-items:center;gap:3px;flex-wrap:wrap;'>"
+            f"<span style='font-size:0.75rem;font-weight:700;color:{COLOR_NAVY};'>⚙️ {ativo_label}</span>"
+            f"{id_pill}"
+            f"</div>"
+        )
+        for ac in lista:
+            ucfg = URGENCIA.get(ac.get("urgencia", "normal"), URGENCIA["normal"])
+            itens_html += (
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:flex-start;padding:6px 0 6px 12px;"
+                f"border-bottom:1px solid {COLOR_BORDER};gap:8px;'>"
+                f"<div style='flex:1;min-width:0;'>"
+                f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.83rem;margin:0 0 2px;"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{ac['nome']}</p>"
+                f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0;'>{ac['tipo']}</p>"
+                f"</div>"
+                f"<span style='background:{ucfg['bg']};color:{ucfg['cor']};"
+                f"-webkit-text-fill-color:{ucfg['cor']};border:1px solid {ucfg['cor']}55;"
+                f"font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:8px;"
+                f"white-space:nowrap;flex-shrink:0;'>{ac['prazo']}</span>"
+                f"</div>"
+            )
+        itens_html += "<div style='height:6px'></div>"
 
     st.markdown(
         f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
