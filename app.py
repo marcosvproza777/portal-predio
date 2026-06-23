@@ -96,6 +96,9 @@ def main() -> None:
     elif portal_page == "alertas":
         import page_alertas
         page_alertas.render()
+    elif portal_page == "biblioteca":
+        import page_biblioteca
+        page_biblioteca.render()
     elif portal_page == "preferencias":
         import page_preferencias_notificacao
         page_preferencias_notificacao.render()
@@ -136,6 +139,9 @@ def _render_supervisao() -> None:
     elif sv_view == "notificacoes_sv":
         import page_sv_notificacoes
         page_sv_notificacoes.render()
+    elif sv_view == "biblioteca_sv":
+        import page_sv_biblioteca
+        page_sv_biblioteca.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

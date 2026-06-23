@@ -485,6 +485,95 @@ def delete_alerta_sv(alerta_id: str) -> bool:
     return delete_row_by_id("AlertasSV", "Id", alerta_id)
 
 
+# ── Biblioteca Técnica ────────────────────────────────────────────────────────
+
+_HEADERS_BIBLIOTECA = [
+    "Id", "Titulo", "Tipo_Documento", "Cliente_Id", "Planta_Id",
+    "Ativo_Id", "Componente_Id", "Fabricante", "Modelo", "Numero_Serie",
+    "Arquivo_Url", "Arquivo_Nome", "Resumo", "Palavras_Chave",
+    "Visibilidade", "Status", "Observacoes_Internas",
+    # Campos futuros para RAG/IA (não implementados agora)
+    "Texto_Extraido", "Embedding_Id", "Data_Indexacao",
+    "Indexado_Para_IA", "Fonte_Original",
+    "Created_At", "Updated_At",
+]
+
+_VIS_INTERNO = "Apenas equipe Pred.IO"
+
+
+def get_documentos_tecnicos(
+    client_id: str | None = None,
+    staff: bool = False,
+) -> pd.DataFrame:
+    """Retorna documentos da Biblioteca Técnica.
+
+    SEGURANÇA:
+      - client_id SEMPRE da sessão, nunca do front-end.
+      - Para clientes (staff=False): exclui documentos internos e de outros clientes.
+      - Para staff (staff=True): retorna todos os documentos.
+      - Nunca inclui Observacoes_Internas na resposta ao cliente (chamador deve omitir).
+    """
+    df = load_sheet("BibliotecaTecnica")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_BIBLIOTECA:
+        if col not in df.columns:
+            df[col] = ""
+
+    if staff:
+        return df.reset_index(drop=True)
+
+    # Filtros de segurança para clientes
+    df = df[df["Status"].str.strip() == "Ativo"]
+    df = df[df["Visibilidade"].str.strip() != _VIS_INTERNO]
+
+    if client_id:
+        cid = client_id.strip().lower()
+        mask_publico  = df["Visibilidade"].str.strip() == "Público para clientes autorizados"
+        mask_cliente  = df["Cliente_Id"].str.strip().str.lower() == cid
+        df = df[mask_publico | mask_cliente]
+
+    # Nunca expõe observações internas para clientes
+    if "Observacoes_Internas" in df.columns:
+        df = df.drop(columns=["Observacoes_Internas"])
+
+    return df.reset_index(drop=True)
+
+
+def add_documento_tecnico(dados: dict) -> str | None:
+    """Cadastra novo documento técnico. Retorna o Id criado ou None em caso de erro."""
+    _ensure_tab_headers("BibliotecaTecnica", _HEADERS_BIBLIOTECA)
+    doc_id = _gerar_id("DOC")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("BibliotecaTecnica", [
+        doc_id,
+        dados.get("titulo",               ""),
+        dados.get("tipo_documento",        ""),
+        dados.get("cliente_id",            ""),
+        dados.get("planta_id",             ""),
+        dados.get("ativo_id",              ""),
+        dados.get("componente_id",         ""),
+        dados.get("fabricante",            ""),
+        dados.get("modelo",                ""),
+        dados.get("numero_serie",          ""),
+        dados.get("arquivo_url",           ""),
+        dados.get("arquivo_nome",          ""),
+        dados.get("resumo",                ""),
+        dados.get("palavras_chave",        ""),
+        dados.get("visibilidade",          "Vinculado a cliente específico"),
+        dados.get("status",                "Ativo"),
+        dados.get("observacoes_internas",  ""),
+        # Campos futuros RAG (vazios agora)
+        "", "", "", "", "",
+        now, now,
+    ])
+    return doc_id if ok else None
+
+
+def delete_documento_tecnico(doc_id: str) -> bool:
+    return delete_row_by_id("BibliotecaTecnica", "Id", doc_id)
+
+
 # ── Horímetros ───────────────────────────────────────────────────────────────
 
 def get_horimetro(ativo_id: str) -> int | None:

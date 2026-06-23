@@ -2,20 +2,17 @@
 Dados mockados estruturados para o Assistente Técnico Pred.IO.
 
 SEGURANÇA:
-  - Dados são indexados por client_id (vem da sessão, nunca do front-end).
-  - Documentos internos da Pred.IO NÃO existem aqui — estes dados são
-    os dados AUTORIZADOS que o cliente pode ver.
-  - Observações internas NÃO aparecem nesta camada.
+  - Dados indexados por client_id (sempre da sessão, nunca do front-end).
+  - Documentos internos ("Apenas equipe Pred.IO") NÃO estão nesta camada
+    — são filtrados por get_documentos_tecnicos() antes de chegar aqui.
+  - Observações internas NÃO existem nesta camada.
 
 SUBSTITUIÇÃO:
-  Quando os dados reais estiverem disponíveis via Google Sheets, substituir
-  o retorno de get_client_context() em assistant_engine.py pelos dados reais.
-  O formato do dict deve permanecer o mesmo para o JS continuar funcionando.
+  Quando sheets.get_documentos_tecnicos() estiver com dados reais,
+  o campo "documentos" de get_mock_context() é ignorado — veja
+  assistant_engine.get_client_context().
 """
 
-# ---------------------------------------------------------------------------
-# Estrutura padrão (fallback para clientes sem dados específicos cadastrados)
-# ---------------------------------------------------------------------------
 _DEFAULT_CONTEXT: dict = {
     "empresa": "Cliente Pred.IO",
     "ativos": [
@@ -92,25 +89,36 @@ _DEFAULT_CONTEXT: dict = {
             "data": "15/03/2026",
         },
     ],
+    # Documentos mock — Documento 3 (interno) NÃO aparece aqui.
+    # Em produção, get_documentos_tecnicos(client_id) filtra "Apenas equipe Pred.IO".
     "documentos": [
         {
             "id": "doc-001",
-            "titulo": "Manual do Compressor de Parafuso 200 VLD",
-            "tipo": "Manual",
+            "titulo": "Manual Técnico - Unidade Compressora Parafuso 200 VLD",
+            "tipo_documento": "Manual técnico",
+            "fabricante": "",
+            "modelo": "200 VLD",
             "ativo": "Unidade Compressora Parafuso 200 VLD",
+            "resumo": "Manual técnico de referência para operação, manutenção e especificações da unidade compressora.",
+            "palavras_chave": "compressor, 200 VLD, unidade compressora, manual, manutenção",
+            "arquivo_url": "/mock/manual-unidade-compressora-200-vld.pdf",
+            "arquivo_nome": "manual-unidade-compressora-200-vld.pdf",
         },
         {
             "id": "doc-002",
-            "titulo": "Procedimento de Análise de Óleo",
-            "tipo": "Procedimento",
-            "ativo": "Unidade Compressora Parafuso 200 VLD",
+            "titulo": "Datasheet - Motor WEG 350 CV",
+            "tipo_documento": "Datasheet",
+            "fabricante": "WEG",
+            "modelo": "350 CV",
+            "ativo": "Motor WEG 350 CV",
+            "resumo": "Documento técnico com informações do motor WEG 350 CV.",
+            "palavras_chave": "motor, WEG, 350 CV, datasheet, inversor",
+            "arquivo_url": "/mock/datasheet-motor-weg-350cv.pdf",
+            "arquivo_nome": "datasheet-motor-weg-350cv.pdf",
         },
-        {
-            "id": "doc-003",
-            "titulo": "Guia de Inspeção Preventiva",
-            "tipo": "Guia",
-            "ativo": "Unidade Compressora Parafuso 200 VLD",
-        },
+        # DOC-003 é interno ("Apenas equipe Pred.IO") — NÃO aparece aqui.
+        # Validação: buscar por "procedimento interno analise vibracao" não deve
+        # retornar doc algum para o cliente, pois o doc está excluído desde a origem.
     ],
     "chamados": [
         {
@@ -129,7 +137,6 @@ _DEFAULT_CONTEXT: dict = {
             "data": "10/06/2026",
         }
     ],
-    # None = sem especificação cadastrada → consultar manual / abrir chamado
     "especificacoes": {
         "oleo": None,
     },
@@ -140,14 +147,22 @@ def get_mock_context(client_id: str) -> dict:
     """
     Retorna o contexto mockado para um client_id.
 
-    SEGURANÇA: client_id SEMPRE vem da sessão do servidor.
-    Se não houver dados específicos para o cliente, retorna o contexto padrão.
-    Nunca expõe dados de outro cliente.
-
-    Quando os dados reais estiverem no Sheets, substituir por:
-      return _build_context_from_sheets(client_id)
+    SEGURANÇA: client_id SEMPRE da sessão. Nunca do front-end.
+    Documentos internos já excluídos neste mock.
+    Observações internas nunca presentes.
     """
     import copy
-    # Aqui futuramente: if client_id in _CLIENTES_ESPECIFICOS: return _CLIENTES_ESPECIFICOS[client_id]
-    ctx = copy.deepcopy(_DEFAULT_CONTEXT)
-    return ctx
+    return copy.deepcopy(_DEFAULT_CONTEXT)
+
+
+# Dados de documentos internos (para referência/teste — NUNCA expor ao cliente)
+_DOCS_INTERNOS_PRED_IO = [
+    {
+        "id": "doc-int-001",
+        "titulo": "Procedimento Interno Pred.IO - Análise de Vibração",
+        "tipo_documento": "Procedimento de manutenção",
+        "visibilidade": "Apenas equipe Pred.IO",
+        "nota": "Este documento NUNCA deve aparecer para clientes. "
+                "Filtrado por get_documentos_tecnicos() na camada sheets.",
+    },
+]

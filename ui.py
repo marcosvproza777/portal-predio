@@ -528,6 +528,7 @@ PORTAL_NAV_ITEMS = [
     ("ativos",       "⚙️",  "Ativos"),
     ("manutencao",   "📅", "Manutenção"),
     ("relatorios",   "📁", "Relatórios"),
+    ("biblioteca",   "📚", "Biblioteca"),
     ("chamados",     "🔧", "Chamados"),
     ("alertas",      "🔔", "Alertas"),
     ("assistente",   "🤖", "Assistente"),
@@ -544,6 +545,7 @@ SV_NAV_ITEMS = [
     ("manutencao_sv",    "📅", "Manutenção"),
     ("alertas_sv",       "🔔", "Alertas"),
     ("notificacoes_sv",  "📨", "Avisos"),
+    ("biblioteca_sv",    "📚", "Biblioteca"),
 ]
 
 SV_NAV_SOON = [
@@ -1048,10 +1050,26 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     if (/manual|datasheet|documento|especifica|cat.logo|biblioteca|pdf|procedimento|guia|instru/.test(ql)) {{
       var docs = ctx.documentos || [];
       if (!docs.length) {{
-        return {{ text: 'Nenhum documento tecnico publicado na Biblioteca ainda. Entre em contato com a equipe Pred.IO para solicitar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+        return {{ text: 'Nao encontrei manual tecnico cadastrado para este ativo ou modelo. Recomendo solicitar o documento pela area de Chamados Tecnicos para avaliacao da equipe Pred.IO.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}, {{label:'📚 Abrir Biblioteca', page:'biblioteca'}}] }};
       }}
-      var dlist = docs.map(function(d) {{ return '&bull; ' + d.titulo; }}).join('<br>');
-      return {{ text: '<strong>📚 Documentacao tecnica disponivel:</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
+      /* Busca por palavras-chave da pergunta dentro dos docs autorizados */
+      var norm = function(s) {{ return (s||'').toLowerCase().replace(/[ãâàáä]/g,'a').replace(/[êèéë]/g,'e').replace(/[îìíï]/g,'i').replace(/[õôòóö]/g,'o').replace(/[ûùúü]/g,'u').replace(/ç/g,'c'); }};
+      var qn = norm(ql);
+      var words = qn.split(/ +/).filter(function(w) {{ return w.length > 2; }});
+      var matched = docs.filter(function(d) {{
+        var hay = norm([d.titulo, d.modelo, d.fabricante, d.tipo_documento, d.palavras_chave, d.resumo, d.ativo].join(' '));
+        return words.some(function(w) {{ return hay.indexOf(w) >= 0; }});
+      }});
+      var show = matched.length ? matched : docs;
+      var prefix = matched.length
+        ? 'Encontrei ' + (matched.length === 1 ? 'o documento tecnico vinculado ao seu ativo' : matched.length + ' documentos disponiveis na Biblioteca Tecnica') + ':'
+        : 'Documentacao tecnica disponivel na Biblioteca:';
+      var dlist = show.map(function(d) {{
+        return '&bull; <strong>' + d.titulo + '</strong>'
+          + (d.tipo_documento ? ' <span style="font-size:.75rem;color:#64748B;">(' + d.tipo_documento + ')</span>' : '')
+          + (d.modelo ? ' &mdash; ' + d.modelo : '');
+      }}).join('<br>');
+      return {{ text: '<strong>📚 ' + prefix + '</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
     }}
 
     if (/status|condi|sa.de|score|cr.tico|aten|bomba|compressor|motor|ativo|equipamento|falha|alarme|sensor/.test(ql)) {{

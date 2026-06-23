@@ -119,15 +119,34 @@ def get_client_context(client_id: str) -> dict:
     if not client_id:
         return _empty_context()
 
-    # FUTURE: Descomente e adapte quando os sheets estiverem prontos:
-    # try:
-    #     from sheets import get_ativos_cliente, get_manutencoes_cliente, ...
-    #     return _build_from_sheets(client_id)
-    # except Exception:
-    #     pass
-
     from assistant_mock_data import get_mock_context
     ctx = get_mock_context(client_id)
+
+    # Tenta carregar documentos reais do Sheets.
+    # SEGURANÇA: client_id da sessão; get_documentos_tecnicos() filtra
+    # documentos internos e de outros clientes antes de retornar.
+    try:
+        from sheets import get_documentos_tecnicos
+        df_docs = get_documentos_tecnicos(client_id=client_id, staff=False)
+        if not df_docs.empty:
+            ctx["documentos"] = [
+                {
+                    "id":             str(r.get("Id",             "")).strip(),
+                    "titulo":         str(r.get("Titulo",         "")).strip(),
+                    "tipo_documento": str(r.get("Tipo_Documento", "")).strip(),
+                    "fabricante":     str(r.get("Fabricante",     "")).strip(),
+                    "modelo":         str(r.get("Modelo",         "")).strip(),
+                    "ativo":          str(r.get("Ativo_Id",       "")).strip(),
+                    "resumo":         str(r.get("Resumo",         "")).strip(),
+                    "palavras_chave": str(r.get("Palavras_Chave", "")).strip(),
+                    "arquivo_url":    str(r.get("Arquivo_Url",    "")).strip(),
+                    "arquivo_nome":   str(r.get("Arquivo_Nome",   "")).strip(),
+                }
+                for _, r in df_docs.iterrows()
+            ]
+    except Exception:
+        pass  # mantém docs do mock
+
     return ctx
 
 
