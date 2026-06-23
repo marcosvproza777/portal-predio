@@ -163,7 +163,6 @@ _INTENTS: dict[str, list[str]] = {
     # Painel Mypro Touch / Mypro Touch AD
     "mypro_touch": [
         "mypro touch", "mypro touch ad", "painel mypro",
-        "mypro touch+", "touch plus", "myprotouch",
         "login painel", "senha painel", "login mypro", "senha mypro",
         "level 1", "level 2", "nivel 1 painel", "nivel 2 painel",
         "como ligar o compressor", "como ligar compressor",
@@ -505,16 +504,6 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
     # ── Mypro Touch / Mypro Touch AD ─────────────────────────────────────────
     if intent == "mypro_touch":
         q = pergunta.lower()
-
-        # Nomenclatura inválida (Mypro Touch+)
-        if any(kw in q for kw in ["touch+", "touch plus", "myprotouch+"]):
-            return _resp(
-                "Na base Pred.IO, a nomenclatura correta é <strong>Mypro Touch</strong> ou "
-                "<strong>Mypro Touch AD</strong>. Não existe referência a variações com '+' "
-                "nesta base. Para dúvidas sobre o painel de operação, informe o modelo exato.\n\n"
-                "Fonte: Pred.IO",
-                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
-            )
 
         # O que é Mypro Touch AD
         if "touch ad" in q:

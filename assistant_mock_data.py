@@ -398,7 +398,6 @@ _DEFAULT_CONTEXT: dict = {
     # Painel Mypro Touch — referência operacional
     "mypro_touch_info": {
         "modelos_validos": ["Mypro Touch", "Mypro Touch AD"],
-        "modelos_invalidos": ["Mypro Touch+", "MYPRO Touch+", "MyproTouch+"],
         "acessos": [
             {"level": 1, "nome": "Operador",              "login": "ABC", "senha": "1111"},
             {"level": 2, "nome": "Supervisor/Administrador", "login": "XYZ", "senha": "2222"},
