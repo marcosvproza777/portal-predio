@@ -261,6 +261,76 @@ _PLANO_MOCK_COMPRESSOR = [
 _MOCK[0]["plano_manutencao"] = _PLANO_MOCK_COMPRESSOR
 _MOCK[0]["horimetro_atual"]   = _HORIMETRO_ATUAL_MOCK
 
+# ── Histórico técnico mock (Unidade Compressora Parafuso 200 VLD) ──────────────
+# Estrutura preparada para consolidação futura com banco real.
+# Campos: id, tipo, titulo, descricao, data, origem, link_page,
+#         visivel_cliente (False = só staff), obs_interna (só staff)
+_HISTORICO_MOCK_COMPRESSOR = [
+    {
+        "id": "ht-001", "tipo": "analise_vibracao",
+        "titulo": "Monitoramento de vibração realizado",
+        "descricao": "Motor WEG 350 CV classificado em condição boa.",
+        "data": "15/06/2026", "origem": "Relatório de Vibração",
+        "link_page": "relatorios", "visivel_cliente": True, "obs_interna": None,
+    },
+    {
+        "id": "ht-002", "tipo": "analise_oleo",
+        "titulo": "Análise de óleo com pontos de atenção",
+        "descricao": "Indicadores de partículas e oxidação em atenção na unidade compressora.",
+        "data": "16/06/2026", "origem": "Relatório de Análise de Óleo",
+        "link_page": "relatorios", "visivel_cliente": True,
+        "obs_interna": "Coleta realizada pela equipe Pred.IO. Próxima coleta em 30/06/2026.",
+    },
+    {
+        "id": "ht-003", "tipo": "relatorio_publicado",
+        "titulo": "Relatório preditivo publicado",
+        "descricao": "Relatório de Análise Preditiva — Unidade Compressora 200 VLD — Junho/2026 disponível.",
+        "data": "17/06/2026", "origem": "Relatórios Técnicos",
+        "link_page": "relatorios", "visivel_cliente": True, "obs_interna": None,
+    },
+    {
+        "id": "ht-004", "tipo": "status_alterado",
+        "titulo": "Status alterado para Atenção",
+        "descricao": "A Unidade Compressora passou para status Atenção após correlação entre score, óleo e condição dos componentes.",
+        "data": "18/06/2026", "origem": "Ativos Monitorados",
+        "link_page": "ativos", "visivel_cliente": True,
+        "obs_interna": "Alteração registrada manualmente após revisão técnica interna.",
+    },
+    {
+        "id": "ht-005", "tipo": "alerta_gerado",
+        "titulo": "Bomba de Óleo M60P em condição crítica",
+        "descricao": "O componente apresenta score crítico e requer acompanhamento técnico.",
+        "data": "18/06/2026", "origem": "Central de Alertas",
+        "link_page": "alertas", "visivel_cliente": True, "obs_interna": None,
+    },
+    {
+        "id": "ht-006", "tipo": "chamado_aberto",
+        "titulo": "Chamado técnico aberto",
+        "descricao": "Chamado aberto para acompanhamento da condição da bomba de óleo e da unidade compressora.",
+        "data": "19/06/2026", "origem": "Chamados Técnicos",
+        "link_page": "chamados", "visivel_cliente": True,
+        "obs_interna": "Chamado atribuído para a equipe técnica de análise preditiva.",
+    },
+    {
+        "id": "ht-007", "tipo": "manutencao_proxima",
+        "titulo": "Análise de óleo próxima do vencimento",
+        "descricao": "A unidade está a 320 horas da próxima análise de óleo programada.",
+        "data": "21/06/2026", "origem": "Plano de Manutenção",
+        "link_page": "manutencao", "visivel_cliente": True, "obs_interna": None,
+    },
+    {
+        "id": "ht-008", "tipo": "recomendacao_tecnica",
+        "titulo": "Acompanhamento integrado recomendado",
+        "descricao": (
+            "Recomenda-se correlacionar análise de óleo, vibração, temperatura, "
+            "regime operacional, motor com inversor e condição da bomba de óleo."
+        ),
+        "data": "21/06/2026", "origem": "Recomendações Pred.IO",
+        "link_page": "ativos", "visivel_cliente": True, "obs_interna": None,
+    },
+]
+_MOCK[0]["historico_tecnico"] = _HISTORICO_MOCK_COMPRESSOR
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -295,6 +365,23 @@ _PM_STATUS = {
 _PM_STATUS_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569"}
 _PM_PRIO_COLOR = {
     "critica": "#EF4444", "alta": "#F97316", "media": "#F59E0B", "baixa": "#94A3B8",
+}
+
+# ── Histórico Técnico — configuração por tipo de evento ───────────────────────
+_HT_TIPO_CFG = {
+    "relatorio_publicado":  {"icone": "📁", "label": "Relatório publicado",           "cor": "#3B82F6", "cat": "relatorios"},
+    "chamado_aberto":       {"icone": "🔧", "label": "Chamado aberto",                "cor": "#F97316", "cat": "chamados"},
+    "chamado_respondido":   {"icone": "💬", "label": "Chamado respondido",            "cor": "#10B981", "cat": "chamados"},
+    "chamado_concluido":    {"icone": "✅", "label": "Chamado concluído",             "cor": "#10B981", "cat": "chamados"},
+    "manutencao_proxima":   {"icone": "⏰", "label": "Manutenção próx. vencimento",   "cor": "#F59E0B", "cat": "manutencao"},
+    "manutencao_vencida":   {"icone": "🚨", "label": "Manutenção vencida",           "cor": "#EF4444", "cat": "manutencao"},
+    "manutencao_concluida": {"icone": "🔩", "label": "Manutenção concluída",         "cor": "#10B981", "cat": "manutencao"},
+    "alerta_gerado":        {"icone": "🔔", "label": "Alerta gerado",                "cor": "#EF4444", "cat": "alertas"},
+    "status_alterado":      {"icone": "🔄", "label": "Status alterado",              "cor": "#8B5CF6", "cat": "status"},
+    "recomendacao_tecnica": {"icone": "💡", "label": "Recomendação técnica",         "cor": "#2563EB", "cat": "recomendacoes"},
+    "analise_oleo":         {"icone": "🧪", "label": "Análise de óleo",             "cor": "#F59E0B", "cat": "relatorios"},
+    "analise_vibracao":     {"icone": "📳", "label": "Análise de vibração",         "cor": "#3B82F6", "cat": "relatorios"},
+    "termografia":          {"icone": "🌡️", "label": "Termografia",                 "cor": "#EF4444", "cat": "relatorios"},
 }
 
 
@@ -836,11 +923,13 @@ def _render_detalhe(a: dict, mock: bool) -> None:
     if analise:
         _render_analise_oleo(analise)
 
-    # ── Linha do tempo ────────────────────────────────────────────────────────
-    timeline = a.get("timeline", [])
-    if timeline:
+    # ── Histórico Técnico ────────────────────────────────────────────────────
+    ht_data = a.get("historico_tecnico", [])
+    if ht_data:
+        _render_historico_tecnico(ht_data, a.get("id", ""), is_staff=False)
+    elif a.get("timeline"):
         st.markdown(_section("🕐 Linha do Tempo Técnica"), unsafe_allow_html=True)
-        _render_timeline(timeline, cfg["color"])
+        _render_timeline(a["timeline"], cfg["color"])
 
     # ── Recomendação ──────────────────────────────────────────────────────────
     rec = a.get("recomendacao", "")
@@ -1071,3 +1160,166 @@ def _render_timeline(timeline: list, dot_color: str) -> None:
         f"border-radius:12px;padding:1rem 1.25rem;'>{items_html}</div>",
         unsafe_allow_html=True,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HISTÓRICO TÉCNICO — LINHA DO TEMPO CONSOLIDADA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _ht_match_filtro(ev: dict, filtro: str) -> bool:
+    if filtro == "todos":
+        return True
+    return _HT_TIPO_CFG.get(ev.get("tipo", ""), {}).get("cat", "") == filtro
+
+
+def _render_ht_card(ev: dict, is_staff: bool = False, prefix: str = "") -> None:
+    """Renderiza um evento da timeline com dois‑colunas (card HTML + botão nav)."""
+    tipo      = ev.get("tipo", "")
+    tcfg      = _HT_TIPO_CFG.get(tipo, {"icone": "📌", "label": "Evento", "cor": "#94A3B8", "cat": ""})
+    cor       = tcfg["cor"]
+    titulo    = ev.get("titulo", "")
+    descricao = ev.get("descricao", "")
+    data      = ev.get("data", "")
+    origem    = ev.get("origem", "")
+    link_page = ev.get("link_page", "")
+    obs_int   = ev.get("obs_interna") or ""
+
+    cor_bg     = f"{cor}0D"
+    cor_border = f"{cor}44"
+
+    obs_html = ""
+    if is_staff and obs_int:
+        obs_html = (
+            f"<div style='background:#FFFBEB;border:1px solid #FCD34D;"
+            f"border-left:3px solid #F59E0B;border-radius:0 6px 6px 0;"
+            f"padding:5px 10px;margin-top:7px;'>"
+            f"<p style='font-size:0.64rem;font-weight:700;color:#92400E;"
+            f"text-transform:uppercase;letter-spacing:.06em;margin:0 0 2px;'>🔒 Obs. Interna</p>"
+            f"<p style='font-size:0.78rem;color:#78350F;margin:0;'>{obs_int}</p>"
+            f"</div>"
+        )
+
+    col_card, col_btn = st.columns([9, 1.5])
+    with col_card:
+        st.markdown(
+            f"<div style='display:flex;align-items:flex-start;gap:10px;margin-bottom:2px;'>"
+            # dot
+            f"<div style='width:12px;height:12px;border-radius:50%;flex-shrink:0;"
+            f"background:{cor};border:2px solid #fff;box-shadow:0 0 0 2px {cor}55;"
+            f"margin-top:6px;'></div>"
+            # content
+            f"<div style='flex:1;min-width:0;'>"
+            f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0 0 4px;font-weight:600;'>"
+            f"📅 {data}"
+            + (f"  ·  {origem}" if origem else "")
+            + f"</p>"
+            f"<div style='background:{cor_bg};border:1px solid {cor_border};"
+            f"border-left:4px solid {cor};border-radius:0 10px 10px 0;padding:0.7rem 1rem;'>"
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:5px;'>"
+            f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>"
+            f"{tcfg['icone']} {titulo}</span>"
+            f"<span style='background:{cor}22;color:{cor};-webkit-text-fill-color:{cor};"
+            f"border:1px solid {cor}55;font-size:0.65rem;font-weight:700;"
+            f"padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;'>"
+            f"{tcfg['label']}</span>"
+            f"</div>"
+            f"<p style='color:#475569;font-size:0.82rem;margin:0;line-height:1.5;'>{descricao}</p>"
+            + obs_html
+            + f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
+
+    with col_btn:
+        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+        if link_page and not is_staff:
+            ev_id = ev.get("id", tipo)
+            if st.button("Abrir →", key=f"{prefix}ht_open_{ev_id}",
+                         use_container_width=True):
+                st.session_state["portal_page"] = link_page
+                st.session_state.pop("portal_ativo_id", None)
+                st.rerun()
+
+    st.markdown("<div style='height:5px'></div>", unsafe_allow_html=True)
+
+
+def _render_historico_tecnico(
+    historico: list,
+    ativo_id: str = "",
+    is_staff: bool = False,
+    prefix: str = "",
+) -> None:
+    """
+    Linha do tempo consolidada por ativo.
+    is_staff=True → mostra obs_interna e todos os eventos (mesmo visivel_cliente=False).
+    prefix        → sufixo nos keys de widgets para evitar conflito portal/supervisão.
+    """
+    if not historico:
+        return
+
+    st.markdown(_section("🕐 Histórico Técnico"), unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.82rem;margin:-0.5rem 0 1rem;line-height:1.5;'>"
+        f"Linha do tempo consolidada com relatórios, chamados, manutenções e alertas do ativo.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # Filtra por visibilidade
+    eventos = [e for e in historico if is_staff or e.get("visivel_cliente", True)]
+    if not eventos:
+        return
+
+    # ── Filtros ───────────────────────────────────────────────────────────────
+    fkey = f"ht_filtro_{prefix}{ativo_id}"
+    if fkey not in st.session_state:
+        st.session_state[fkey] = "todos"
+    filtro = st.session_state[fkey]
+
+    FILTROS_HT = [
+        ("todos",         "Todos"),
+        ("relatorios",    "Relatórios"),
+        ("chamados",      "Chamados"),
+        ("manutencao",    "Manutenção"),
+        ("alertas",       "Alertas"),
+        ("recomendacoes", "Recomendações"),
+    ]
+
+    cols_f = st.columns(len(FILTROS_HT))
+    for col, (key, label) in zip(cols_f, FILTROS_HT):
+        cnt     = len([e for e in eventos if _ht_match_filtro(e, key)])
+        lbl_btn = f"Todos ({len(eventos)})" if key == "todos" else f"{label} ({cnt})"
+        with col:
+            if st.button(
+                lbl_btn,
+                key=f"{prefix}ht_f_{ativo_id}_{key}",
+                use_container_width=True,
+                type="primary" if filtro == key else "secondary",
+            ):
+                st.session_state[fkey] = key
+                st.rerun()
+
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+
+    # ── Filtra e ordena: mais recente primeiro ────────────────────────────────
+    filtrados = [e for e in eventos if _ht_match_filtro(e, filtro)]
+
+    def _dt(d: str) -> tuple:
+        try:
+            p = d.split("/")
+            return (int(p[2]), int(p[1]), int(p[0]))
+        except Exception:
+            return (0, 0, 0)
+
+    filtrados = sorted(filtrados, key=lambda e: _dt(e.get("data", "")), reverse=True)
+
+    if not filtrados:
+        st.markdown(
+            f"<div style='text-align:center;padding:1.5rem;color:{COLOR_MUTED};'>"
+            f"<p>Nenhum evento nesta categoria.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Renderiza cada evento ─────────────────────────────────────────────────
+    for ev in filtrados:
+        _render_ht_card(ev, is_staff=is_staff, prefix=prefix)

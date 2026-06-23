@@ -462,6 +462,24 @@ def _render_detalhe() -> None:
         for _, comp in df_comp.iterrows():
             _render_componente_card(comp)
 
+    # ── Histórico Técnico Interno ─────────────────────────────────────────────
+    if usando_mock:
+        from page_ativos import _HISTORICO_MOCK_COMPRESSOR, _render_historico_tecnico
+        st.markdown(
+            f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.3rem;'>"
+            f"🕐 Histórico Técnico Interno</p>"
+            f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:0 0 0.75rem;'>"
+            f"Visão completa — inclui obs. internas e eventos não visíveis ao cliente.</p>",
+            unsafe_allow_html=True,
+        )
+        _render_historico_tecnico(
+            _HISTORICO_MOCK_COMPRESSOR,
+            ativo_id=ativo_id,
+            is_staff=True,
+            prefix="sv_",
+        )
+
     # ── Plano de manutenção ───────────────────────────────────────────────────
     if usando_mock:
         from page_ativos import _PLANO_MOCK_COMPRESSOR, _render_plano_manutencao
