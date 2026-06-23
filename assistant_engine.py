@@ -86,6 +86,21 @@ _INTENTS: dict[str, list[str]] = {
         "quando fazer analise", "quando devo fazer analise",
         "oleo o manual", "oleo que o manual", "oleo cita",
         "qual oleo o manual", "oleo do manual",
+        "compressor parafuso", "compressor alternativo",
+        "diferenca entre compressor", "tipo de compressor",
+        "o que e uma unidade", "unidade compressora",
+        "dados importantes para avaliar",
+        "temperatura para parafuso", "temperatura para alternativo",
+        "temperatura normal de descarga", "temperatura de descarga normal",
+        "parafuso com descarga", "alternativo com descarga",
+        "descarga normal", "o que pode causar descarga",
+        "pressão de descarga alta", "pressao de descarga alta",
+        "pressão de descarga baixa", "pressao de descarga baixa",
+        "pressão de sucção alta", "pressao de succao alta",
+        "pressão de sucção baixa", "pressao de succao baixa",
+        "descarga alta o que", "descarga baixa o que",
+        "pressão de óleo baixa é", "pressao de oleo baixa",
+        "o que verificar quando pressao", "verificar pressao de oleo",
     ],
     # 20.000 horas / overhaul / kit revisão — resposta obrigatória por condição
     "revisao_condicao": [
@@ -102,6 +117,12 @@ _INTENTS: dict[str, list[str]] = {
         "vibração", "vibracao", "termografia", "preventiva", "preditiva",
         "inspeção", "inspecao", "lubrificação", "lubrificacao",
         "filtro", "próximas ações", "proximas acoes",
+        "como vibração ajuda", "como vibracao ajuda",
+        "como analise de oleo ajuda", "como análise de óleo ajuda",
+        "como termografia ajuda", "termografia ajuda compressor",
+        "vibração ajuda", "vibracao ajuda", "analise de oleo ajuda",
+        "como reduzir risco", "reduzir risco de falha",
+        "o que fazer antes de intervencao", "antes de intervencao",
     ],
     "relatorios": [
         "relatório", "relatorio", "laudo", "análise preditiva", "analise preditiva",
@@ -124,15 +145,62 @@ _INTENTS: dict[str, list[str]] = {
         "crítico", "critico", "atenção", "atencao", "bomba de óleo",
         "bomba de oleo", "compressor", "motor", "ativo", "equipamento",
         "falha", "alarme", "sensor",
+        "score de saude", "score de saúde", "score do ativo", "o que e score",
+        "ativo em atencao", "ativo em atenção", "o que significa atencao",
+        "ativo critico", "ativo crítico", "o que significa critico",
+        "saude do ativo", "saúde do ativo",
     ],
     "chamados": [
         "chamado", "abrir chamado", "solicitação", "solicitacao",
         "atendimento", "suporte", "problema", "defeito", "urgente",
         "solicitar", "técnico", "tecnico",
+        "quando abrir chamado", "quando devo abrir chamado",
     ],
     "alertas": [
         "alerta", "aviso", "notificação", "notificacao", "ponto de atenção",
         "ponto de atencao",
+    ],
+    # Painel Mypro Touch / Mypro Touch AD
+    "mypro_touch": [
+        "mypro touch", "mypro touch ad", "painel mypro",
+        "mypro touch+", "touch plus", "myprotouch",
+        "login painel", "senha painel", "login mypro", "senha mypro",
+        "level 1", "level 2", "nivel 1 painel", "nivel 2 painel",
+        "como ligar o compressor", "como ligar compressor",
+        "tecla partida", "como partir",
+        "como parar o compressor", "como parar compressor",
+        "tecla parar",
+        "set point cut", "cut in", "cut out",
+        "set point #1", "set point #2", "set point 1", "set point 2",
+        "alterar set point", "mudar set point",
+        "alterar capacidade manualmente", "capacidade manual",
+        "limpar alarme", "reset alarme", "resetar alarme", "limpar falha",
+        "alarme vermelho", "alarme azul", "falha vermelha",
+        "estado do compressor", "condição atual",
+        "onde vejo alarme", "onde ver alarme", "onde vejo falha",
+        "o que registrar quando", "registrar quando falha",
+        "alarme voltou", "alarme recorrente", "alarme varias vezes",
+        "posso limpar alarme sem", "limpar sem resolver",
+        "o que é mypro", "o que e mypro",
+        "o que fazer quando falha painel",
+    ],
+    # Comunicação industrial e monitoramento remoto
+    "comunicacao_monitoramento": [
+        "modbus", "comunicacao ethernet", "comunicação ethernet",
+        "expor painel", "painel na internet", "painel internet",
+        "monitoramento online pode", "monitoramento pode comandar",
+        "o monitoramento pode", "o monitoramento online",
+        "portal pode buscar dados", "portal pode comandar",
+        "quais dados o portal", "dados do portal deve buscar",
+        "comando remoto", "partida remota", "parada remota",
+        "buscar dados painel", "dados do painel mypro",
+    ],
+    # Perguntas meta sobre o próprio Assistente Técnico
+    "meta_assistente": [
+        "assistente pode decidir", "pode decidir parar",
+        "assistente substitui", "o assistente substitui",
+        "assistente executa", "assistente opera a",
+        "assistente pode parar a",
     ],
 }
 
@@ -144,12 +212,15 @@ def detect_intent(pergunta: str) -> str:
     """
     q = pergunta.lower()
     for intent in [
-        "mycold",           # MYCOLD AB/PAO — antes de qualquer oleo
-        "oleo_homologado",  # Tabela de óleos MAYEKAWA/MYCOM
-        "revisao_condicao", # 20k horas / overhaul / kit revisão
-        "mycom_manual",     # Manual MYCOM / Sistema Chiller
-        "oleo",             # Óleo genérico
-        "manutencao",       # Plano de manutenção
+        "mycold",                    # MYCOLD AB/PAO — antes de qualquer oleo
+        "oleo_homologado",           # Tabela de óleos MAYEKAWA/MYCOM
+        "revisao_condicao",          # 20k horas / overhaul / kit revisão
+        "mypro_touch",               # Painel Mypro Touch / Mypro Touch AD
+        "comunicacao_monitoramento", # Modbus / Ethernet / monitoramento remoto
+        "mycom_manual",              # Manual MYCOM / Sistema Chiller
+        "meta_assistente",           # Perguntas meta sobre o Assistente
+        "oleo",                      # Óleo genérico
+        "manutencao",                # Plano de manutenção
         "relatorios",
         "documentos",
         "status_ativo",
@@ -431,9 +502,487 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
         )
 
+    # ── Mypro Touch / Mypro Touch AD ─────────────────────────────────────────
+    if intent == "mypro_touch":
+        q = pergunta.lower()
+
+        # Nomenclatura inválida (Mypro Touch+)
+        if any(kw in q for kw in ["touch+", "touch plus", "myprotouch+"]):
+            return _resp(
+                "Na base Pred.IO, a nomenclatura correta é <strong>Mypro Touch</strong> ou "
+                "<strong>Mypro Touch AD</strong>. Não existe referência a variações com '+' "
+                "nesta base. Para dúvidas sobre o painel de operação, informe o modelo exato.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # O que é Mypro Touch AD
+        if "touch ad" in q:
+            return _resp(
+                "O <strong>Mypro Touch AD</strong> é uma nomenclatura utilizada na base Pred.IO "
+                "para painel/interface de operação MYCOM com aplicação conforme o projeto da "
+                "unidade. Deve ser tratado como variação do painel Mypro Touch, respeitando a "
+                "configuração específica do equipamento e do cliente.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # O que é Mypro Touch (genérico)
+        if any(kw in q for kw in ["o que é mypro", "o que e mypro", "o que e o mypro"]):
+            return _resp(
+                "O <strong>Mypro Touch</strong> é um painel/interface de operação utilizado em "
+                "unidades MYCOM, que permite visualizar o estado do compressor, alarmes, falhas, "
+                "set points e comandos operacionais, conforme a configuração do sistema.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Login / senha — supervisor
+        if any(kw in q for kw in ["supervisor", "level 2", "nivel 2", "xyz", "2222"]):
+            return _resp(
+                "Na base Pred.IO, o acesso <strong>Level 2 — Supervisor/Administrador</strong> "
+                "do painel Mypro Touch é:\n\n"
+                "Login: <code>XYZ</code> / Senha: <code>2222</code>\n\n"
+                "⚠️ Use apenas se você for operador autorizado. Alterações indevidas podem "
+                "causar danos ao compressor.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Login / senha — operador
+        if any(kw in q for kw in ["operador", "level 1", "nivel 1", "abc", "1111"]):
+            return _resp(
+                "Na base Pred.IO, o acesso <strong>Level 1 — Operador</strong> do "
+                "painel Mypro Touch é:\n\n"
+                "Login: <code>ABC</code> / Senha: <code>1111</code>\n\n"
+                "⚠️ Use apenas se você for operador autorizado.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Login / senha (geral)
+        if any(kw in q for kw in ["login", "senha", "level", "nivel", "acesso"]):
+            return _resp(
+                "Na base Pred.IO, os acessos do painel <strong>Mypro Touch</strong> são:\n\n"
+                "• <strong>Level 1 — Operador:</strong> Login: <code>ABC</code> / Senha: <code>1111</code>\n"
+                "• <strong>Level 2 — Supervisor/Administrador:</strong> Login: <code>XYZ</code> / Senha: <code>2222</code>\n\n"
+                "⚠️ Use apenas se você for operador autorizado. Alterações indevidas de "
+                "parâmetros podem causar danos ao compressor.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Como ligar / dar partida
+        if any(kw in q for kw in ["ligar", "partir", "partida", "como ligar", "como partir"]):
+            return _resp(
+                "No painel <strong>Mypro Touch</strong>, para ligar o compressor:\n\n"
+                "Pressione a tecla <strong>PARTIDA</strong> por alguns segundos até que ela "
+                "fique verde. Em seguida, acompanhe a janela <em>Condição Atual</em> no campo "
+                "<em>Estado do Compressor</em>. O painel deve indicar "
+                "<em>Preparar para Partir</em> e depois <em>Compressor Ligado</em>.\n\n"
+                "⚠️ Use apenas se você for operador autorizado.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Como parar
+        if any(kw in q for kw in ["parar", "parada", "desligar", "como parar", "como desligar"]):
+            return _resp(
+                "No painel <strong>Mypro Touch</strong>, para parar o compressor:\n\n"
+                "Pressione a tecla <strong>PARAR</strong> por alguns instantes até que o "
+                "<em>Estado do Compressor</em> apresente <em>Recolhimento do Sistema</em>.\n\n"
+                "⚠️ Use apenas se você for operador autorizado.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Alarme recorrente
+        if any(kw in q for kw in ["voltou", "varias vezes", "várias vezes", "recorrente", "voltando"]):
+            return _resp(
+                "Alarme recorrente não deve ser tratado apenas com reset. Registre as condições "
+                "operacionais, verifique a tendência, correlacione com pressões, temperaturas, "
+                "óleo, vibração e histórico, e <strong>abra um chamado técnico</strong> para "
+                "análise da equipe Pred.IO.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
+            )
+
+        # Limpar alarme / sem resolver causa
+        if any(kw in q for kw in ["limpar alarme", "limpar sem", "resetar", "reset alarme", "limpar falha", "sem resolver"]):
+            return _resp(
+                "No painel <strong>Mypro Touch</strong>, primeiro resolva a causa da falha. "
+                "Depois, acione o botão de limpeza ou reconhecimento de alarme.\n\n"
+                "Não é recomendado limpar alarme sem tratar a causa — isso pode mascarar uma "
+                "condição insegura e dificultar a análise da falha. Se o alarme for recorrente, "
+                "abra chamado técnico.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Onde ver alarmes
+        if any(kw in q for kw in ["onde vejo alarme", "onde ver alarme", "onde vejo falha", "ver alarme", "alarmes e falhas"]):
+            return _resp(
+                "No painel <strong>Mypro Touch</strong>, os alarmes e falhas aparecem na janela "
+                "<em>Alarmes/Falhas</em>. Falhas ativas aparecem em <strong>vermelho</strong>. "
+                "Após solucionar a causa e reconhecer/limpar o alarme, a indicação pode ficar "
+                "<strong>azul</strong>.\n\nFonte: Pred.IO",
+            )
+
+        # Alarme azul
+        if "alarme azul" in q or ("azul" in q and "alarme" in q):
+            return _resp(
+                "Na base Pred.IO, alarme ou falha em <strong>azul</strong> indica condição "
+                "reconhecida após a tratativa ou reconhecimento. Ainda assim, deve-se garantir "
+                "que a causa foi resolvida.\n\nFonte: Pred.IO",
+            )
+
+        # Alarme vermelho
+        if any(kw in q for kw in ["alarme vermelho", "falha vermelha", "vermelho"]):
+            return _resp(
+                "Falha em <strong>vermelho</strong> no painel Mypro Touch indica uma falha "
+                "ativa ou recente que exige atenção. A causa deve ser solucionada antes de "
+                "reconhecer ou limpar o alarme.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Cut In
+        if "cut in" in q:
+            return _resp(
+                "Na base Pred.IO, <strong>SET POINT CUT IN</strong> define a pressão em que o "
+                "compressor liga automaticamente.\n\nFonte: Pred.IO",
+            )
+
+        # Cut Out
+        if "cut out" in q:
+            return _resp(
+                "Na base Pred.IO, <strong>SET POINT CUT OUT</strong> define a pressão em que o "
+                "compressor desliga automaticamente por baixa pressão.\n\nFonte: Pred.IO",
+            )
+
+        # Set Point de Controle sobre Pressão (genérico)
+        if any(kw in q for kw in ["set point de controle", "controle sobre pressao", "controle sobre pressão"]):
+            return _resp(
+                "O <strong>Set Point de Controle sobre Pressão</strong> é a pressão que o "
+                "compressor terá como referência de controle durante a operação.\n\nFonte: Pred.IO",
+            )
+
+        # Set Point #1 e #2
+        if any(kw in q for kw in ["set point #1", "set point 1", "set point #2", "set point 2", "#1", "#2"]):
+            return _resp(
+                "Na base Pred.IO:\n\n"
+                "• <strong>Set Point #1</strong> — referência para -10 °C\n"
+                "• <strong>Set Point #2</strong> — referência para -40 °C\n\n"
+                "A seleção deve ser feita na área indicada do painel, apenas por operador "
+                "autorizado.\n\nFonte: Pred.IO",
+            )
+
+        # Alterar set point
+        if any(kw in q for kw in ["alterar set point", "mudar set point", "como alterar set"]):
+            return _resp(
+                "Para alterar set point no painel <strong>Mypro Touch</strong>:\n\n"
+                "1. Clique no ícone de usuário\n"
+                "2. Digite o login → pressione ENTER\n"
+                "3. Digite a senha → pressione ENTER\n"
+                "4. Clique em <em>LOG ON</em> → aguarde a luz ficar verde\n"
+                "5. Acesse os campos de set point desejados\n\n"
+                "⚠️ Alterações devem ser feitas apenas por operador autorizado. Parâmetros "
+                "incorretos podem causar instabilidade, alarmes e danos ao compressor.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Alterar capacidade
+        if any(kw in q for kw in ["alterar capacidade", "capacidade manual", "capacidade manualmente"]):
+            return _resp(
+                "Para alterar a capacidade manualmente no painel <strong>Mypro Touch</strong>:\n\n"
+                "Acesse <em>MENU > CONTROLE</em>, abra a tela de controle de capacidade e "
+                "altere o valor para o limite desejado.\n\n"
+                "⚠️ Deve ser feito apenas por operador autorizado. A alteração interfere no "
+                "limite operacional e pode afetar processo, pressão, carga, consumo e segurança. "
+                "Não é recomendado alterar para qualquer valor sem validação técnica.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # O que registrar quando falha
+        if any(kw in q for kw in ["o que registrar", "registrar quando", "dados para registrar"]):
+            return _resp(
+                "Quando ocorrer uma falha no painel <strong>Mypro Touch</strong>, registrar:\n\n"
+                "• Data e hora, ativo e modelo\n"
+                "• Horímetro e estado do compressor\n"
+                "• Alarme/falha exibida\n"
+                "• Pressão de sucção, descarga e óleo\n"
+                "• Temperatura de descarga e do óleo\n"
+                "• Corrente, capacidade e frequência\n"
+                "• Vibração e condições do processo\n"
+                "• Ação realizada e responsável\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # Estado do compressor / onde ver se está ligado
+        if any(kw in q for kw in ["estado do compressor", "condição atual", "está ligado"]):
+            return _resp(
+                "No painel <strong>Mypro Touch</strong>, verifique a janela "
+                "<em>Condição Atual</em>, campo <em>Estado do Compressor</em>. Após a partida, "
+                "o painel indica <em>Preparar para Partir</em> e depois "
+                "<em>Compressor Ligado</em>.\n\nFonte: Pred.IO",
+            )
+
+        # Fallback Mypro Touch
+        return _resp(
+            "O Assistente Técnico Pred.IO tem base técnica sobre o painel "
+            "<strong>Mypro Touch</strong> e <strong>Mypro Touch AD</strong>. "
+            "Para partida, parada, reset de alarme, set point ou capacidade, use apenas se "
+            "você for operador autorizado. Para situações críticas, abra um chamado técnico.\n\n"
+            "Fonte: Pred.IO",
+            links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+        )
+
+    # ── Comunicação industrial / Monitoramento remoto ─────────────────────────
+    if intent == "comunicacao_monitoramento":
+        q = pergunta.lower()
+
+        if "modbus" in q:
+            return _resp(
+                "Modbus é um protocolo de comunicação industrial que pode permitir leitura de "
+                "dados do painel ou controlador. Para o Portal Pred.IO, recomenda-se iniciar "
+                "com leitura e monitoramento de variáveis, evitando comandos de escrita sem "
+                "projeto de segurança validado.\n\nFonte: Pred.IO",
+            )
+
+        if "ethernet" in q:
+            return _resp(
+                "Comunicação Ethernet é uma forma de conexão em rede que pode permitir "
+                "integração entre painel, CLP, supervisório ou portal, dependendo do projeto "
+                "e dos protocolos disponíveis. Essa integração deve ser feita com rede segura, "
+                "permissões e validação técnica.\n\nFonte: Pred.IO",
+            )
+
+        if any(kw in q for kw in ["expor painel", "painel na internet", "painel internet"]):
+            return _resp(
+                "Não é recomendado expor o painel industrial diretamente na internet. O acesso "
+                "deve ser protegido por rede segura, VPN, firewall, credenciais, permissões e "
+                "política de acesso. Expor painel industrial diretamente na internet aumenta o "
+                "risco de acesso indevido e falha operacional.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        if any(kw in q for kw in ["pode comandar", "partida remota", "parada remota", "comando remoto"]):
+            return _resp(
+                "Não nesta fase. O Portal Pred.IO deve priorizar monitoramento, alertas e "
+                "histórico técnico. Comandos remotos como partida, parada, reset de alarme, "
+                "alteração de set point ou capacidade só devem ser considerados em fase futura, "
+                "com autenticação forte, permissões, intertravamentos, auditoria, confirmação "
+                "dupla e validação de segurança operacional.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        if any(kw in q for kw in ["monitoramento pode", "o monitoramento pode", "monitoramento pode comandar"]):
+            return _resp(
+                "Nesta fase, o monitoramento online Pred.IO deve priorizar leitura, alertas, "
+                "tendência e histórico. Comando remoto só deve ser considerado em projeto "
+                "específico, com autorização, intertravamentos, autenticação forte, auditoria "
+                "e validação de segurança.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        if any(kw in q for kw in ["quais dados", "dados o portal", "dados do portal", "buscar dados"]):
+            return _resp(
+                "O Portal Pred.IO deve priorizar dados de leitura da unidade compressora: "
+                "estado do compressor, alarmes, falhas, pressão de sucção, pressão de descarga, "
+                "pressão de óleo, temperatura de descarga, temperatura do óleo, corrente do "
+                "motor, capacidade, frequência do inversor, horímetro, níveis, vibração e "
+                "histórico de eventos.\n\nFonte: Pred.IO",
+            )
+
+        if any(kw in q for kw in ["portal pode buscar", "pode buscar dados", "buscar dados painel"]):
+            return _resp(
+                "Sim, desde que exista comunicação configurada e segura. O Portal Pred.IO deve "
+                "priorizar leitura de dados como estado do compressor, alarmes, pressões, "
+                "temperaturas, horímetro, capacidade, corrente e variáveis operacionais "
+                "disponíveis no painel Mypro Touch ou Mypro Touch AD.\n\nFonte: Pred.IO",
+            )
+
+        return _resp(
+            "O Portal Pred.IO suporta comunicação segura para monitoramento de dados da "
+            "unidade compressora. Nesta fase, a prioridade é leitura de variáveis, alertas "
+            "e histórico. Comandos remotos requerem projeto de segurança específico. "
+            "Para integração ou acesso remoto, abra um chamado técnico.\n\nFonte: Pred.IO",
+            links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+        )
+
     # ── Manual MYCOM / Sistema Chiller ────────────────────────────────────────
     if intent == "mycom_manual":
         q = pergunta.lower()
+
+        # O que é uma unidade compressora MYCOM
+        if any(kw in q for kw in ["o que e uma unidade", "unidade compressora mycom", "o que e compressor mycom"]):
+            return _resp(
+                "Uma unidade compressora MYCOM é um conjunto industrial usado em sistemas de "
+                "refrigeração, chiller, congelamento ou processo, composto normalmente por "
+                "compressor, motor, sistema de lubrificação, separador de óleo, painel de "
+                "controle, sensores, válvulas, instrumentos e dispositivos de segurança. A "
+                "avaliação deve considerar condição mecânica, elétrica, térmica, operacional "
+                "e de lubrificação.\n\nFonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Diferença entre parafuso e alternativo
+        if any(kw in q for kw in ["diferenca entre compressor", "parafuso e alternativo", "compressor parafuso", "compressor alternativo", "tipo de compressor"]):
+            return _resp(
+                "O compressor <strong>parafuso</strong> realiza compressão por rotores, sendo "
+                "muito usado em aplicações industriais contínuas. O compressor "
+                "<strong>alternativo</strong> realiza compressão por pistões e cilindros. "
+                "A análise técnica deve considerar o tipo do compressor, porque temperatura de "
+                "descarga, vibração, manutenção, falhas e limites operacionais podem variar "
+                "conforme o modelo.\n\n"
+                "Referência de temperatura de descarga:\n"
+                "• Compressor alternativo: 80 °C a 140 °C\n"
+                "• Compressor parafuso: até 90 °C\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Temperatura de descarga — parafuso
+        if any(kw in q for kw in ["temperatura para parafuso", "temperatura compressor parafuso", "parafuso com descarga", "descarga parafuso"]):
+            q_has_value = any(str(n) in q for n in range(85, 151))
+            if "95" in q:
+                return _resp(
+                    "Para compressor parafuso, a referência Pred.IO é temperatura de descarga "
+                    "até 90 °C. Uma leitura de 95 °C deve ser tratada como condição de atenção "
+                    "e avaliada junto com pressão de descarga, pressão de sucção, condição do "
+                    "óleo, arrefecimento e carga operacional. Se persistir, recomenda-se abrir "
+                    "chamado técnico.\n\nFonte: Pred.IO",
+                    links=[
+                        {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                        {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+                    ],
+                )
+            if "120" in q:
+                return _resp(
+                    "Para compressor parafuso, a referência Pred.IO é temperatura de descarga "
+                    "até 90 °C. Uma leitura de 120 °C exige avaliação técnica imediata — "
+                    "verificar arrefecimento, pressão de descarga, condição do óleo, filtros, "
+                    "carga operacional e alarmes. Recomenda-se abrir chamado técnico.\n\n"
+                    "Fonte: Pred.IO",
+                    links=[
+                        {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                        {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+                    ],
+                )
+            return _resp(
+                "Para compressor <strong>parafuso</strong>, a referência Pred.IO é temperatura "
+                "de descarga <strong>até 90 °C</strong>. Leituras acima disso devem ser "
+                "avaliadas tecnicamente, considerando pressão de descarga, pressão de sucção, "
+                "óleo, arrefecimento, carga operacional e histórico do equipamento.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+            )
+
+        # Temperatura de descarga — alternativo
+        if any(kw in q for kw in ["temperatura para alternativo", "temperatura compressor alternativo", "alternativo com descarga", "descarga alternativo"]):
+            if "120" in q:
+                return _resp(
+                    "Para compressor alternativo, a referência Pred.IO é de 80 °C a 140 °C. "
+                    "Uma leitura de 120 °C pode estar dentro da faixa de referência, mas deve "
+                    "ser interpretada junto com carga, fluido, pressão de descarga, pressão de "
+                    "sucção, óleo, corrente elétrica e histórico operacional.\n\nFonte: Pred.IO",
+                    links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                )
+            return _resp(
+                "Para compressor <strong>alternativo</strong>, a referência Pred.IO é de "
+                "<strong>80 °C a 140 °C</strong>. A interpretação deve considerar fluido "
+                "refrigerante, carga, pressão de descarga, pressão de sucção, condição do "
+                "óleo e histórico do equipamento.\n\nFonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Temperatura de descarga (genérico — sem tipo especificado)
+        if any(kw in q for kw in ["temperatura de descarga", "temperatura descarga", "descarga normal", "temperatura normal de descarga"]):
+            return _resp(
+                "A temperatura de descarga depende do tipo de compressor:\n\n"
+                "• <strong>Compressor alternativo:</strong> referência Pred.IO de 80 °C a 140 °C\n"
+                "• <strong>Compressor parafuso:</strong> referência Pred.IO até 90 °C\n\n"
+                "A avaliação deve considerar fluido, carga, pressão de sucção, pressão de "
+                "descarga, condição do óleo e histórico operacional.\n\nFonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # O que pode causar temperatura de descarga alta
+        if any(kw in q for kw in ["o que pode causar descarga", "causa temperatura descarga alta", "descarga alta o que"]):
+            return _resp(
+                "Temperatura de descarga alta pode estar relacionada a: pressão de descarga "
+                "elevada, taxa de compressão alta, falta de arrefecimento, condensador sujo, "
+                "problema na água de arrefecimento, filtro de sucção obstruído, óleo "
+                "deteriorado, carga operacional elevada ou operação com superaquecimento.\n\n"
+                "Fonte: Pred.IO",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Pressão de descarga alta
+        if any(kw in q for kw in ["pressão de descarga alta", "pressao de descarga alta", "descarga alta"]):
+            return _resp(
+                "Com base na base técnica Pred.IO, pressão de descarga alta pode estar "
+                "relacionada a: falta de água de arrefecimento, temperatura elevada da água, "
+                "condensador sujo, excesso de refrigerante, presença de ar no sistema, óleo "
+                "no condensador ou capacidade insuficiente do condensador.\n\n"
+                "Recomenda-se verificar condensador, água de arrefecimento, carga de "
+                "refrigerante e histórico de alarmes.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Pressão de descarga baixa
+        if any(kw in q for kw in ["pressão de descarga baixa", "pressao de descarga baixa", "descarga baixa"]):
+            return _resp(
+                "Com base na base técnica Pred.IO, pressão de descarga baixa pode estar "
+                "associada a: excesso de água de arrefecimento, baixa temperatura da água, "
+                "restrição ou entupimento na tubulação, abertura excessiva da válvula de "
+                "expansão, falta de refrigerante ou vazamento interno. A ação correta depende "
+                "da condição operacional do sistema.\n\nFonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Pressão de sucção alta
+        if any(kw in q for kw in ["pressão de sucção alta", "pressao de succao alta", "sucção alta", "succao alta"]):
+            return _resp(
+                "Com base na base técnica Pred.IO, pressão de sucção alta pode indicar: "
+                "excesso de abertura da válvula de expansão, aumento de carga térmica, queda "
+                "de capacidade do compressor ou vazamento interno, dependendo do tipo de "
+                "compressor e da condição de operação.\n\nFonte: Pred.IO",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Pressão de sucção baixa
+        if any(kw in q for kw in ["pressão de sucção baixa", "pressao de succao baixa", "sucção baixa", "succao baixa"]):
+            return _resp(
+                "Com base na base técnica Pred.IO, pressão de sucção baixa pode estar "
+                "relacionada a: válvula de expansão muito fechada ou obstruída, falta de "
+                "refrigerante, óleo no evaporador, evaporador congelado, filtro de sucção "
+                "obstruído ou restrição na linha de sucção.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Dados importantes para avaliar
+        if any(kw in q for kw in ["dados importantes para avaliar", "quais dados", "dados para avaliar"]):
+            return _resp(
+                "Para avaliação inicial de uma unidade compressora, são importantes: tipo de "
+                "compressor, fluido refrigerante, modelo, horímetro, pressão de sucção, pressão "
+                "de descarga, pressão de óleo, temperatura de descarga, temperatura do óleo, "
+                "corrente elétrica, vibração, termografia, análise de óleo, alarmes ativos, "
+                "histórico de falhas e plano de manutenção.\n\nFonte: Pred.IO",
+                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+            )
 
         # Fluxostato
         if "fluxostato" in q:
@@ -547,6 +1096,70 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
 
     # ── Manutenção ────────────────────────────────────────────────────────────
     if intent == "manutencao":
+        q_lower = pergunta.lower()
+
+        # Como a análise de vibração ajuda
+        if any(kw in q_lower for kw in ["como vibração ajuda", "como vibracao ajuda", "vibração ajuda", "vibracao ajuda"]):
+            return _resp(
+                "A análise de vibração ajuda a identificar tendências de desalinhamento, "
+                "desbalanceamento, folgas, falhas em rolamentos, problemas de acoplamento, "
+                "base frouxa, ressonância e alterações mecânicas. A decisão de intervenção "
+                "deve considerar tendência e correlação com inspeção, óleo e termografia.\n\n"
+                "No Portal Pred.IO, a análise de vibração está prevista como rotina preditiva "
+                "a cada 2 meses.\n\nFonte: Pred.IO",
+                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+            )
+
+        # Como a análise de óleo ajuda
+        if any(kw in q_lower for kw in ["como analise de oleo ajuda", "como análise de óleo ajuda", "analise de oleo ajuda"]):
+            return _resp(
+                "A análise de óleo ajuda a avaliar a condição do lubrificante e do equipamento, "
+                "incluindo viscosidade, contaminação por água, partículas, oxidação, aditivos e "
+                "metais de desgaste. Ela apoia decisões sobre troca de óleo, investigação de "
+                "desgaste e prioridade de intervenção.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                    {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
+                ],
+            )
+
+        # Como a termografia ajuda
+        if any(kw in q_lower for kw in ["como termografia ajuda", "termografia ajuda"]):
+            return _resp(
+                "A termografia ajuda a identificar aquecimento anormal em motor, painéis, "
+                "conexões elétricas, rolamentos, mancais, sistema de lubrificação e componentes "
+                "críticos. Deve ser correlacionada com corrente elétrica, carga, vibração e "
+                "histórico operacional.\n\n"
+                "No Portal Pred.IO, a termografia está prevista como rotina preditiva a cada "
+                "4 meses.\n\nFonte: Pred.IO",
+                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+            )
+
+        # Como reduzir risco de falha
+        if any(kw in q_lower for kw in ["como reduzir risco", "reduzir risco de falha"]):
+            return _resp(
+                "Para reduzir risco de falha na unidade compressora: manter inspeções diárias "
+                "e semanais, cumprir plano de manutenção, realizar análise de óleo, vibração e "
+                "termografia, tratar alarmes recorrentes, registrar dados operacionais, manter "
+                "filtros e óleo em condição adequada, verificar alinhamento e correlacionar "
+                "histórico técnico.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+            )
+
+        # O que fazer antes de intervenção
+        if any(kw in q_lower for kw in ["antes de intervencao", "o que fazer antes de intervencao", "antes de intervir"]):
+            return _resp(
+                "Antes de uma intervenção na unidade compressora: registrar a condição "
+                "operacional, verificar alarmes ativos, consultar relatórios técnicos, avaliar "
+                "histórico do ativo, confirmar o plano de manutenção, garantir segurança "
+                "operacional e, se necessário, abrir chamado técnico com a equipe Pred.IO.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
         mans = ctx.get("manutencoes", [])
         if not mans:
             return _resp(
@@ -667,6 +1280,42 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
 
     # ── Status do ativo ───────────────────────────────────────────────────────
     if intent == "status_ativo":
+        q_lower = pergunta.lower()
+
+        # O que é score de saúde
+        if any(kw in q_lower for kw in ["score de saude", "score de saúde", "o que e score", "o que é score", "saude do ativo", "saúde do ativo"]):
+            return _resp(
+                "Score de saúde é uma representação resumida da condição do ativo, calculada "
+                "a partir de dados como vibração, óleo, termografia, alarmes, chamados, "
+                "manutenção, histórico operacional e criticidade. Ele não substitui laudo "
+                "técnico, mas ajuda a priorizar acompanhamento.\n\nFonte: Pred.IO",
+                links=[{"label": "⚙️ Ver Ativos", "page": "ativos"}],
+            )
+
+        # O que significa ativo em atenção
+        if any(kw in q_lower for kw in ["ativo em atencao", "ativo em atenção", "o que significa atencao", "em atenção significa"]):
+            return _resp(
+                "Ativo em <strong>atenção</strong> indica que há sinais de acompanhamento "
+                "necessário, como tendência de piora, manutenção próxima, alerta recorrente, "
+                "alteração de score, anomalia em óleo, vibração ou temperatura. Não significa "
+                "necessariamente parada imediata, mas exige monitoramento e análise.\n\n"
+                "Fonte: Pred.IO",
+                links=[{"label": "⚙️ Ver Ativos", "page": "ativos"}],
+            )
+
+        # O que significa ativo crítico
+        if any(kw in q_lower for kw in ["ativo critico", "ativo crítico", "o que significa critico", "crítico significa"]):
+            return _resp(
+                "Ativo <strong>crítico</strong> indica condição com maior prioridade técnica, "
+                "podendo envolver risco de falha, componente com score baixo, alarme crítico, "
+                "tendência acelerada de degradação ou condição operacional fora da referência. "
+                "Recomenda-se abertura ou acompanhamento de chamado técnico.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "⚙️ Ver Ativos", "page": "ativos"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+            )
+
         ativos = ctx.get("ativos", [])
         if not ativos:
             return _resp(
@@ -707,11 +1356,30 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             links=[{"label": "🔔 Ver Alertas", "page": "alertas"}],
         )
 
+    # ── Meta — sobre o Assistente Técnico Pred.IO ────────────────────────────
+    if intent == "meta_assistente":
+        q = pergunta.lower()
+        if any(kw in q for kw in ["substitui", "substitui o técnico", "substitui o tecnico"]):
+            return _resp(
+                "Não. O Assistente Técnico Pred.IO ajuda a consultar informações técnicas, "
+                "organizar dados, explicar alarmes e orientar próximos passos, mas não "
+                "substitui avaliação técnica presencial, laudo especializado ou decisão "
+                "operacional de segurança.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+        return _resp(
+            "Não. O Assistente Técnico Pred.IO não executa comando na máquina. Ele pode "
+            "orientar, indicar condição de atenção ou sugerir abertura de chamado técnico, "
+            "mas a decisão de parada, intervenção ou operação deve ser tomada por operador "
+            "autorizado, manutenção ou engenharia responsável.\n\nFonte: Pred.IO",
+            links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+        )
+
     # ── Fallback ──────────────────────────────────────────────────────────────
     return _resp(
         "Não encontrei informação suficiente nos dados disponíveis do portal "
         "para responder com segurança. Recomendo abrir um chamado técnico "
-        "para avaliação da equipe Pred.IO.",
+        "para avaliação da equipe Pred.IO.\n\nFonte: Pred.IO",
         links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
     )
 

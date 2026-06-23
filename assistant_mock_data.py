@@ -395,6 +395,26 @@ _DEFAULT_CONTEXT: dict = {
         {"nome": "MYCOLD PAO",                    "fabricante": "MYCOM",        "fluido": "NH3/R22",          "classe": "PAO sintético",       "viscosidade_cst": "53,0", "status": "Homologado",
          "obs": "Óleo MYCOM atual. Substitui MYCOLD AB 68 (descontinuado)."},
     ],
+    # Painel Mypro Touch — referência operacional
+    "mypro_touch_info": {
+        "modelos_validos": ["Mypro Touch", "Mypro Touch AD"],
+        "modelos_invalidos": ["Mypro Touch+", "MYPRO Touch+", "MyproTouch+"],
+        "acessos": [
+            {"level": 1, "nome": "Operador",              "login": "ABC", "senha": "1111"},
+            {"level": 2, "nome": "Supervisor/Administrador", "login": "XYZ", "senha": "2222"},
+        ],
+        "set_points": [
+            {"id": "#1", "referencia": "-10 °C"},
+            {"id": "#2", "referencia": "-40 °C"},
+        ],
+        "set_point_cut_in":  "Pressão em que o compressor liga automaticamente",
+        "set_point_cut_out": "Pressão em que o compressor desliga automaticamente por baixa pressão",
+        "obs": (
+            "Para partida, parada, reset de alarme, set point e capacidade manual: "
+            "use apenas se você for operador autorizado. O Assistente Técnico Pred.IO "
+            "não executa comando na máquina."
+        ),
+    },
     # MYCOLD AB 68 — histórico/inativo apenas para redirecionamento
     "mycold_ab_historico": {
         "nome": "MYCOLD AB 68",
