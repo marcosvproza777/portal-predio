@@ -46,6 +46,10 @@ def render() -> None:
             placeholder="Descreva o ponto de atenção para o cliente...",
             height=80,
         )
+        whatsapp = st.text_input(
+            "WhatsApp para envio",
+            placeholder="Ex: 5511999999999 (com DDI e DDD, sem espaços ou +)",
+        )
 
         submitted = st.form_submit_button(
             "🔔 Publicar alerta", type="primary", use_container_width=True
@@ -61,7 +65,7 @@ def render() -> None:
             else:
                 client_id = empresa_sel.strip().lower()
 
-            ok = add_alerta_sv(client_id, empresa_sel, titulo.strip(), descricao.strip(), prioridade)
+            ok = add_alerta_sv(client_id, empresa_sel, titulo.strip(), descricao.strip(), prioridade, whatsapp)
             if ok:
                 st.success(f"✅ Alerta publicado para {empresa_sel}.")
                 st.rerun()
@@ -100,6 +104,7 @@ def _render_card(row) -> None:
     descricao  = str(row.get("Descricao",  "")).strip()
     prioridade = str(row.get("Prioridade", "Média")).strip()
     criado_em  = str(row.get("Criado_Em",  "")).strip()[:16]
+    whatsapp   = str(row.get("Whatsapp",   "")).strip()
 
     cor = _PRIO_COR.get(prioridade, "#94A3B8")
 
@@ -124,6 +129,8 @@ def _render_card(row) -> None:
                if descricao else "")
             + (f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0;'>📅 {criado_em}</p>"
                if criado_em else "")
+            + (f"<p style='color:#25D366;font-size:0.72rem;margin:4px 0 0;'>📱 WhatsApp: {whatsapp}</p>"
+               if whatsapp else "")
             + "</div>",
             unsafe_allow_html=True,
         )

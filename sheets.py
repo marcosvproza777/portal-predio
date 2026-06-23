@@ -452,7 +452,7 @@ def delete_usuario(email: str) -> bool:
 
 # ── Alertas de Supervisão (Pontos de Atenção manuais) ────────────────────────
 
-_HEADERS_ALERTAS_SV = ["Id", "Client_Id", "Empresa", "Titulo", "Descricao", "Prioridade", "Criado_Em"]
+_HEADERS_ALERTAS_SV = ["Id", "Client_Id", "Empresa", "Titulo", "Descricao", "Prioridade", "Criado_Em", "Whatsapp"]
 
 
 def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
@@ -469,7 +469,7 @@ def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
 
 
 def add_alerta_sv(client_id: str, empresa: str, titulo: str,
-                  descricao: str, prioridade: str) -> bool:
+                  descricao: str, prioridade: str, whatsapp: str = "") -> bool:
     """Adiciona um alerta manual de supervisão."""
     _ensure_tab_headers("AlertasSV", _HEADERS_ALERTAS_SV)
     alerta_id = _gerar_id("ALS")
@@ -477,6 +477,7 @@ def add_alerta_sv(client_id: str, empresa: str, titulo: str,
         alerta_id, client_id.strip().lower(), empresa,
         titulo, descricao, prioridade,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        whatsapp.strip(),
     ])
 
 
