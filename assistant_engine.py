@@ -126,24 +126,45 @@ def get_client_context(client_id: str) -> dict:
     # SEGURANÇA: client_id da sessão; get_documentos_tecnicos() filtra
     # documentos internos e de outros clientes antes de retornar.
     try:
-        from sheets import get_documentos_tecnicos
+        from sheets import get_documentos_tecnicos, get_chunks_documento
         df_docs = get_documentos_tecnicos(client_id=client_id, staff=False)
         if not df_docs.empty:
-            ctx["documentos"] = [
-                {
-                    "id":             str(r.get("Id",             "")).strip(),
-                    "titulo":         str(r.get("Titulo",         "")).strip(),
-                    "tipo_documento": str(r.get("Tipo_Documento", "")).strip(),
-                    "fabricante":     str(r.get("Fabricante",     "")).strip(),
-                    "modelo":         str(r.get("Modelo",         "")).strip(),
-                    "ativo":          str(r.get("Ativo_Id",       "")).strip(),
-                    "resumo":         str(r.get("Resumo",         "")).strip(),
-                    "palavras_chave": str(r.get("Palavras_Chave", "")).strip(),
-                    "arquivo_url":    str(r.get("Arquivo_Url",    "")).strip(),
-                    "arquivo_nome":   str(r.get("Arquivo_Nome",   "")).strip(),
+            docs = []
+            for _, r in df_docs.iterrows():
+                doc_id = str(r.get("Id", "")).strip()
+                doc = {
+                    "id":               doc_id,
+                    "titulo":           str(r.get("Titulo",          "")).strip(),
+                    "tipo_documento":   str(r.get("Tipo_Documento",  "")).strip(),
+                    "fabricante":       str(r.get("Fabricante",      "")).strip(),
+                    "modelo":           str(r.get("Modelo",          "")).strip(),
+                    "ativo":            str(r.get("Ativo_Id",        "")).strip(),
+                    "resumo":           str(r.get("Resumo",          "")).strip(),
+                    "palavras_chave":   str(r.get("Palavras_Chave",  "")).strip(),
+                    "arquivo_url":      str(r.get("Arquivo_Url",     "")).strip(),
+                    "arquivo_nome":     str(r.get("Arquivo_Nome",    "")).strip(),
+                    "status_indexacao": str(r.get("Status_Indexacao","Não indexado")).strip(),
+                    "chunks":           [],
                 }
-                for _, r in df_docs.iterrows()
-            ]
+                # Carrega chunks se o documento estiver indexado
+                if doc["status_indexacao"] == "Indexado" and doc_id:
+                    try:
+                        df_chk = get_chunks_documento(doc_id)
+                        if not df_chk.empty:
+                            doc["chunks"] = [
+                                {
+                                    "chunk_index":  int(str(c.get("Chunk_Index",  0) or 0)),
+                                    "titulo_secao": str(c.get("Titulo_Secao",  "")).strip(),
+                                    "conteudo":     str(c.get("Conteudo",      "")).strip(),
+                                    "palavras_chave": str(c.get("Palavras_Chave","")).strip(),
+                                    "pagina_inicio": str(c.get("Pagina_Inicio", "")).strip(),
+                                }
+                                for _, c in df_chk.iterrows()
+                            ]
+                    except Exception:
+                        pass
+                docs.append(doc)
+            ctx["documentos"] = docs
     except Exception:
         pass  # mantém docs do mock
 
@@ -189,7 +210,7 @@ def query_assistant(
     return _build_response(intent, context, pergunta, ativo_id)
 
 
-def _build_response(intent: str, ctx: dict, pergunta: str, ativo_id: str = "") -> dict:
+def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = "") -> dict:
     """Constrói a resposta controlada para a intenção detectada."""
 
     empresa = ctx.get("empresa", "sua operação")
@@ -203,22 +224,29 @@ def _build_response(intent: str, ctx: dict, pergunta: str, ativo_id: str = "") -
                 "Recomendo abrir um chamado técnico para que a equipe Pred.IO verifique.",
                 links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
             )
-        itens = []
-        for m in mans:
-            prazo = (
-                m.get("vencimento_data")
-                or (f"{m['vencimento_horas']}h" if m.get("vencimento_horas") else "a definir")
-            )
-            itens.append(f"• {m['acao']} — {prazo}")
-        answer = (
-            "As próximas ações programadas são: "
-            + "; ".join(
-                (m.get("vencimento_data") and f"{m['acao']} em {m['vencimento_data']}")
-                or (m.get("vencimento_horas") and f"{m['acao']} em {m['vencimento_horas']} horas")
-                or m["acao"]
-                for m in mans
-            ) + "."
+        itens_str = "; ".join(
+            (m.get("vencimento_data") and f"{m['acao']} em {m['vencimento_data']}")
+            or (m.get("vencimento_horas") and f"{m['acao']} em {m['vencimento_horas']} horas")
+            or m["acao"]
+            for m in mans
         )
+        # Resposta segura sobre overhaul: não depende só do horímetro
+        q_lower = pergunta.lower()
+        if any(kw in q_lower for kw in ["overhaul", "revisão geral", "revisao geral"]):
+            overhaul_note = _buscar_chunk_overhaul(ctx)
+            if overhaul_note:
+                return _resp(overhaul_note["answer"],
+                             links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                                    {"label": "📚 Ver Manual", "page": "biblioteca"}],
+                             documents=overhaul_note.get("docs", []))
+            return _resp(
+                "O overhaul não é determinado apenas pelo horímetro. "
+                "A decisão deve considerar vibração, análise de óleo, termografia e histórico de falhas. "
+                "Consulte o manual técnico ou a equipe Pred.IO para avaliar o momento adequado.",
+                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                       {"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}],
+            )
+        answer = f"As próximas ações programadas são: {itens_str}."
         return _resp(answer, links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}])
 
     # ── Relatórios ────────────────────────────────────────────────────────────
@@ -252,6 +280,14 @@ def _build_response(intent: str, ctx: dict, pergunta: str, ativo_id: str = "") -
                 links=[{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"},
                        {"label": "🔧 Abrir Chamado", "page": "chamados"}],
             )
+        # Busca em chunks primeiro (prioridade: conteúdo indexado)
+        chunk_result = _buscar_chunks_geral(ctx, pergunta)
+        if chunk_result:
+            return _resp(
+                chunk_result["answer"],
+                links=[{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}],
+                documents=chunk_result.get("docs", []),
+            )
         ativos_doc = sorted({d.get("ativo", "") for d in docs if d.get("ativo")})
         answer = (
             "Encontrei documentos técnicos disponíveis na Biblioteca Técnica"
@@ -271,6 +307,14 @@ def _build_response(intent: str, ctx: dict, pergunta: str, ativo_id: str = "") -
             return _resp(
                 f"O óleo recomendado para esta unidade é: {spec}.",
                 links=[{"label": "📚 Ver Manual", "page": "biblioteca"}],
+            )
+        # Busca em chunks de documentos indexados
+        chunk_result = _buscar_chunk_oleo(ctx)
+        if chunk_result:
+            return _resp(
+                chunk_result["answer"],
+                links=[{"label": "📚 Ver Manual", "page": "biblioteca"}],
+                documents=chunk_result.get("docs", []),
             )
         return _resp(
             "Não encontrei especificação de óleo cadastrada para este ativo. "
@@ -329,6 +373,84 @@ def _build_response(intent: str, ctx: dict, pergunta: str, ativo_id: str = "") -
         "para avaliação da equipe Pred.IO.",
         links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
     )
+
+
+def _normalizar(texto: str) -> str:
+    import re
+    t = texto.lower()
+    t = re.sub(r'[ãâàáä]', 'a', t)
+    t = re.sub(r'[êèéë]', 'e', t)
+    t = re.sub(r'[îìíï]', 'i', t)
+    t = re.sub(r'[õôòóö]', 'o', t)
+    t = re.sub(r'[ûùúü]', 'u', t)
+    t = re.sub(r'ç', 'c', t)
+    return t
+
+
+def _buscar_chunk_oleo(ctx: dict) -> dict | None:
+    """Busca especificação de óleo nos chunks de documentos indexados."""
+    kws_oleo = ["oleo", "lubrificante", "viscosidade", "vdl", "synthetic", "sintetico"]
+    for doc in ctx.get("documentos", []):
+        for chunk in doc.get("chunks", []):
+            hay = _normalizar(
+                chunk.get("conteudo", "") + " " + chunk.get("palavras_chave", "")
+            )
+            if any(kw in hay for kw in kws_oleo):
+                return {
+                    "answer": (
+                        f"Com base no documento <strong>{doc['titulo']}</strong> "
+                        f"(Seção: {chunk['titulo_secao']}), encontrei: {chunk['conteudo']}"
+                    ),
+                    "docs": [{"titulo": doc["titulo"], "id": doc.get("id", "")}],
+                }
+    return None
+
+
+def _buscar_chunk_overhaul(ctx: dict) -> dict | None:
+    """Busca informações sobre overhaul nos chunks de documentos indexados."""
+    kws = ["overhaul", "revisao geral", "horimetro", "vibracao", "termografia"]
+    for doc in ctx.get("documentos", []):
+        for chunk in doc.get("chunks", []):
+            hay = _normalizar(
+                chunk.get("conteudo", "") + " " + chunk.get("titulo_secao", "")
+            )
+            if any(kw in hay for kw in kws):
+                return {
+                    "answer": (
+                        f"Com base no documento <strong>{doc['titulo']}</strong> "
+                        f"(Seção: {chunk['titulo_secao']}), encontrei: {chunk['conteudo']}"
+                    ),
+                    "docs": [{"titulo": doc["titulo"], "id": doc.get("id", "")}],
+                }
+    return None
+
+
+def _buscar_chunks_geral(ctx: dict, pergunta: str) -> dict | None:
+    """Busca por palavras-chave da pergunta nos chunks de todos os docs autorizados."""
+    q_norm = _normalizar(pergunta)
+    words = [w for w in q_norm.split() if len(w) > 2]
+    if not words:
+        return None
+    best_score = 0
+    best_result = None
+    for doc in ctx.get("documentos", []):
+        for chunk in doc.get("chunks", []):
+            hay = _normalizar(
+                chunk.get("titulo_secao", "") + " "
+                + chunk.get("conteudo", "") + " "
+                + chunk.get("palavras_chave", "")
+            )
+            score = sum(1 for w in words if w in hay)
+            if score > best_score:
+                best_score = score
+                best_result = {
+                    "answer": (
+                        f"Com base no documento <strong>{doc['titulo']}</strong> "
+                        f"(Seção: {chunk['titulo_secao']}), encontrei: {chunk['conteudo']}"
+                    ),
+                    "docs": [{"titulo": doc["titulo"], "id": doc.get("id", "")}],
+                }
+    return best_result if best_score > 0 else None
 
 
 def _resp(

@@ -1017,19 +1017,67 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     var ctx = PRED_CONTEXT;
     var ql  = q.toLowerCase();
 
-    /* Ordem importa: oleo antes de manutencao para perguntas especificas */
-    if (/qual.*leo|leo.*usar|especifica.*leo|recomend.*leo|viscosidade|lubrificante recomendado/.test(ql)) {{
+    /* Normaliza texto para busca sem acentos */
+    var norm = function(s) {{
+      return (s||'').toLowerCase()
+        .replace(/[ãâàáä]/g,'a').replace(/[êèéë]/g,'e')
+        .replace(/[îìíï]/g,'i').replace(/[õôòóö]/g,'o')
+        .replace(/[ûùúü]/g,'u').replace(/ç/g,'c');
+    }};
+
+    /* Busca em chunks indexados — retorna hit ou null */
+    var searchChunks = function(extraWords) {{
+      var qn = norm(ql);
+      var baseWords = qn.split(/ +/).filter(function(w) {{ return w.length > 2; }});
+      var words = baseWords.concat((extraWords || []).map(norm));
+      if (!words.length) return null;
+      var best = null, bestScore = 0;
+      (ctx.documentos || []).forEach(function(doc) {{
+        (doc.chunks || []).forEach(function(chunk) {{
+          var hay = norm([chunk.titulo_secao, chunk.conteudo, chunk.palavras_chave].join(' '));
+          var score = words.filter(function(w) {{ return hay.indexOf(w) >= 0; }}).length;
+          if (score > bestScore) {{
+            bestScore = score;
+            best = {{ docTitulo: doc.titulo, docId: doc.id, docUrl: doc.arquivo_url || '', secao: chunk.titulo_secao || '', conteudo: chunk.conteudo || '', pagina: chunk.pagina_inicio || '' }};
+          }}
+        }});
+      }});
+      return bestScore > 0 ? best : null;
+    }};
+
+    /* Formata resposta com atribuicao de fonte */
+    var fmtChunk = function(hit) {{
+      var src = 'Com base no documento <strong>' + hit.docTitulo + '</strong>';
+      if (hit.secao) src += ' (Secao: ' + hit.secao + ')';
+      if (hit.pagina) src += ' &mdash; pag. ' + hit.pagina;
+      return src + ', encontrei:<br><br>' + hit.conteudo;
+    }};
+
+    /* OLEO — ordem importa: antes de manutencao */
+    if (/qual.*leo|leo.*usar|especifica.*leo|recomend.*leo|viscosidade|lubrificante recomend/.test(ql)) {{
       var spec = ctx.especificacoes && ctx.especificacoes.oleo;
       if (spec) {{
         return {{ text: 'O oleo recomendado para esta unidade e: <strong>' + spec + '</strong>.', actions: [{{label:'📚 Ver Manual', page:'biblioteca'}}] }};
       }}
-      return {{ text: 'Nao encontrei especificacao de oleo cadastrada para este ativo. Consulte o manual tecnico disponivel na Biblioteca Tecnica ou abra um chamado para validacao da equipe Pred.IO.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      var hitOleo = searchChunks(['oleo', 'lubrificante', 'viscosidade', 'vdl', 'sintetico']);
+      if (hitOleo) {{
+        return {{ text: fmtChunk(hitOleo), actions: [{{label:'📚 Ver Manual Completo', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      return {{ text: 'Nao encontrei especificacao de oleo cadastrada. Consulte o manual tecnico na Biblioteca Tecnica ou abra um chamado para validacao da equipe Pred.IO.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
     }}
 
+    /* MANUTENCAO */
     if (/manuten|plano|preventiva|preditiva|vibra|termografia|hor.metro|filtro|inspec|overhaul|lubrifica|pr.xima|proxima|vencimento|analise de|analise d/.test(ql)) {{
+      if (/overhaul|revis.o geral|revisao geral/.test(ql)) {{
+        var hitOvh = searchChunks(['overhaul', 'revisao', 'horimetro', 'vibracao', 'termografia']);
+        if (hitOvh) {{
+          return {{ text: fmtChunk(hitOvh), actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'📚 Ver Manual', page:'biblioteca'}}] }};
+        }}
+        return {{ text: 'O overhaul nao e determinado apenas pelo horimetro. A decisao deve considerar: vibracao, analise de oleo, termografia e historico de falhas. Consulte o manual tecnico ou solicite avaliacao da equipe Pred.IO.', actions: [{{label:'📅 Ver Plano', page:'manutencao'}}, {{label:'📚 Abrir Biblioteca', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
       var mans = ctx.manutencoes || [];
       if (!mans.length) {{
-        return {{ text: 'Nao encontrei planos de manutencao cadastrados para sua operacao. Recomendo abrir um chamado tecnico.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+        return {{ text: 'Nao encontrei planos de manutencao cadastrados. Recomendo abrir um chamado tecnico.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
       }}
       var itens = mans.map(function(m) {{
         var prazo = m.vencimento_data || (m.vencimento_horas ? m.vencimento_horas + ' horas' : 'a definir');
@@ -1038,7 +1086,8 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: '<strong>📅 Proximas manutencoes programadas:</strong><br><br>' + itens + '<br><br>Acesse o plano completo para ver checklists e intervalos detalhados.', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
     }}
 
-    if (/relat|laudo|preditiva|resultado|publicado/.test(ql)) {{
+    /* RELATORIOS */
+    if (/relat|laudo|resultado|publicado/.test(ql)) {{
       var rels = ctx.relatorios || [];
       if (!rels.length) {{
         return {{ text: 'Nenhum relatorio tecnico publicado ainda para sua operacao.', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
@@ -1047,31 +1096,35 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: '<strong>📋 Relatorios tecnicos recentes:</strong><br><br>' + rlist, actions: [{{label:'📋 Ver Relatorios Tecnicos', page:'relatorios'}}] }};
     }}
 
+    /* DOCUMENTOS / MANUAIS */
     if (/manual|datasheet|documento|especifica|cat.logo|biblioteca|pdf|procedimento|guia|instru/.test(ql)) {{
       var docs = ctx.documentos || [];
       if (!docs.length) {{
-        return {{ text: 'Nao encontrei manual tecnico cadastrado para este ativo ou modelo. Recomendo solicitar o documento pela area de Chamados Tecnicos para avaliacao da equipe Pred.IO.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}, {{label:'📚 Abrir Biblioteca', page:'biblioteca'}}] }};
+        return {{ text: 'Nao encontrei manual tecnico cadastrado. Recomendo solicitar o documento pela area de Chamados Tecnicos.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}, {{label:'📚 Abrir Biblioteca', page:'biblioteca'}}] }};
       }}
-      /* Busca por palavras-chave da pergunta dentro dos docs autorizados */
-      var norm = function(s) {{ return (s||'').toLowerCase().replace(/[ãâàáä]/g,'a').replace(/[êèéë]/g,'e').replace(/[îìíï]/g,'i').replace(/[õôòóö]/g,'o').replace(/[ûùúü]/g,'u').replace(/ç/g,'c'); }};
-      var qn = norm(ql);
-      var words = qn.split(/ +/).filter(function(w) {{ return w.length > 2; }});
+      var hitDoc = searchChunks([]);
+      if (hitDoc) {{
+        return {{ text: fmtChunk(hitDoc), actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
+      }}
+      var qn2 = norm(ql);
+      var words2 = qn2.split(/ +/).filter(function(w) {{ return w.length > 2; }});
       var matched = docs.filter(function(d) {{
         var hay = norm([d.titulo, d.modelo, d.fabricante, d.tipo_documento, d.palavras_chave, d.resumo, d.ativo].join(' '));
-        return words.some(function(w) {{ return hay.indexOf(w) >= 0; }});
+        return words2.some(function(w) {{ return hay.indexOf(w) >= 0; }});
       }});
       var show = matched.length ? matched : docs;
-      var prefix = matched.length
-        ? 'Encontrei ' + (matched.length === 1 ? 'o documento tecnico vinculado ao seu ativo' : matched.length + ' documentos disponiveis na Biblioteca Tecnica') + ':'
+      var prefix2 = matched.length
+        ? 'Encontrei ' + (matched.length === 1 ? 'o documento tecnico vinculado ao seu ativo' : matched.length + ' documentos disponiveis') + ':'
         : 'Documentacao tecnica disponivel na Biblioteca:';
       var dlist = show.map(function(d) {{
         return '&bull; <strong>' + d.titulo + '</strong>'
           + (d.tipo_documento ? ' <span style="font-size:.75rem;color:#64748B;">(' + d.tipo_documento + ')</span>' : '')
           + (d.modelo ? ' &mdash; ' + d.modelo : '');
       }}).join('<br>');
-      return {{ text: '<strong>📚 ' + prefix + '</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
+      return {{ text: '<strong>📚 ' + prefix2 + '</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
     }}
 
+    /* STATUS ATIVO */
     if (/status|condi|sa.de|score|cr.tico|aten|bomba|compressor|motor|ativo|equipamento|falha|alarme|sensor/.test(ql)) {{
       var ativos = ctx.ativos || [];
       if (!ativos.length) {{
@@ -1086,6 +1139,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: txt, actions: [{{label:'⚙️ Ver Ativos Monitorados', page:'ativos'}}] }};
     }}
 
+    /* CHAMADOS */
     if (/chamado|abrir chamado|solicita|atendimento|suporte|problema|defeito|urgente|t.cnico/.test(ql)) {{
       var chams = ctx.chamados || [];
       var txt2 = 'Voce pode abrir ou acompanhar solicitacoes pela area de Chamados Tecnicos.';
@@ -1093,6 +1147,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: '<strong>🔧 Chamados Tecnicos:</strong><br><br>' + txt2, actions: [{{label:'🔧 Abrir Chamados Tecnicos', page:'chamados'}}] }};
     }}
 
+    /* ALERTAS */
     if (/alerta|aviso|notifica|ponto de aten/.test(ql)) {{
       var als = ctx.alertas || [];
       if (!als.length) {{
@@ -1102,7 +1157,13 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: '<strong>🔔 Alertas ativos:</strong><br><br>' + alist, actions: [{{label:'🔔 Ver Alertas', page:'alertas'}}] }};
     }}
 
-    /* Fallback — duvida nao encontrada */
+    /* Busca generica em chunks antes do fallback */
+    var hitGeral = searchChunks([]);
+    if (hitGeral) {{
+      return {{ text: fmtChunk(hitGeral), actions: [{{label:'📚 Ver Manual', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    /* Fallback */
     return {{ text: 'Nao encontrei informacao suficiente nos dados disponiveis do portal para responder com seguranca. Recomendo abrir um chamado tecnico para avaliacao da equipe Pred.IO.', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
   }}
 

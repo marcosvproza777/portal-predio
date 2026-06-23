@@ -492,10 +492,15 @@ _HEADERS_BIBLIOTECA = [
     "Ativo_Id", "Componente_Id", "Fabricante", "Modelo", "Numero_Serie",
     "Arquivo_Url", "Arquivo_Nome", "Resumo", "Palavras_Chave",
     "Visibilidade", "Status", "Observacoes_Internas",
-    # Campos futuros para RAG/IA (não implementados agora)
     "Texto_Extraido", "Embedding_Id", "Data_Indexacao",
-    "Indexado_Para_IA", "Fonte_Original",
+    "Status_Indexacao", "Erro_Indexacao", "Quantidade_Paginas", "Origem_Arquivo",
     "Created_At", "Updated_At",
+]
+
+_HEADERS_CHUNKS = [
+    "Id", "Documento_Id", "Cliente_Id", "Ativo_Id", "Componente_Id",
+    "Chunk_Index", "Pagina_Inicio", "Pagina_Fim", "Titulo_Secao",
+    "Conteudo", "Palavras_Chave", "Created_At", "Updated_At",
 ]
 
 _VIS_INTERNO = "Apenas equipe Pred.IO"
@@ -563,8 +568,13 @@ def add_documento_tecnico(dados: dict) -> str | None:
         dados.get("visibilidade",          "Vinculado a cliente específico"),
         dados.get("status",                "Ativo"),
         dados.get("observacoes_internas",  ""),
-        # Campos futuros RAG (vazios agora)
-        "", "", "", "", "",
+        "",  # Texto_Extraido
+        "",  # Embedding_Id
+        "",  # Data_Indexacao
+        "Não indexado",  # Status_Indexacao
+        "",  # Erro_Indexacao
+        "",  # Quantidade_Paginas
+        dados.get("origem_arquivo", ""),  # Origem_Arquivo
         now, now,
     ])
     return doc_id if ok else None
@@ -572,6 +582,115 @@ def add_documento_tecnico(dados: dict) -> str | None:
 
 def delete_documento_tecnico(doc_id: str) -> bool:
     return delete_row_by_id("BibliotecaTecnica", "Id", doc_id)
+
+
+def update_status_indexacao(
+    doc_id: str,
+    status: str,
+    texto_extraido: str = "",
+    quantidade_paginas: int = 0,
+    erro: str = "",
+) -> bool:
+    """Atualiza campos de indexação de um documento na BibliotecaTecnica."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("BibliotecaTecnica")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        all_ids = ws.col_values(id_col)
+        for row_num, v in enumerate(all_ids, start=1):
+            if row_num == 1:
+                continue
+            if str(v).strip() == doc_id.strip():
+                now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                updates = {
+                    "Status_Indexacao":  status,
+                    "Erro_Indexacao":    erro,
+                    "Data_Indexacao":    now,
+                    "Updated_At":        now,
+                }
+                if texto_extraido:
+                    updates["Texto_Extraido"] = texto_extraido[:5000]
+                if quantidade_paginas:
+                    updates["Quantidade_Paginas"] = str(quantidade_paginas)
+                for col_name, value in updates.items():
+                    if col_name in headers:
+                        ws.update_cell(row_num, headers.index(col_name) + 1, value)
+                load_sheet.clear()
+                return True
+        return False
+    except Exception:
+        return False
+
+
+# ── DocumentoChunks ───────────────────────────────────────────────────────────
+
+def get_chunks_documento(doc_id: str) -> pd.DataFrame:
+    """Retorna todos os chunks de um documento."""
+    df = load_sheet("DocumentoChunks")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_CHUNKS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[df["Documento_Id"].str.strip() == doc_id.strip()]
+    return df.reset_index(drop=True)
+
+
+def add_chunks_lote(chunks: list[dict]) -> bool:
+    """Salva uma lista de chunks. Retorna True se bem-sucedido."""
+    if not chunks:
+        return True
+    _ensure_tab_headers("DocumentoChunks", _HEADERS_CHUNKS)
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    rows = []
+    for c in chunks:
+        rows.append([
+            _gerar_id("CHK"),
+            c.get("documento_id",  ""),
+            c.get("cliente_id",    ""),
+            c.get("ativo_id",      ""),
+            c.get("componente_id", ""),
+            str(c.get("chunk_index",   "")),
+            str(c.get("pagina_inicio", "")),
+            str(c.get("pagina_fim",    "")),
+            c.get("titulo_secao",  ""),
+            c.get("conteudo",      ""),
+            c.get("palavras_chave",""),
+            now, now,
+        ])
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("DocumentoChunks")
+        ws.append_rows(rows, value_input_option="USER_ENTERED")
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def delete_chunks_documento(doc_id: str) -> bool:
+    """Remove todos os chunks de um documento (antes de reprocessar)."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("DocumentoChunks")
+        headers = ws.row_values(1)
+        if "Documento_Id" not in headers:
+            return True
+        col_idx = headers.index("Documento_Id") + 1
+        all_vals = ws.col_values(col_idx)
+        to_delete = [
+            i + 1 for i, v in enumerate(all_vals)
+            if i > 0 and str(v).strip() == doc_id.strip()
+        ]
+        for row_num in reversed(to_delete):
+            ws.delete_rows(row_num)
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
 
 
 # ── Horímetros ───────────────────────────────────────────────────────────────
@@ -854,21 +973,39 @@ def get_historico_cliente(client_id: str) -> dict:
 
 # ── Assistente / logs ─────────────────────────────────────────────────────────
 
+_HEADERS_LOGS = [
+    "Client_Id", "Email", "Pergunta", "Resposta", "Fontes",
+    "Confidence", "Sources_Json", "Data_Hora",
+]
+
+
 def get_historico_assistente(client_id: str, limit: int = 20) -> pd.DataFrame:
     df = load_sheet("AssistenteLogs")
     if df.empty:
         return df
-    for col_candidate in ("Empresa", "Client_Id"):
+    # Garante colunas mínimas
+    for col in ("Confidence", "Sources_Json"):
+        if col not in df.columns:
+            df[col] = ""
+    for col_candidate in ("Client_Id", "Empresa"):
         if col_candidate in df.columns:
             df = df[df[col_candidate].str.strip().str.lower() == client_id.lower()]
             return df.tail(limit).iloc[::-1].reset_index(drop=True)
     return pd.DataFrame()
 
 
-def salvar_log_assistente(client_id: str, email: str, pergunta: str,
-                          resposta: str, fontes: str = "") -> None:
+def salvar_log_assistente(
+    client_id: str,
+    email: str,
+    pergunta: str,
+    resposta: str,
+    fontes: str = "",
+    confidence: str = "",
+    sources_json: str = "",
+) -> None:
     append_row("AssistenteLogs", [
         client_id, email, pergunta, resposta, fontes,
+        confidence, sources_json,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
     ])
 

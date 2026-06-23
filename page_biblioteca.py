@@ -113,16 +113,32 @@ def _carregar_documentos(client_id: str) -> list[dict]:
 
 
 def _render_doc_card(doc: dict) -> None:
-    titulo    = str(doc.get("Titulo",         doc.get("titulo",         ""))).strip()
-    tipo      = str(doc.get("Tipo_Documento", doc.get("tipo_documento", ""))).strip()
-    fabricante = str(doc.get("Fabricante",    doc.get("fabricante",     ""))).strip()
-    modelo    = str(doc.get("Modelo",         doc.get("modelo",         ""))).strip()
-    ativo     = str(doc.get("Ativo_Id",       doc.get("ativo",          ""))).strip()
-    resumo    = str(doc.get("Resumo",         doc.get("resumo",         ""))).strip()
-    arq_url   = str(doc.get("Arquivo_Url",    doc.get("arquivo_url",    ""))).strip()
-    arq_nome  = str(doc.get("Arquivo_Nome",   doc.get("arquivo_nome",   ""))).strip()
+    titulo    = str(doc.get("Titulo",            doc.get("titulo",            ""))).strip()
+    tipo      = str(doc.get("Tipo_Documento",    doc.get("tipo_documento",    ""))).strip()
+    fabricante = str(doc.get("Fabricante",       doc.get("fabricante",        ""))).strip()
+    modelo    = str(doc.get("Modelo",            doc.get("modelo",            ""))).strip()
+    ativo     = str(doc.get("Ativo_Id",          doc.get("ativo",             ""))).strip()
+    resumo    = str(doc.get("Resumo",            doc.get("resumo",            ""))).strip()
+    arq_url   = str(doc.get("Arquivo_Url",       doc.get("arquivo_url",       ""))).strip()
+    arq_nome  = str(doc.get("Arquivo_Nome",      doc.get("arquivo_nome",      ""))).strip()
+    st_idx    = str(doc.get("Status_Indexacao",  doc.get("status_indexacao",  ""))).strip()
 
     icon = _TIPO_ICON.get(tipo, "📄")
+
+    # Badge de disponibilidade para consulta IA
+    indexado = st_idx == "Indexado"
+    if indexado:
+        idx_badge = (
+            "<span style='background:#DCFCE7;color:#15803D;-webkit-text-fill-color:#15803D;"
+            "font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;"
+            "border:1px solid #86EFAC;white-space:nowrap;'>🤖 Disponível para consulta IA</span>"
+        )
+    else:
+        idx_badge = (
+            "<span style='background:#F1F5F9;color:#64748B;-webkit-text-fill-color:#64748B;"
+            "font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;"
+            "border:1px solid #CBD5E1;white-space:nowrap;'>📥 Disponível apenas para download</span>"
+        )
 
     meta = []
     if fabricante: meta.append(f"🏭 {fabricante}")
@@ -136,12 +152,13 @@ def _render_doc_card(doc: dict) -> None:
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
             f"border-left:4px solid {COLOR_BLUE};border-radius:10px;"
             f"padding:12px 16px;margin-bottom:6px;'>"
-            f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:4px;'>"
+            f"<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;'>"
             f"<span style='font-size:1.15rem;'>{icon}</span>"
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>{titulo}</span>"
             f"<span style='background:#EFF6FF;color:{COLOR_BLUE};-webkit-text-fill-color:{COLOR_BLUE};"
             f"font-size:0.68rem;font-weight:700;padding:2px 9px;border-radius:10px;"
-            f"border:1px solid #BFDBFE;margin-left:4px;'>{tipo}</span>"
+            f"border:1px solid #BFDBFE;'>{tipo}</span>"
+            f"{idx_badge}"
             f"</div>"
             + (f"<p style='color:{COLOR_MUTED};font-size:0.75rem;margin:0 0 4px;'>{meta_txt}</p>"
                if meta_txt else "")
@@ -154,13 +171,8 @@ def _render_doc_card(doc: dict) -> None:
     with col_btn:
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
         if arq_url and not arq_url.startswith("/mock/"):
-            st.link_button(
-                "📂 Abrir",
-                arq_url,
-                use_container_width=True,
-            )
+            st.link_button("📂 Abrir", arq_url, use_container_width=True)
         elif arq_url:
-            # URL de mock — não existe arquivo real
             st.button(
                 "📂 Abrir",
                 key=f"bib_open_{doc.get('id', titulo[:10])}",

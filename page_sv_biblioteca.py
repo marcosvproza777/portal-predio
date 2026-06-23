@@ -9,6 +9,7 @@ from ui import (
     sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
     COLOR_MUTED, COLOR_BLUE,
 )
+from document_processor import STATUS_INDEXADO, STATUS_FALHOU, STATUS_PROCESSANDO, STATUS_NAO_INDEXADO
 
 _TIPOS_DOC = [
     "Manual técnico", "Datasheet", "Catálogo do fabricante",
@@ -36,6 +37,14 @@ _STATUS_BADGE = {
     "Ativo":      ("#16A34A22", "#16A34A"),
     "Em revisão": ("#F59E0B22", "#B45309"),
     "Arquivado":  ("#94A3B822", "#64748B"),
+}
+
+_IDX_BADGE = {
+    STATUS_INDEXADO:     ("#DCFCE7", "#15803D"),
+    STATUS_FALHOU:       ("#FEE2E2", "#DC2626"),
+    STATUS_PROCESSANDO:  ("#FEF9C3", "#B45309"),
+    STATUS_NAO_INDEXADO: ("#F1F5F9", "#64748B"),
+    "":                  ("#F1F5F9", "#64748B"),
 }
 
 
@@ -242,6 +251,8 @@ def _render_card(row) -> None:
     titulo    = str(row.get("Titulo",         "")).strip()
     tipo      = str(row.get("Tipo_Documento", "")).strip()
     cliente   = str(row.get("Cliente_Id",     "")).strip()
+    ativo_id  = str(row.get("Ativo_Id",       "")).strip()
+    comp_id   = str(row.get("Componente_Id",  "")).strip()
     fab       = str(row.get("Fabricante",     "")).strip()
     modelo    = str(row.get("Modelo",         "")).strip()
     resumo    = str(row.get("Resumo",         "")).strip()
@@ -250,9 +261,14 @@ def _render_card(row) -> None:
     vis       = str(row.get("Visibilidade",   "")).strip()
     status    = str(row.get("Status",         "")).strip()
     obs       = str(row.get("Observacoes_Internas", "")).strip()
+    st_idx    = str(row.get("Status_Indexacao", "")).strip() or STATUS_NAO_INDEXADO
+    dt_idx    = str(row.get("Data_Indexacao",  "")).strip()
+    n_pags    = str(row.get("Quantidade_Paginas", "")).strip()
+    erro_idx  = str(row.get("Erro_Indexacao",  "")).strip()
 
     vis_bg, vis_tc   = _VIS_BADGE.get(vis,    ("#E2E8F022", "#64748B"))
     stat_bg, stat_tc = _STATUS_BADGE.get(status, ("#E2E8F022", "#64748B"))
+    idx_bg, idx_tc   = _IDX_BADGE.get(st_idx, ("#F1F5F9", "#64748B"))
 
     col_info, col_del = st.columns([10, 0.7])
     with col_info:
@@ -275,9 +291,22 @@ def _render_card(row) -> None:
             if obs else ""
         )
 
+        idx_detail = ""
+        if st_idx == STATUS_INDEXADO and dt_idx:
+            idx_detail = f" &nbsp;·&nbsp; {n_pags + ' pág.' if n_pags else ''} &nbsp;·&nbsp; {dt_idx}"
+        elif st_idx == STATUS_FALHOU and erro_idx:
+            idx_detail = f" &nbsp;·&nbsp; Erro: {erro_idx[:80]}"
+
+        idx_html = (
+            f"<span style='background:{idx_bg};color:{idx_tc};-webkit-text-fill-color:{idx_tc};"
+            f"font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;"
+            f"border:1px solid {idx_tc}33;'>{st_idx}</span>"
+            f"<span style='color:{COLOR_MUTED};font-size:0.65rem;'>{idx_detail}</span>"
+        )
+
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
-            f"border-radius:10px;padding:12px 16px;margin-bottom:6px;'>"
+            f"border-radius:10px;padding:12px 16px;margin-bottom:4px;'>"
             f"<div style='display:flex;justify-content:space-between;align-items:flex-start;"
             f"flex-wrap:wrap;gap:6px;margin-bottom:6px;'>"
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>{titulo}</span>"
@@ -294,11 +323,38 @@ def _render_card(row) -> None:
             f"</div></div>"
             + (f"<p style='color:{COLOR_MUTED};font-size:0.77rem;margin:0 0 4px;'>{meta_html}</p>" if meta_html else "")
             + (f"<p style='color:#475569;font-size:0.8rem;margin:0 0 4px;'>{resumo}</p>" if resumo else "")
-            + (f"<p style='font-size:0.72rem;margin:0;'>{link_html}</p>" if link_html else "")
+            + (f"<p style='font-size:0.72rem;margin:0 0 4px;'>{link_html}</p>" if link_html else "")
+            + f"<div style='margin-top:6px;display:flex;align-items:center;gap:6px;'>{idx_html}</div>"
             + obs_html
-            + f"</div>",
+            + "</div>",
             unsafe_allow_html=True,
         )
+
+        # Botão processar / reprocessar
+        if doc_id and arq_url:
+            btn_label = "🔄 Reprocessar" if st_idx == STATUS_INDEXADO else "⚙️ Processar documento"
+            col_proc, _ = st.columns([3, 7])
+            with col_proc:
+                if st.button(btn_label, key=f"proc_{doc_id}", use_container_width=True):
+                    with st.spinner("Processando…"):
+                        from document_processor import processar_documento
+                        result = processar_documento(
+                            doc_id=doc_id,
+                            cliente_id=cliente,
+                            ativo_id=ativo_id,
+                            componente_id=comp_id,
+                            arquivo_url=arq_url,
+                            arquivo_nome=arq_nome,
+                        )
+                    if result["ok"]:
+                        st.success(
+                            f"✅ Indexado: {result['n_chunks']} chunks, "
+                            f"{result['n_paginas']} páginas."
+                        )
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {result['erro']}")
+
     with col_del:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         if st.button("🗑️", key=f"del_doc_{doc_id}", help="Remover", use_container_width=True):

@@ -103,6 +103,67 @@ _DEFAULT_CONTEXT: dict = {
             "palavras_chave": "compressor, 200 VLD, unidade compressora, manual, manutenção",
             "arquivo_url": "/mock/manual-unidade-compressora-200-vld.pdf",
             "arquivo_nome": "manual-unidade-compressora-200-vld.pdf",
+            "status_indexacao": "Indexado",
+            "chunks": [
+                {
+                    "chunk_index": 1,
+                    "titulo_secao": "Sistema de Lubrificação",
+                    "conteudo": (
+                        "O sistema de lubrificação utiliza óleo sintético VDL 46 (ISO VG 46). "
+                        "Capacidade: 35 litros. Temperatura operacional: 70°C a 85°C. "
+                        "Alarme acima de 95°C; desligamento acima de 105°C. Pressão mínima: 2,0 bar."
+                    ),
+                    "palavras_chave": "lubrificação, óleo, temperatura, pressão, VDL 46, reservatório",
+                    "pagina_inicio": "1",
+                },
+                {
+                    "chunk_index": 2,
+                    "titulo_secao": "Especificações de Óleo e Intervalos de Troca",
+                    "conteudo": (
+                        "Óleo recomendado: VDL 46 sintético. Equivalentes: Shell Corena S4 R 46, "
+                        "Castrol Aircol PD 46, Mobil Rarus SHC 1024. "
+                        "Troca a cada 2.000 horas ou 1 ano. Análise de óleo a cada 500 horas. "
+                        "Filtro separador: troca a cada 4.000 horas."
+                    ),
+                    "palavras_chave": "óleo recomendado, VDL 46, troca de óleo, 2000 horas, análise de óleo, filtro separador",
+                    "pagina_inicio": "2",
+                },
+                {
+                    "chunk_index": 3,
+                    "titulo_secao": "Manutenção dos Filtros",
+                    "conteudo": (
+                        "Filtro de ar: inspeção 250h, limpeza 500h, troca 2.000h. "
+                        "Filtro de óleo: troca 1.000h. Filtro separador: troca 4.000h. "
+                        "Filtro do resfriador: limpeza 500h com ar comprimido."
+                    ),
+                    "palavras_chave": "filtro, ar, óleo, troca, inspeção, resfriador, separador",
+                    "pagina_inicio": "3",
+                },
+                {
+                    "chunk_index": 4,
+                    "titulo_secao": "Critérios para Overhaul",
+                    "conteudo": (
+                        "O overhaul não é determinado apenas pelo horímetro. "
+                        "A decisão considera: vibração (≥7,5 mm/s RMS), análise de óleo (ferro >50 ppm), "
+                        "termografia (pontos quentes >15°C acima da referência) e histórico de falhas. "
+                        "Intervalo máximo: 12.000 horas, podendo ser antecipado pelos indicadores preditivos."
+                    ),
+                    "palavras_chave": "overhaul, revisão geral, horímetro, vibração, análise de óleo, termografia, preditivo",
+                    "pagina_inicio": "4",
+                },
+                {
+                    "chunk_index": 5,
+                    "titulo_secao": "Segurança e Operação",
+                    "conteudo": (
+                        "Pressão máxima: 8,0 bar. Temperatura máxima de descarga: 110°C. "
+                        "Nunca bloquear válvula de segurança. Purga do separador: diária. "
+                        "Em caso de alarme: aguardar resfriamento 15 min antes de abrir tampas. "
+                        "Espaço livre: 1 metro ao redor."
+                    ),
+                    "palavras_chave": "segurança, pressão máxima, temperatura, válvula, purga, alarme, operação",
+                    "pagina_inicio": "5",
+                },
+            ],
         },
         {
             "id": "doc-002",
@@ -115,6 +176,8 @@ _DEFAULT_CONTEXT: dict = {
             "palavras_chave": "motor, WEG, 350 CV, datasheet, inversor",
             "arquivo_url": "/mock/datasheet-motor-weg-350cv.pdf",
             "arquivo_nome": "datasheet-motor-weg-350cv.pdf",
+            "status_indexacao": "Não indexado",
+            "chunks": [],
         },
         # DOC-003 é interno ("Apenas equipe Pred.IO") — NÃO aparece aqui.
         # Validação: buscar por "procedimento interno analise vibracao" não deve
