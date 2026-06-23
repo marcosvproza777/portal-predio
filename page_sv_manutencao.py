@@ -165,7 +165,7 @@ def _render_ativo_section(ativo: dict) -> None:
             _render_plano_manutencao(plano)
 
 
-def _render_sv_card(t: dict) -> None:
+def _render_sv_card(t: dict, prefix: str = "sv") -> None:
     tid  = t.get("id", t.get("nome", ""))
     nome = t.get("nome", "")
     tipo = t.get("tipo", "")
@@ -175,10 +175,10 @@ def _render_sv_card(t: dict) -> None:
         _render_tarefa_card(t)
     with col_btn:
         st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
-        if st.button("✅ Concluir", key=f"sv_ok_{tid}", use_container_width=True, type="primary"):
+        if st.button("✅ Concluir", key=f"{prefix}_ok_{tid}", use_container_width=True, type="primary"):
             st.toast(f"'{nome}' marcada como concluída.", icon="✅")
         if tipo in ("horimetro", "calendario"):
-            if st.button("⏩ Adiar", key=f"sv_adiar_{tid}", use_container_width=True):
+            if st.button("⏩ Adiar", key=f"{prefix}_adiar_{tid}", use_container_width=True):
                 st.toast(f"'{nome}' adiada. Atualize o vencimento manualmente.", icon="⏩")
     st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
 
@@ -273,7 +273,7 @@ def _render_tab_urgentes() -> None:
                 f"⚙️ {a['nome']}</span>",
                 unsafe_allow_html=True,
             )
-            _render_sv_card(t)
+            _render_sv_card(t, prefix="sv_venc")
 
     if proximas:
         st.markdown(
@@ -287,4 +287,4 @@ def _render_tab_urgentes() -> None:
                 f"⚙️ {a['nome']}</span>",
                 unsafe_allow_html=True,
             )
-            _render_sv_card(t)
+            _render_sv_card(t, prefix="sv_prox")

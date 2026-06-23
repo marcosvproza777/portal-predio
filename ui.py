@@ -35,12 +35,14 @@ def inject_global_css() -> None:
     /* ── Base ── */
     .stApp {{ background-color: {COLOR_BG}; }}
     #MainMenu, footer {{ visibility: hidden; }}
-    /* Esconde a barra de ferramentas do Streamlit mas mantém o toggle da sidebar */
-    [data-testid="stToolbar"] {{ display: none !important; }}
+    /* Esconde barra de ferramentas sem remover do DOM (preserva toggle da sidebar) */
+    [data-testid="stToolbar"] {{ visibility: hidden !important; }}
     header[data-testid="stHeader"] {{ background: transparent !important; }}
-    /* Garante que o botão de abrir/fechar sidebar seja sempre visível */
+    /* Garante que o botão de abrir/fechar sidebar seja sempre visível
+       (visibility:hidden no pai pode ser sobrescrito pelo filho; display:none não) */
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarExpandButton"] {{
+    [data-testid="stSidebarExpandButton"],
+    [data-testid="collapsedControl"] {{
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
