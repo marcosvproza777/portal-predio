@@ -722,8 +722,11 @@ def get_all_clientes() -> pd.DataFrame:
     if not df.empty:
         if "Perfil" in df.columns:
             df = df[df["Perfil"].str.strip().str.lower() == "cliente"]
-        cols_needed = [c for c in ("Empresa", "Email", "Nome", "Telefone", "Perfil") if c in df.columns]
-        return df[cols_needed].drop_duplicates().reset_index(drop=True)
+        cols_needed = [c for c in ("Empresa", "Client_Id", "Email", "Nome", "Telefone", "Perfil") if c in df.columns]
+        df = df[cols_needed].drop_duplicates().reset_index(drop=True)
+        if "Client_Id" not in df.columns and "Empresa" in df.columns:
+            df["Client_Id"] = df["Empresa"].str.strip().str.lower()
+        return df
 
     # Fallback: derivar de chamados
     df_cham = load_sheet("Chamados")
@@ -986,9 +989,10 @@ def get_session(token: str) -> dict | None:
 # ── Notificações Externas ─────────────────────────────────────────────────────
 
 _HEADERS_NOTIFICACOES = [
-    "Id", "Cliente_Id", "Usuario_Id", "Evento_Tipo", "Canal",
+    "Id", "Cliente_Id", "Cliente_Nome", "Usuario_Id", "Usuario_Nome",
+    "Email_Destinatario", "Whatsapp_Destinatario", "Evento_Tipo", "Canal",
     "Titulo", "Mensagem", "Link_Portal", "Status", "Tentativas",
-    "Erro", "Enviado_Em", "Created_At", "Updated_At",
+    "Erro", "Enviado_Por", "Enviado_Em", "Created_At", "Updated_At",
 ]
 
 _HEADERS_PREFS_NOTIF = [
@@ -1025,25 +1029,30 @@ def get_notificacoes(client_id: str = "") -> pd.DataFrame:
 
 
 def add_notificacao(dados: dict) -> str | None:
-    """Registra uma notificação externa com status Pendente. Retorna ID ou None."""
+    """Registra uma notificação externa. Retorna ID ou None."""
     _ensure_tab_headers("NotificacoesExternas", _HEADERS_NOTIFICACOES)
     notif_id = _gerar_id("NOTIF")
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     ok = append_row("NotificacoesExternas", [
         notif_id,
-        dados.get("cliente_id",  ""),
-        dados.get("usuario_id",  ""),
-        dados.get("evento_tipo", ""),
-        dados.get("canal",       ""),
-        dados.get("titulo",      ""),
-        dados.get("mensagem",    ""),
-        dados.get("link_portal", ""),
-        dados.get("status",      "Pendente"),
-        "0",   # Tentativas
-        "",    # Erro
-        "",    # Enviado_Em
-        now,   # Created_At
-        now,   # Updated_At
+        dados.get("cliente_id",            ""),
+        dados.get("cliente_nome",          ""),
+        dados.get("usuario_id",            ""),
+        dados.get("usuario_nome",          ""),
+        dados.get("email_destinatario",    ""),
+        dados.get("whatsapp_destinatario", ""),
+        dados.get("evento_tipo",           ""),
+        dados.get("canal",                 ""),
+        dados.get("titulo",                ""),
+        dados.get("mensagem",              ""),
+        dados.get("link_portal",           ""),
+        dados.get("status",                "Pendente"),
+        "0",
+        "",
+        dados.get("enviado_por",           ""),
+        dados.get("enviado_em",            ""),
+        now,
+        now,
     ])
     return notif_id if ok else None
 
@@ -1102,6 +1111,67 @@ def get_preferencias_notificacao(usuario_id: str = "", client_id: str = "") -> p
             == client_id.strip().lower()
         ]
     return df.reset_index(drop=True)
+
+
+def get_contatos_notificacao(client_id: str) -> list:
+    """Retorna contatos disponíveis para notificação de um cliente.
+
+    Prioriza PreferenciasNotificacao; fallback para dados básicos do cliente.
+    SECURITY: client_id deve vir de fonte confiável (sessão/staff), nunca do front-end.
+    """
+    contacts: list = []
+
+    df = get_preferencias_notificacao(client_id=client_id)
+    if not df.empty:
+        for _, r in df.iterrows():
+            if str(r.get("Ativo", "true")).strip().lower() == "false":
+                continue
+            email    = str(r.get("Email",    "")).strip()
+            whatsapp = str(r.get("Whatsapp", "")).strip()
+            uid      = str(r.get("Id",       "")).strip() or f"pref_{client_id}_{len(contacts)}"
+            contacts.append({
+                "id":           uid,
+                "usuario_id":   str(r.get("Usuario_Id", "")).strip(),
+                "nome":         str(r.get("Nome",       "")).strip() or str(r.get("Usuario_Id", "")).strip(),
+                "email":        email,
+                "whatsapp":     whatsapp,
+                "tem_email":    bool(email    and str(r.get("Receber_Email",    "false")).strip().lower() == "true"),
+                "tem_whatsapp": bool(whatsapp and str(r.get("Receber_Whatsapp", "false")).strip().lower() == "true"),
+            })
+
+    if contacts:
+        return contacts
+
+    # Fallback: dados básicos do cliente na aba Clientes/Usuarios
+    try:
+        df_cli = get_all_clientes()
+        if not df_cli.empty and "Empresa" in df_cli.columns:
+            match = df_cli[
+                df_cli["Empresa"].str.strip().str.lower() == client_id.strip().lower()
+            ]
+            if match.empty and "Client_Id" in df_cli.columns:
+                match = df_cli[
+                    df_cli["Client_Id"].astype(str).str.strip().str.lower() == client_id.strip().lower()
+                ]
+            if not match.empty:
+                r        = match.iloc[0]
+                email    = str(r.get("Email",    "")).strip()
+                telefone = str(r.get("Telefone", "")).strip()
+                nome_emp = str(r.get("Empresa",  client_id)).strip()
+                if email or telefone:
+                    contacts.append({
+                        "id":           f"cli_{client_id}",
+                        "usuario_id":    email or client_id,
+                        "nome":         f"Contato principal — {nome_emp}",
+                        "email":         email,
+                        "whatsapp":      telefone,
+                        "tem_email":     bool(email),
+                        "tem_whatsapp":  bool(telefone),
+                    })
+    except Exception:
+        pass
+
+    return contacts
 
 
 def upsert_preferencias_notificacao(dados: dict) -> bool:
