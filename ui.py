@@ -978,15 +978,23 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   function addBot(html,disc,actions){{
     var m=pd.getElementById('pred-chat-msgs'); if(!m)return;
     var wrap=pd.createElement('div');
+    wrap.style.cssText='max-width:92%;align-self:flex-start;';
     var d=pd.createElement('div'); d.className='pred-msg pred-bot'; d.innerHTML=html; wrap.appendChild(d);
     if(disc){{
       var dd=pd.createElement('div'); dd.className='pred-disc'; dd.innerHTML='<em>'+disc+'</em>'; wrap.appendChild(dd);
     }}
-    (actions||[]).forEach(function(a){{
-      var btn=pd.createElement('button'); btn.className='pred-act'; btn.innerHTML=a.label;
-      btn.addEventListener('click',function(){{navTo(a.page);}});
-      d.appendChild(pd.createElement('br')); d.appendChild(btn);
-    }});
+    var acts=actions||[];
+    if(acts.length){{
+      var row=pd.createElement('div');
+      row.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding-left:2px;';
+      acts.forEach(function(a){{
+        var btn=pd.createElement('button'); btn.className='pred-act';
+        btn.textContent=a.label;
+        btn.onclick=function(){{ navTo(a.page); }};
+        row.appendChild(btn);
+      }});
+      wrap.appendChild(row);
+    }}
     m.appendChild(wrap); scroll();
   }}
 
@@ -1006,7 +1014,10 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   }}
 
   function navTo(page){{
-    if(_sid) p.location.href='?sid='+encodeURIComponent(_sid)+'&portal_page='+encodeURIComponent(page);
+    var params=new URLSearchParams(p.location.search||'');
+    params.set('portal_page',page);
+    if(_sid) params.set('sid',_sid);
+    p.location.href='?'+params.toString();
   }}
 
   /* ── Motor de intenção JS — espelha assistant_engine.py ─────────────────
@@ -1050,7 +1061,10 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       var src = 'Com base no documento <strong>' + hit.docTitulo + '</strong>';
       if (hit.secao) src += ' (Secao: ' + hit.secao + ')';
       if (hit.pagina) src += ' &mdash; pag. ' + hit.pagina;
-      return src + ', encontrei:<br><br>' + hit.conteudo;
+      var urlLink = (hit.docUrl && hit.docUrl.indexOf('/mock/') < 0)
+        ? '<br><a href="' + hit.docUrl + '" target="_blank" style="color:#2563EB;font-weight:600;font-size:.78rem;">📂 Abrir documento</a>'
+        : '';
+      return src + ', encontrei:<br><br>' + hit.conteudo + urlLink;
     }};
 
     /* OLEO — ordem importa: antes de manutencao */
@@ -1117,9 +1131,13 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
         ? 'Encontrei ' + (matched.length === 1 ? 'o documento tecnico vinculado ao seu ativo' : matched.length + ' documentos disponiveis') + ':'
         : 'Documentacao tecnica disponivel na Biblioteca:';
       var dlist = show.map(function(d) {{
+        var lnk = (d.arquivo_url && d.arquivo_url.indexOf('/mock/') < 0)
+          ? ' <a href="' + d.arquivo_url + '" target="_blank" style="color:#2563EB;font-size:.75rem;font-weight:600;">📂 Abrir</a>'
+          : '';
         return '&bull; <strong>' + d.titulo + '</strong>'
           + (d.tipo_documento ? ' <span style="font-size:.75rem;color:#64748B;">(' + d.tipo_documento + ')</span>' : '')
-          + (d.modelo ? ' &mdash; ' + d.modelo : '');
+          + (d.modelo ? ' &mdash; ' + d.modelo : '')
+          + lnk;
       }}).join('<br>');
       return {{ text: '<strong>📚 ' + prefix2 + '</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
     }}
