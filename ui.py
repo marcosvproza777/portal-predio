@@ -185,6 +185,50 @@ def inject_global_css() -> None:
         border-radius: 10px !important;
         background: {COLOR_CARD} !important;
     }}
+
+    /* ── Portal cliente — topnav horizontal ─────────────────────────────── */
+    /* Usa .portal-nav-marker como âncora CSS para targetar apenas o bloco
+       de colunas do topnav, sem afetar outros st.columns na página.          */
+    [data-testid="stMarkdown"]:has(.portal-nav-marker)
+        + [data-testid="stHorizontalBlock"] {{
+        gap: 0 !important;
+        padding: 0.05rem 0 0;
+        align-items: stretch !important;
+    }}
+    /* Botões inativos do topnav */
+    [data-testid="stMarkdown"]:has(.portal-nav-marker)
+        + [data-testid="stHorizontalBlock"] [data-testid="stBaseButton-secondary"] {{
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2.5px solid transparent !important;
+        border-radius: 0 !important;
+        color: {COLOR_MUTED} !important;
+        -webkit-text-fill-color: {COLOR_MUTED} !important;
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        padding: 0.52rem 0.2rem 0.38rem !important;
+        box-shadow: none !important;
+        letter-spacing: 0.01em !important;
+        height: 100% !important;
+        transition: color 0.12s, border-color 0.12s !important;
+    }}
+    [data-testid="stMarkdown"]:has(.portal-nav-marker)
+        + [data-testid="stHorizontalBlock"] [data-testid="stBaseButton-secondary"]:hover {{
+        color: {COLOR_NAVY} !important;
+        -webkit-text-fill-color: {COLOR_NAVY} !important;
+        background: rgba(15,31,61,0.03) !important;
+        border-bottom-color: {COLOR_BORDER} !important;
+        box-shadow: none !important;
+    }}
+    /* Botão Sair — último item: hover vermelho */
+    [data-testid="stMarkdown"]:has(.portal-nav-marker)
+        + [data-testid="stHorizontalBlock"]
+        [data-testid="column"]:last-child [data-testid="stBaseButton-secondary"]:hover {{
+        color: #DC2626 !important;
+        -webkit-text-fill-color: #DC2626 !important;
+        background: rgba(239,68,68,0.05) !important;
+        border-bottom-color: transparent !important;
+    }}
     </style>""", unsafe_allow_html=True)
 
 
@@ -312,6 +356,118 @@ def render_sidebar(logo_b64: str, empresa: str, telefone: str) -> None:
 def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
                        current_page: str = "") -> None:
     render_sidebar(logo_b64, empresa, telefone)
+
+
+def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
+    """Barra de navegação horizontal premium — substitui a sidebar no portal do cliente."""
+    from auth import logout
+    portal_page = st.session_state.get("portal_page", "farois")
+
+    _alerta_unread = 0
+    try:
+        from page_alertas import get_unread_count as _gwc
+        _alerta_unread = _gwc(st.session_state.get("client_id", ""))
+    except Exception:
+        pass
+
+    iniciais = "".join(w[0].upper() for w in empresa.split()[:2]) if empresa else "?"
+    logo_html = (
+        f"<img src='data:image/jpeg;base64,{logo_b64}' "
+        f"style='width:38px;height:38px;border-radius:9px;object-fit:cover;"
+        f"box-shadow:0 4px 16px rgba(0,0,0,0.50);flex-shrink:0;'/>"
+        if logo_b64 else ""
+    )
+
+    # Esconde sidebar — não utilizada no portal do cliente
+    st.markdown(
+        "<style>"
+        "[data-testid='stSidebar']{display:none!important;}"
+        "[data-testid='stSidebarCollapseButton']{display:none!important;}"
+        "[data-testid='stSidebarExpandButton']{display:none!important;}"
+        "[data-testid='collapsedControl']{display:none!important;}"
+        ".stSidebarResizeHandle{display:none!important;}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Brand card ─────────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='background:linear-gradient(135deg,#071122 0%,#0D1A38 55%,#182F5E 100%);"
+        f"border-radius:14px;padding:0.85rem 1.5rem;margin-bottom:4px;"
+        f"display:flex;align-items:center;justify-content:space-between;"
+        f"box-shadow:0 4px 28px rgba(7,17,34,0.30);'>"
+        f"<div style='display:flex;align-items:center;gap:13px;'>"
+        f"{logo_html}"
+        f"<div>"
+        f"<p style='margin:0 0 3px;font-size:0.5rem;letter-spacing:.22em;"
+        f"text-transform:uppercase;color:rgba(255,255,255,0.30);font-weight:700;line-height:1;'>"
+        f"Portal de Confiabilidade</p>"
+        f"<p style='margin:0;font-size:1.1rem;font-weight:900;color:#38BDF8;"
+        f"letter-spacing:-.025em;line-height:1;'>Pred.IO</p>"
+        f"</div></div>"
+        f"<div style='display:flex;align-items:center;gap:10px;'>"
+        f"<div style='text-align:right;'>"
+        f"<p style='margin:0 0 2px;font-size:0.5rem;letter-spacing:.14em;"
+        f"text-transform:uppercase;color:rgba(255,255,255,0.30);line-height:1;'>Empresa</p>"
+        f"<p style='margin:0;font-size:0.85rem;font-weight:700;color:#E2E8F0;line-height:1;'>"
+        f"{empresa}</p>"
+        f"</div>"
+        f"<div style='width:34px;height:34px;border-radius:50%;flex-shrink:0;"
+        f"background:linear-gradient(135deg,#38BDF8,#2563EB);"
+        f"display:flex;align-items:center;justify-content:center;"
+        f"font-weight:800;font-size:0.82rem;color:#fff;"
+        f"box-shadow:0 2px 8px rgba(37,99,235,0.40);'>{iniciais}</div>"
+        f"</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Marcador CSS — âncora para estilizar as colunas de nav abaixo ──────────
+    st.markdown("<div class='portal-nav-marker'></div>", unsafe_allow_html=True)
+
+    # ── Navegação + logout ─────────────────────────────────────────────────────
+    nav_cols = st.columns([1] * len(PORTAL_NAV_ITEMS) + [0.7])
+
+    for col, (key, icon, label) in zip(nav_cols[:-1], PORTAL_NAV_ITEMS):
+        is_active = (
+            portal_page == key
+            or (key == "ativos" and portal_page == "ativo_detalhe")
+        )
+        disp = label
+        if key == "alertas" and _alerta_unread > 0:
+            disp = f"{label} · {_alerta_unread}"
+        with col:
+            if is_active:
+                st.markdown(
+                    f"<div style='text-align:center;padding:0.52rem 2px 0.38rem;"
+                    f"border-bottom:2.5px solid {COLOR_BLUE};'>"
+                    f"<span style='font-size:0.78rem;font-weight:700;"
+                    f"color:{COLOR_NAVY};-webkit-text-fill-color:{COLOR_NAVY};"
+                    f"white-space:nowrap;line-height:1.5;'>"
+                    f"{icon}&thinsp;{disp}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                if st.button(
+                    f"{icon}  {disp}",
+                    key=f"portal_tnav_{key}",
+                    use_container_width=True,
+                ):
+                    st.session_state["portal_page"] = key
+                    st.session_state.pop("portal_ativo_id", None)
+                    st.rerun()
+
+    with nav_cols[-1]:
+        if st.button("⬅️ Sair", key="portal_tnav_logout", use_container_width=True):
+            logout()
+            st.rerun()
+
+    st.markdown(
+        f"<hr style='border:none;border-top:1.5px solid {COLOR_BORDER};"
+        f"margin:0 0 1.5rem;'/>",
+        unsafe_allow_html=True,
+    )
 
 
 def page_header(title: str, subtitle: str = "") -> None:

@@ -1,6 +1,6 @@
 """Portal do Cliente — Pred.IO  |  Entry point."""
 import streamlit as st
-from ui import (inject_global_css, inject_login_bg, render_sidebar,
+from ui import (inject_global_css, inject_login_bg, render_client_topnav,
                 render_supervisao_sidebar, load_image_b64)
 from auth import is_staff, current_nome, current_perfil
 from pwa import inject_pwa
@@ -57,7 +57,7 @@ def main() -> None:
         return
 
     # ── PORTAL DO CLIENTE ─────────────────────────────────────────────────────
-    render_sidebar(logo_b64, empresa, telefone)
+    render_client_topnav(logo_b64, empresa, telefone)
 
     portal_page = st.session_state.get("portal_page", "farois")
 
