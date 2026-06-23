@@ -903,10 +903,10 @@ def inject_floating_assistant(sid: str = "") -> None:
     '</div></div>',
     '<div id="pred-chat-msgs"></div>',
     '<div id="pred-sugg">',
-    '<span class="pred-chip" data-q="Ver proximos planos de manutencao">\u{1F4C5} Manutencao</span>',
-    '<span class="pred-chip" data-q="Consultar relatorios recentes">\u{1F4CB} Relatorios</span>',
-    '<span class="pred-chip" data-q="Buscar manual tecnico">\u{1F4DA} Manual tecnico</span>',
-    '<span class="pred-chip" data-q="Abrir chamado tecnico">\u{1F527} Chamado</span>',
+    '<span class="pred-chip" data-q="Ver proximos planos de manutencao">📅 Manutencao</span>',
+    '<span class="pred-chip" data-q="Consultar relatorios recentes">📋 Relatorios</span>',
+    '<span class="pred-chip" data-q="Buscar manual tecnico">📚 Manual tecnico</span>',
+    '<span class="pred-chip" data-q="Abrir chamado tecnico">🔧 Chamado</span>',
     '</div>',
     '<div id="pred-input-area">',
     '<input type="text" id="pred-input" placeholder="Digite sua duvida..." autocomplete="off"/>',
@@ -1008,53 +1008,53 @@ def inject_floating_assistant(sid: str = "") -> None:
 
   function getResp(q){{
     if(/manuten|pr.xima|plano|preventiva|overhaul|interven/.test(q))
-      return{{text:'<strong>\u{1F4C5} Proximas manutencoes programadas:</strong><br><br>'+
+      return{{text:'<strong>📅 Proximas manutencoes programadas:</strong><br><br>'+
         '&bull; Analise de oleo &mdash; prazo proximo<br>'+
         '&bull; Inspecao do filtro de oleo &mdash; prazo proximo<br>'+
         '&bull; Analise de vibracao &mdash; 17/08/2026<br>'+
         '&bull; Termografia &mdash; 17/10/2026<br><br>'+
         'Acesse o plano completo para ver checklists e intervalos detalhados.',
-        actions:[{{label:'\u{1F4C5} Ver Plano de Manutencao',page:'manutencao'}}]}};
+        actions:[{{label:'📅 Ver Plano de Manutencao',page:'manutencao'}}]}};
     if(/manual|biblioteca|document|cat.log|procedimento|guia|pdf|especifica/.test(q))
-      return{{text:'<strong>\u{1F4DA} Documentacao tecnica disponivel:</strong><br><br>'+
+      return{{text:'<strong>📚 Documentacao tecnica disponivel:</strong><br><br>'+
         '&bull; Manual do compressor de parafuso<br>'+
         '&bull; Procedimento de analise de oleo<br>'+
         '&bull; Guia de inspecao preventiva<br>'+
         '&bull; Certificados de equipamentos<br><br>'+
         'Acesse Relatorios e Documentos para visualizar e baixar.',
-        actions:[{{label:'\u{1F4CB} Acessar Relatorios e Docs',page:'relatorios'}}]}};
+        actions:[{{label:'📋 Acessar Relatorios e Docs',page:'relatorios'}}]}};
     if(/relat.rio|laudo|resultado/.test(q))
-      return{{text:'<strong>\u{1F4CB} Relatorios tecnicos:</strong><br><br>'+
+      return{{text:'<strong>📋 Relatorios tecnicos:</strong><br><br>'+
         'Laudos de analise de oleo, relatorios de inspecao, termografias e '+
         'demais documentos gerados pela equipe Pred.IO ficam disponiveis aqui.',
-        actions:[{{label:'\u{1F4CB} Ver Relatorios',page:'relatorios'}}]}};
+        actions:[{{label:'📋 Ver Relatorios',page:'relatorios'}}]}};
     if(/bomba|.leo|compressor|ativo|equipamento|cr.tico|status|sensor|vibra|temperatura/.test(q))
-      return{{text:'<strong>\u{2699}️ Status dos ativos monitorados:</strong><br><br>'+
+      return{{text:'<strong>⚙️ Status dos ativos monitorados:</strong><br><br>'+
         'A analise de oleo do compressor principal esta proxima do prazo recomendado. '+
         'Recomenda-se agendar a coleta de amostra com a equipe Pred.IO.<br><br>'+
         'Acesse Ativos para ver score de saude e historico de cada equipamento.',
-        actions:[{{label:'\u{2699}️ Ver Ativos',page:'ativos'}}]}};
+        actions:[{{label:'⚙️ Ver Ativos',page:'ativos'}}]}};
     if(/chamado|ticket|abrir|problema|falha|defeito|urgente|solicitar|atendimento/.test(q))
-      return{{text:'<strong>\u{1F527} Abertura de chamado tecnico:</strong><br><br>'+
+      return{{text:'<strong>🔧 Abertura de chamado tecnico:</strong><br><br>'+
         'Para abrir um chamado, informe:<br>'+
         '&bull; Nome do equipamento com problema<br>'+
         '&bull; Sintoma observado<br>'+
         '&bull; Prioridade (normal / urgente / critico)<br><br>'+
         '<em>Tempo de resposta: ate 4 horas uteis para chamados criticos.</em>',
-        actions:[{{label:'\u{1F527} Abrir Chamado',page:'chamados'}}]}};
+        actions:[{{label:'🔧 Abrir Chamado',page:'chamados'}}]}};
     if(/alerta|notifica|aviso/.test(q))
-      return{{text:'<strong>\u{1F514} Alertas e pontos de atencao:</strong><br><br>'+
+      return{{text:'<strong>🔔 Alertas e pontos de atencao:</strong><br><br>'+
         'Os alertas sao publicados pela equipe Pred.IO quando ha situacoes que requerem atencao imediata.',
-        actions:[{{label:'\u{1F514} Ver Alertas',page:'alertas'}}]}};
+        actions:[{{label:'🔔 Ver Alertas',page:'alertas'}}]}};
     if(/dashboard|vis.o|geral|resumo|inicio|painel|farol/.test(q))
-      return{{text:'<strong>\u{1F3E0} Visao geral da operacao:</strong><br><br>'+
+      return{{text:'<strong>🏠 Visao geral da operacao:</strong><br><br>'+
         'O dashboard mostra os farois de saude dos ativos, proximas acoes de manutencao, alertas e relatorios recentes.',
-        actions:[{{label:'\u{1F3E0} Ir para Dashboard',page:'farois'}}]}};
+        actions:[{{label:'🏠 Ir para Dashboard',page:'farois'}}]}};
     return{{text:'Posso ajudar com:<br><br>'+
-      '\u{1F4C5} <strong>Manutencao</strong> &mdash; plano preventivo e proximas acoes<br>'+
-      '\u{2699}️ <strong>Ativos</strong> &mdash; status e saude dos equipamentos<br>'+
-      '\u{1F4CB} <strong>Relatorios</strong> &mdash; laudos e analises tecnicas<br>'+
-      '\u{1F527} <strong>Chamados</strong> &mdash; abertura de solicitacoes<br><br>'+
+      '📅 <strong>Manutencao</strong> &mdash; plano preventivo e proximas acoes<br>'+
+      '⚙️ <strong>Ativos</strong> &mdash; status e saude dos equipamentos<br>'+
+      '📋 <strong>Relatorios</strong> &mdash; laudos e analises tecnicas<br>'+
+      '🔧 <strong>Chamados</strong> &mdash; abertura de solicitacoes<br><br>'+
       'Tente uma das sugestoes ou reformule a sua duvida.',
       actions:[]}};
   }}
