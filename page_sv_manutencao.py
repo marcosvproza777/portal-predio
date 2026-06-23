@@ -41,6 +41,19 @@ _MOCK_ATIVOS_PLANO = [
 ]
 
 
+def _get_h(ativo: dict) -> int:
+    """Retorna horímetro atual do ativo — usa session_state se já editado."""
+    ativo_id = ativo.get("id", ativo.get("nome", ""))
+    return st.session_state.get(f"h_sv_{ativo_id}", ativo.get("horimetro", 0))
+
+
+def _ativo_com_h(ativo: dict) -> dict:
+    """Retorna cópia do ativo com horimetro_atual injetado em todas as tarefas."""
+    h = _get_h(ativo)
+    plano_com_h = [{**t, "horimetro_atual": h} for t in ativo.get("plano", [])]
+    return {**ativo, "horimetro": h, "plano": plano_com_h}
+
+
 def render() -> None:
     require_staff()
     sv_page_header(
@@ -66,7 +79,8 @@ def render() -> None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _render_tab_plano() -> None:
-    _render_resumo(_MOCK_ATIVOS_PLANO)
+    # Usa horímetros editados (session_state) para o resumo de status
+    _render_resumo([_ativo_com_h(a) for a in _MOCK_ATIVOS_PLANO])
     st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
     for ativo in _MOCK_ATIVOS_PLANO:
@@ -102,29 +116,43 @@ def _render_resumo(ativos: list) -> None:
 
 
 def _render_ativo_section(ativo: dict) -> None:
-    nome    = ativo.get("nome", "Equipamento")
-    empresa = ativo.get("empresa", "")
-    planta  = ativo.get("planta", "")
-    tag     = ativo.get("tag", "")
-    h       = ativo.get("horimetro", 0)
-    plano   = ativo.get("plano", [])
+    ativo_id = ativo.get("id", ativo.get("nome", ""))
+    nome     = ativo.get("nome", "Equipamento")
+    empresa  = ativo.get("empresa", "")
+    planta   = ativo.get("planta", "")
+    tag      = ativo.get("tag", "")
+    plano    = ativo.get("plano", [])
+    h_default = ativo.get("horimetro", 0)
 
     with st.expander(f"⚙️  {nome}  —  {empresa}", expanded=True):
         meta = []
         if tag:     meta.append(f"🏷 {tag}")
         if empresa: meta.append(f"🏢 {empresa}")
         if planta:  meta.append(f"🏭 {planta}")
-        if h:       meta.append(f"⏱ Horímetro atual: {h:,}h".replace(",", "."))
         if meta:
             st.markdown(
-                f"<p style='font-size:0.78rem;color:{COLOR_MUTED};margin:0 0 0.75rem;'>"
+                f"<p style='font-size:0.78rem;color:{COLOR_MUTED};margin:0 0 0.5rem;'>"
                 f"{'   ·   '.join(meta)}</p>",
                 unsafe_allow_html=True,
             )
 
-        horimetro  = [t for t in plano if t.get("tipo") == "horimetro"]
-        calendario = [t for t in plano if t.get("tipo") == "calendario"]
-        condicao   = [t for t in plano if t.get("tipo") == "condicao"]
+        col_h, _ = st.columns([2, 5])
+        with col_h:
+            h = st.number_input(
+                "⏱ Horímetro atual (h)",
+                min_value=0,
+                value=h_default,
+                step=10,
+                key=f"h_sv_{ativo_id}",
+                help="Altere para recalcular automaticamente os status do plano de manutenção.",
+            )
+
+        # Injeta horímetro atualizado em todas as tarefas do plano
+        plano_com_h = [{**t, "horimetro_atual": h} for t in plano]
+
+        horimetro  = [t for t in plano_com_h if t.get("tipo") == "horimetro"]
+        calendario = [t for t in plano_com_h if t.get("tipo") == "calendario"]
+        condicao   = [t for t in plano_com_h if t.get("tipo") == "condicao"]
 
         labels = []
         if horimetro:  labels.append(f"⏱ Horímetro ({len(horimetro)})")
@@ -162,7 +190,7 @@ def _render_ativo_section(ativo: dict) -> None:
             idx += 1
 
         with tabs[idx]:
-            _render_plano_manutencao(plano)
+            _render_plano_manutencao(plano_com_h)
 
 
 def _render_sv_card(t: dict, prefix: str = "sv") -> None:
@@ -249,7 +277,7 @@ def _render_tab_form() -> None:
 def _render_tab_urgentes() -> None:
     all_tarefas = [
         (a, t, _pm_calc_status(t))
-        for a in _MOCK_ATIVOS_PLANO
+        for a in [_ativo_com_h(a) for a in _MOCK_ATIVOS_PLANO]
         for t in a.get("plano", [])
         if t.get("tipo") != "condicao"
     ]
