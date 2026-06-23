@@ -1,7 +1,7 @@
 """Supervisão Pred.IO — Clientes e Histórico."""
 import streamlit as st
 from auth import require_staff
-from sheets import get_all_clientes, get_historico_cliente, get_all_chamados, cadastrar_usuario
+from sheets import get_all_clientes, get_historico_cliente, get_all_chamados, cadastrar_usuario, delete_usuario
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
 
@@ -81,7 +81,7 @@ def _render_lista() -> None:
             f"<span style='font-size:0.8rem;color:#475569;'>{r}</span>" for r in resumo
         )
 
-        col_info, col_btn = st.columns([7, 1])
+        col_info, col_hist, col_del = st.columns([7, 1.2, 0.7])
         with col_info:
             st.markdown(
                 f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
@@ -93,14 +93,24 @@ def _render_lista() -> None:
                 f"</div>",
                 unsafe_allow_html=True,
             )
-        with col_btn:
+        with col_hist:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            if st.button("Histórico →", key=f"sv_cli_{client_id}_{id(row)}",
+            if st.button("Histórico →", key=f"sv_cli_{client_id}",
                          use_container_width=True):
-                st.session_state["sv_view"]      = "cliente_historico"
-                st.session_state["sv_cliente_id"]= client_id
+                st.session_state["sv_view"]         = "cliente_historico"
+                st.session_state["sv_cliente_id"]   = client_id
                 st.session_state["sv_cliente_nome"] = empresa
                 st.rerun()
+        with col_del:
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+            if st.button("🗑️", key=f"sv_cli_del_{client_id}", use_container_width=True,
+                         help="Excluir este cliente"):
+                ok = delete_usuario(email)
+                if ok:
+                    st.toast(f"🗑️ Cliente '{empresa}' removido.", icon="🗑️")
+                    st.rerun()
+                else:
+                    st.toast("⚠️ Não encontrado na planilha ou é dado de demonstração.", icon="⚠️")
 
 
 def render_historico() -> None:

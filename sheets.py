@@ -396,6 +396,94 @@ def get_ativos(client_id: str) -> pd.DataFrame:
     return df[df["Empresa"].str.strip().str.lower() == client_id.lower()].copy()
 
 
+# ── Delete genérico ──────────────────────────────────────────────────────────
+
+def delete_row_by_id(tab_name: str, id_col: str, row_id: str) -> bool:
+    """Remove uma linha de uma aba pelo valor do campo id_col."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet(tab_name)
+        headers = ws.row_values(1)
+        if id_col not in headers:
+            return False
+        col_idx = headers.index(id_col) + 1
+        all_vals = ws.col_values(col_idx)
+        for row_num, v in enumerate(all_vals, start=1):
+            if row_num == 1:
+                continue
+            if str(v).strip() == str(row_id).strip():
+                ws.delete_rows(row_num)
+                load_sheet.clear()
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def delete_ativo_sv(ativo_id: str) -> bool:
+    return delete_row_by_id("Ativos", "Id", ativo_id)
+
+
+def delete_usuario(email: str) -> bool:
+    """Remove usuário da aba Usuarios ou Clientes pelo e-mail."""
+    valor = email.strip().lower()
+    try:
+        ss = get_spreadsheet()
+        for tab in ("Usuarios", "Clientes"):
+            try:
+                ws = ss.worksheet(tab)
+                headers = ws.row_values(1)
+                if "Email" not in headers:
+                    continue
+                email_col = headers.index("Email") + 1
+                for row_num, v in enumerate(ws.col_values(email_col), start=1):
+                    if row_num == 1:
+                        continue
+                    if str(v).strip().lower() == valor:
+                        ws.delete_rows(row_num)
+                        load_sheet.clear()
+                        return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+# ── Alertas de Supervisão (Pontos de Atenção manuais) ────────────────────────
+
+_HEADERS_ALERTAS_SV = ["Id", "Client_Id", "Empresa", "Titulo", "Descricao", "Prioridade", "Criado_Em"]
+
+
+def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
+    """Alertas criados pela supervisão. Filtra por client_id se fornecido."""
+    df = load_sheet("AlertasSV")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_ALERTAS_SV:
+        if col not in df.columns:
+            df[col] = ""
+    if client_id:
+        df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    return df.reset_index(drop=True)
+
+
+def add_alerta_sv(client_id: str, empresa: str, titulo: str,
+                  descricao: str, prioridade: str) -> bool:
+    """Adiciona um alerta manual de supervisão."""
+    _ensure_tab_headers("AlertasSV", _HEADERS_ALERTAS_SV)
+    alerta_id = _gerar_id("ALS")
+    return append_row("AlertasSV", [
+        alerta_id, client_id.strip().lower(), empresa,
+        titulo, descricao, prioridade,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    ])
+
+
+def delete_alerta_sv(alerta_id: str) -> bool:
+    return delete_row_by_id("AlertasSV", "Id", alerta_id)
+
+
 # ── Horímetros ───────────────────────────────────────────────────────────────
 
 def get_horimetro(ativo_id: str) -> int | None:

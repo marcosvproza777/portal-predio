@@ -113,6 +113,9 @@ def _render_supervisao() -> None:
     elif sv_view == "manutencao_sv":
         import page_sv_manutencao
         page_sv_manutencao.render()
+    elif sv_view == "alertas_sv":
+        import page_sv_alertas
+        page_sv_alertas.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

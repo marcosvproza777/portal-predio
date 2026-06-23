@@ -4,7 +4,8 @@ import streamlit as st
 from auth import require_staff
 from sheets import (get_all_ativos_sv, cadastrar_ativo_sv,
                     get_componentes_sv, cadastrar_componente_sv,
-                    get_all_clientes, get_all_chamados)
+                    get_all_clientes, get_all_chamados,
+                    delete_ativo_sv)
 from ui import (sv_page_header, sv_metric_card,
                 COLOR_NAVY, COLOR_BLUE, COLOR_BG, COLOR_CARD, COLOR_BORDER, COLOR_MUTED)
 
@@ -257,7 +258,7 @@ def _render_card_ativo(row) -> None:
     ccfg = _ccfg(crit)
     sc   = _score_color(score)
 
-    col_info, col_btn = st.columns([8, 1])
+    col_info, col_ver, col_del = st.columns([8, 0.9, 0.7])
     with col_info:
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
@@ -305,14 +306,24 @@ def _render_card_ativo(row) -> None:
             f"</div>",
             unsafe_allow_html=True,
         )
-    with col_btn:
+    with col_ver:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        if st.button("Ver →", key=f"sv_at_ver_{ativo_id}_{id(row)}", use_container_width=True):
+        if st.button("Ver →", key=f"sv_at_ver_{ativo_id}", use_container_width=True):
             st.session_state["sv_view"]      = "ativo_detalhe"
             st.session_state[_SV_ATIVO_ID]   = ativo_id
             st.session_state[_SV_ATIVO_NOM]  = nome
             st.session_state[_SV_CLIE_ID]    = str(row.get("Client_Id", empresa.lower())).strip()
             st.rerun()
+    with col_del:
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        if st.button("🗑️", key=f"sv_at_del_{ativo_id}", use_container_width=True,
+                     help="Excluir este ativo"):
+            ok = delete_ativo_sv(ativo_id)
+            if ok:
+                st.toast(f"🗑️ Ativo '{nome}' removido.", icon="🗑️")
+                st.rerun()
+            else:
+                st.toast("⚠️ Dado de demonstração — cadastre o ativo real para deletar.", icon="⚠️")
 
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 

@@ -611,36 +611,11 @@ _EXEC_MOCK = {
     "manutencoes_desc":          "Análise de óleo e inspeção do filtro em 320 h",
     "chamados_abertos":          1,
     "chamados_desc":             "Chamado técnico em análise",
-    "relatorios_recentes_n":     3,
-    "relatorios_desc":           "Relatórios publicados em junho/2026",
-    # Pontos de atenção
-    "pontos_atencao": [
-        {
-            "titulo":    "Bomba de Óleo M60P em condição crítica",
-            "descricao": "Componente vinculado à Unidade Compressora 200 VLD requer acompanhamento técnico.",
-            "prioridade": "Crítica",
-            "link_page": "ativos",
-        },
-        {
-            "titulo":    "Análise de óleo próxima do vencimento",
-            "descricao": "Faltam 320 horas para a próxima análise de óleo programada.",
-            "prioridade": "Média",
-            "link_page": "manutencao",
-        },
-        {
-            "titulo":    "Unidade Compressora em status Atenção",
-            "descricao": "Score de saúde em 72/100 com redução gradual nos últimos ciclos.",
-            "prioridade": "Média",
-            "link_page": "ativos",
-        },
-    ],
-    # Próximas ações
-    "proximas_acoes": [
-        {"nome": "Análise de óleo",                      "prazo": "em 320 h",   "tipo": "Preventiva por horímetro",  "urgencia": "proximo"},
-        {"nome": "Inspeção e limpeza do filtro de óleo", "prazo": "em 320 h",   "tipo": "Preventiva por horímetro",  "urgencia": "proximo"},
-        {"nome": "Análise de vibração",                  "prazo": "17/08/2026", "tipo": "Recorrente a cada 2 meses", "urgencia": "normal"},
-        {"nome": "Termografia",                          "prazo": "17/10/2026", "tipo": "Recorrente a cada 4 meses", "urgencia": "normal"},
-    ],
+    "relatorios_recentes_n":     0,
+    "relatorios_desc":           "Nenhum relatório publicado ainda",
+    # Pontos de atenção e próximas ações são carregados dinamicamente — ver _render_visao_executiva
+    "pontos_atencao": [],
+    "proximas_acoes": [],
     # Resumo técnico
     "resumo_tecnico": (
         "A Unidade Compressora Parafuso 200 VLD apresenta status de Atenção, com score de saúde em 72/100. "
@@ -648,12 +623,8 @@ _EXEC_MOCK = {
         "vencimento por horímetro. Recomenda-se manter acompanhamento integrado entre vibração, análise de "
         "óleo, temperatura, operação e chamados técnicos."
     ),
-    # Relatórios recentes
-    "relatorios": [
-        {"titulo": "Relatório de Análise Preditiva — Unidade Compressora 200 VLD — Junho/2026", "data": "17/06/2026"},
-        {"titulo": "Relatório de Análise de Óleo — Unidade Compressora 200 VLD — Junho/2026",   "data": "16/06/2026"},
-        {"titulo": "Relatório de Vibração — Motor WEG 350 CV — Junho/2026",                     "data": "15/06/2026"},
-    ],
+    # Relatórios recentes (carregados dinamicamente do Sheets — ver _render_visao_executiva)
+    "relatorios": [],
     # Chamados em andamento
     "chamados": [
         {
@@ -681,9 +652,99 @@ _EXEC_COR = {
 _EXEC_COR_DEFAULT = "#94A3B8"
 
 
+def _build_pontos_atencao(client_id: str) -> list:
+    """Carrega pontos de atenção da aba AlertasSV para o cliente."""
+    try:
+        from sheets import get_alertas_sv
+        df = get_alertas_sv(client_id)
+        if df.empty:
+            return []
+        pontos = []
+        for _, row in df.iterrows():
+            pontos.append({
+                "titulo":     str(row.get("Titulo",     "")).strip(),
+                "descricao":  str(row.get("Descricao",  "")).strip(),
+                "prioridade": str(row.get("Prioridade", "Média")).strip(),
+                "link_page":  "ativos",
+            })
+        return pontos
+    except Exception:
+        return []
+
+
+def _build_proximas_acoes() -> list:
+    """Calcula próximas ações usando o horímetro real salvo no Sheets."""
+    try:
+        from page_ativos import _PLANO_MOCK_COMPRESSOR, _HORIMETRO_ATUAL_MOCK, _pm_calc_status, _norm
+        from sheets import get_horimetro
+        h = get_horimetro("AT-2026-001")
+        if h is None:
+            h = _HORIMETRO_ATUAL_MOCK
+        plano = [{**t, "horimetro_atual": h} for t in _PLANO_MOCK_COMPRESSOR]
+        horimetro  = sorted(
+            [t for t in plano if t.get("tipo") == "horimetro"],
+            key=lambda x: x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0),
+        )
+        calendario = [t for t in plano if t.get("tipo") == "calendario"]
+        acoes = []
+        for t in (horimetro[:2] + calendario[:1])[:3]:
+            tipo_t = t.get("tipo", "")
+            if tipo_t == "horimetro":
+                restam   = max(0, t.get("vencimento_horas", 0) - h)
+                prazo    = f"em {restam:,}h".replace(",", ".")
+                urgencia = "proximo" if _norm(_pm_calc_status(t)) in (
+                    "proximo do vencimento", "vencido") else "normal"
+            else:
+                prazo    = t.get("proxima_data", "")
+                urgencia = "normal"
+            acoes.append({
+                "nome":     t.get("nome", ""),
+                "prazo":    prazo,
+                "tipo":     "Preventiva por horímetro" if tipo_t == "horimetro"
+                            else "Preventiva por calendário",
+                "urgencia": urgencia,
+            })
+        return acoes
+    except Exception:
+        return []
+
+
+def _build_relatorios_recentes(client_id: str) -> list:
+    """Carrega relatórios reais do Sheets."""
+    try:
+        from sheets import get_relatorios
+        df = get_relatorios(client_id)
+        if df.empty:
+            return []
+        result = []
+        for _, row in df.head(3).iterrows():
+            titulo = str(row.get("Titulo", "")).strip() or "Relatório"
+            data   = str(row.get("Data_Relatorio", "")).strip()[:10]
+            result.append({"titulo": titulo, "data": data})
+        return result
+    except Exception:
+        return []
+
+
 def _render_visao_executiva(empresa: str) -> None:
     """Painel executivo completo: métricas, atenção, ações, resumo, relatórios, chamados."""
-    d = _EXEC_MOCK  # TODO: filtrar por client_id da sessão quando houver banco real
+    client_id = current_client_id()
+    d = dict(_EXEC_MOCK)
+    d["pontos_atencao"]        = _build_pontos_atencao(client_id)
+    proximas                   = _build_proximas_acoes()
+    d["proximas_acoes"]        = proximas
+    d["manutencoes_proximas"]  = len(proximas)
+    d["manutencoes_desc"]      = (
+        ", ".join(a["nome"] for a in proximas[:2]) + " e outras"
+        if len(proximas) > 2 else
+        " e ".join(a["nome"] for a in proximas)
+        if proximas else "Nenhuma manutenção próxima"
+    )
+    relatorios                 = _build_relatorios_recentes(client_id)
+    d["relatorios"]            = relatorios
+    d["relatorios_recentes_n"] = len(relatorios)
+    d["relatorios_desc"]       = (f"{len(relatorios)} relatório(s) disponível(is)"
+                                  if relatorios else "Nenhum relatório publicado ainda")
 
     st.markdown(
         f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1.1rem;"
@@ -791,8 +852,9 @@ def _render_pontos_atencao(d: dict) -> None:
         "Baixa":   "#64748B",
     }
 
+    pontos    = d.get("pontos_atencao", [])
     itens_html = ""
-    for pa in d.get("pontos_atencao", []):
+    for pa in pontos:
         cor = PRIO_COR.get(pa.get("prioridade", "Média"), "#F59E0B")
         itens_html += (
             f"<div style='border-left:4px solid {cor};padding:0.55rem 0.75rem;"
@@ -809,6 +871,11 @@ def _render_pontos_atencao(d: dict) -> None:
             f"<p style='color:#475569;font-size:0.77rem;margin:0;line-height:1.45;'>"
             f"{pa['descricao']}</p>"
             f"</div>"
+        )
+    if not pontos:
+        itens_html = (
+            f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>"
+            f"Nenhum ponto de atenção no momento.</p>"
         )
 
     st.markdown(
@@ -833,8 +900,9 @@ def _render_proximas_acoes(d: dict) -> None:
         "normal":  {"cor": "#3B82F6", "bg": "#EFF6FF"},
     }
 
+    acoes      = d.get("proximas_acoes", [])
     itens_html = ""
-    for ac in d.get("proximas_acoes", []):
+    for ac in acoes:
         ucfg = URGENCIA.get(ac.get("urgencia", "normal"), URGENCIA["normal"])
         itens_html += (
             f"<div style='display:flex;justify-content:space-between;"
@@ -849,6 +917,11 @@ def _render_proximas_acoes(d: dict) -> None:
             f"font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:8px;"
             f"white-space:nowrap;flex-shrink:0;'>{ac['prazo']}</span>"
             f"</div>"
+        )
+    if not acoes:
+        itens_html = (
+            f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>"
+            f"Nenhuma manutenção preventiva próxima.</p>"
         )
 
     st.markdown(
