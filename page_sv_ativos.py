@@ -673,7 +673,38 @@ def _form_novo_ativo_content(inline: bool = False) -> None:
 
         st.markdown(
             f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
-            f"margin:0.75rem 0 0.75rem;'>4. Status e Saúde</p>",
+            f"margin:0.75rem 0 0.75rem;'>4. Componentes Específicos</p>",
+            unsafe_allow_html=True,
+        )
+        col_bo, col_co = st.columns(2)
+        with col_bo:
+            modelo_bomba_oleo = st.text_input(
+                "Modelo da bomba de óleo",
+                placeholder="Ex: Atlas Copco OFM22",
+            )
+        with col_co:
+            num_coalescer = st.text_input(
+                "Número do coalescer",
+                placeholder="Ex: 1614905400",
+            )
+        col_pa, col_ho = st.columns(2)
+        with col_pa:
+            modelo_painel = st.text_input(
+                "Modelo do painel",
+                placeholder="Ex: WD300",
+            )
+        with col_ho:
+            horimetro_atual = st.number_input(
+                "Horímetro atual (h)",
+                min_value=0,
+                value=0,
+                step=10,
+                help="Horímetro do equipamento no momento do cadastro.",
+            )
+
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+            f"margin:0.75rem 0 0.75rem;'>5. Status e Saúde</p>",
             unsafe_allow_html=True,
         )
         col_s, col_c, col_d = st.columns(3)
@@ -695,7 +726,7 @@ def _form_novo_ativo_content(inline: bool = False) -> None:
 
         st.markdown(
             f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
-            f"margin:0.75rem 0 0.75rem;'>5. Notas Técnicas</p>",
+            f"margin:0.75rem 0 0.75rem;'>6. Notas Técnicas</p>",
             unsafe_allow_html=True,
         )
         recomendacao = st.text_area(
@@ -737,6 +768,10 @@ def _form_novo_ativo_content(inline: bool = False) -> None:
             "mb":                     mb.strip(),
             "inversor_frequencia":    inversor,
             "analise_oleo_aplicavel": analise_oleo,
+            "modelo_bomba_oleo":      modelo_bomba_oleo.strip(),
+            "num_coalescer":          num_coalescer.strip(),
+            "modelo_painel":          modelo_painel.strip(),
+            "horimetro_atual":        horimetro_atual,
             "status":                 status,
             "score_saude":            str(score),
             "criticidade":            criticidade,

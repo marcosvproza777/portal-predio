@@ -1,7 +1,8 @@
 """Portal do Cliente — Pred.IO  |  Entry point."""
 import streamlit as st
 from ui import (inject_global_css, inject_login_bg, render_client_topnav,
-                render_supervisao_sidebar, load_image_b64)
+                render_supervisao_sidebar, load_image_b64,
+                inject_floating_assistant)
 from auth import is_staff, current_nome, current_perfil
 from pwa import inject_pwa
 
@@ -19,9 +20,12 @@ def main() -> None:
     logo_b64 = load_image_b64("logo.jpg")
     bg_b64   = load_image_b64("bg.jpg")
 
+    # Lê o token de sessão da URL (disponível durante toda a sessão)
+    _sid = st.query_params.get("sid", "")
+
     # ── Restaura sessão a partir do token na URL (sobrevive ao refresh) ───────
     if not st.session_state.get("logged_in"):
-        sid = st.query_params.get("sid", "")
+        sid = _sid
         if sid:
             from sheets import get_session
             session = get_session(sid)
@@ -59,7 +63,16 @@ def main() -> None:
     # ── PORTAL DO CLIENTE ─────────────────────────────────────────────────────
     render_client_topnav(logo_b64, empresa, telefone)
 
+    # Navegação via link do assistente flutuante (?portal_page=X na URL)
+    if "portal_page" not in st.session_state:
+        _nav = st.query_params.get("portal_page", "")
+        if _nav:
+            st.session_state["portal_page"] = _nav
+
     portal_page = st.session_state.get("portal_page", "farois")
+
+    # Assistente flutuante — visível em todas as páginas do portal do cliente
+    inject_floating_assistant(_sid)
 
     if portal_page == "farois":
         import page_farois

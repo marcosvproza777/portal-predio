@@ -810,6 +810,7 @@ _HEADERS_ATIVOS = [
     "Id", "Empresa", "Client_Id", "Planta", "Tag", "Tipo", "Modelo",
     "Ns", "Mb", "Inversor", "Analise_Oleo", "Status", "Score",
     "Criticidade", "Detalhes", "Observacoes_Internas", "Data", "Criado_Em",
+    "Modelo_Bomba_Oleo", "Num_Coalescer", "Modelo_Painel", "Horimetro",
 ]
 
 _HEADERS_COMPONENTES = [
@@ -861,6 +862,10 @@ def cadastrar_ativo_sv(dados: dict) -> str | None:
         dados.get("observacoes_internas", ""),
         dados.get("ultima_atualizacao", datetime.now().strftime("%d/%m/%Y")),
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        dados.get("modelo_bomba_oleo", ""),
+        dados.get("num_coalescer", ""),
+        dados.get("modelo_painel", ""),
+        str(dados.get("horimetro_atual", "")),
     ])
     return ativo_id if ok else None
 
