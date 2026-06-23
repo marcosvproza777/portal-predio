@@ -1045,6 +1045,8 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
         .replace(/[îìíï]/g,'i').replace(/[õôòóö]/g,'o')
         .replace(/[ûùúü]/g,'u').replace(/ç/g,'c');
     }};
+    /* Normaliza ql para que todos os regex funcionem sem acento */
+    ql = norm(ql);
 
     /* Busca em chunks indexados — retorna hit ou null */
     var searchChunks = function(extraWords) {{
@@ -1189,7 +1191,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     }}
 
     /* MYCOM MANUAL — temperatura de descarga por tipo, pressoes, compressor types */
-    if (/mycom|chiller|sistema chiller|fluxostato|soft.starter|compressor parafuso|compressor alternativo|temperatura.*descarga|descarga.*normal|pressao.*descarga|pressao de descarga|pressao.*succao|pressao de succao|pressao.*oleo|oleo.*baixo|filtro coalescente|alinhamento|inspec.o di.ria|inspec.o semanal|inspec.o mensal|inspec.o trimestral|inspec.o semestral|inspec.o anual|5\.?000 hora|10\.?000 hora|quando trocar filtro|quando conferir|quando fazer analise|analise de oleo|amostra.*oleo|o que.*unidade compressora|diferenca.*parafuso|dados.*importantes/.test(ql)) {{
+    if (/mycom|chiller|sistema chiller|fluxostato|soft.starter|compressor parafuso|compressor alternativo|temperatura.*descarga|descarga.*normal|pressao.*descarga|pressao de descarga|pressao.*succao|pressao de succao|pressao.*oleo|oleo.*baix|maquina.*pressao|filtro coalescente|alinhamento|inspec.o di.ria|inspec.o semanal|inspec.o mensal|inspec.o trimestral|inspec.o semestral|inspec.o anual|5\.?000 hora|10\.?000 hora|quando trocar filtro|quando conferir|quando fazer analise|analise de oleo|amostra.*oleo|o que.*unidade compressora|diferenca.*parafuso|dados.*importantes/.test(ql)) {{
       if (/parafuso.*descarga|descarga.*parafuso|temperatura.*parafuso/.test(ql)) {{
         if (/120/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 120 °C exige avaliacao tecnica imediata: verificar arrefecimento, pressao, oleo, filtros e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}
         if (/95/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 95 °C deve ser tratada como atencao e avaliada com pressao, oleo e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}
