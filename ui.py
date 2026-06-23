@@ -731,290 +731,349 @@ def render_sv_topnav() -> None:
 
 
 def inject_floating_assistant(sid: str = "") -> None:
-    """Injeta o Assistente Técnico Pred.IO como botão flutuante no portal do cliente.
+    """Injeta o Assistente Tecnico Pred.IO como botao flutuante no portal do cliente.
 
-    Apenas respostas mock nesta versão.
+    Usa components.html() + injecao no parent.document (mesmo padrao do PWA button).
+    st.markdown() nao executa <script> via innerHTML — por isso os botoes nao respondiam.
 
     FUTURE API INTEGRATION:
       POST /api/assistant/technical-query
-      Payload: { pergunta, rota_atual, ativo_id?, usuario_id (sessão), cliente_id (sessão) }
-      Response: { answer, sources, related_documents, suggested_actions }
+      Payload: { pergunta, rota_atual, usuario_id (sessao), cliente_id (sessao) }
 
-    SECURITY RULES (manter ao integrar API real):
-      - cliente_id SEMPRE vem da sessão/autenticação, NUNCA de campo do frontend
+    SECURITY RULES:
+      - cliente_id SEMPRE vem da sessao/autenticacao, NUNCA do frontend
       - assistente nunca acessa dados de outro cliente
-      - documentos internos da Pred.IO não retornam para o cliente
-      - se sem informação suficiente, orientar abertura de chamado
-      - observações internas nunca são retornadas ao portal do cliente
+      - observacoes internas nunca sao retornadas ao portal do cliente
     """
-    html = f"""
-<style>
-#pred-fab{{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;
-  background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 55%,#2563EB 100%);
-  box-shadow:0 4px 20px rgba(15,31,61,0.45),0 0 0 2px rgba(56,189,248,0.25);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;
-  z-index:99998;border:none;outline:none;transition:transform .2s,box-shadow .2s;}}
-#pred-fab:hover{{transform:scale(1.08);box-shadow:0 6px 28px rgba(37,99,235,.5),0 0 0 3px rgba(56,189,248,.4);}}
-#pred-fab-icon{{font-size:22px;line-height:1;user-select:none;pointer-events:none;}}
-#pred-chat{{position:fixed;bottom:90px;right:24px;width:360px;max-height:520px;
-  background:#fff;border:1px solid #E2E8F0;border-radius:16px;
-  box-shadow:0 12px 48px rgba(15,31,61,.18),0 2px 8px rgba(0,0,0,.08);
-  z-index:99999;display:none;flex-direction:column;overflow:hidden;
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}}
-#pred-chat.pred-open{{display:flex;}}
-#pred-chat-header{{background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 65%,#2563EB 100%);
-  color:#fff;padding:13px 14px;border-radius:16px 16px 0 0;
-  display:flex;align-items:center;gap:10px;flex-shrink:0;}}
-#pred-hdr-avatar{{width:36px;height:36px;border-radius:50%;
-  background:linear-gradient(135deg,#38BDF8,#2563EB);display:flex;
-  align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}}
-#pred-hdr-info{{flex:1;min-width:0;}}
-#pred-hdr-info strong{{display:block;font-size:.85rem;font-weight:700;
-  color:#fff;-webkit-text-fill-color:#fff;}}
-#pred-hdr-info span{{font-size:.67rem;color:#94A3B8;-webkit-text-fill-color:#94A3B8;}}
-#pred-hdr-btns{{display:flex;gap:4px;flex-shrink:0;}}
-#pred-hdr-btns button{{background:rgba(255,255,255,.12);border:none;
-  color:#CBD5E1;-webkit-text-fill-color:#CBD5E1;width:28px;height:28px;
-  border-radius:6px;cursor:pointer;font-size:15px;display:flex;
-  align-items:center;justify-content:center;transition:background .15s;}}
-#pred-hdr-btns button:hover{{background:rgba(255,255,255,.22);}}
-#pred-chat-msgs{{flex:1;overflow-y:auto;padding:12px 12px 4px;
-  display:flex;flex-direction:column;gap:8px;min-height:0;}}
-.pred-msg{{max-width:90%;font-size:.82rem;line-height:1.5;
-  border-radius:12px;padding:10px 14px;}}
-.pred-bot{{background:#F1F5F9;color:#0F172A;border-radius:4px 12px 12px 12px;align-self:flex-start;}}
-.pred-usr{{background:linear-gradient(135deg,#1E3A8A,#2563EB);color:#fff;
-  -webkit-text-fill-color:#fff;border-radius:12px 4px 12px 12px;align-self:flex-end;}}
-.pred-disc{{font-size:.67rem;color:#94A3B8;margin-top:4px;font-style:italic;align-self:flex-start;max-width:90%;}}
-.pred-act{{display:inline-block;margin-top:8px;padding:6px 14px;
-  background:linear-gradient(135deg,#0F1F3D,#2563EB);color:#fff!important;
-  -webkit-text-fill-color:#fff!important;border-radius:8px;font-size:.75rem;
-  font-weight:600;cursor:pointer;border:none;transition:opacity .15s;}}
-.pred-act:hover{{opacity:.88;}}
-#pred-sugg{{padding:8px 12px;display:flex;flex-wrap:wrap;gap:5px;
-  border-top:1px solid #F1F5F9;flex-shrink:0;}}
-.pred-chip{{background:#EFF6FF;border:1px solid #BFDBFE;color:#1E40AF;
-  -webkit-text-fill-color:#1E40AF;font-size:.71rem;padding:4px 10px;
-  border-radius:20px;cursor:pointer;white-space:nowrap;transition:background .15s;font-weight:500;}}
-.pred-chip:hover{{background:#DBEAFE;}}
-#pred-input-area{{display:flex;align-items:center;gap:8px;padding:10px 12px;
-  border-top:1px solid #E2E8F0;flex-shrink:0;}}
-#pred-input{{flex:1;border:1px solid #CBD5E1;border-radius:8px;padding:8px 11px;
-  font-size:.82rem;outline:none;color:#0F172A;background:#fff;transition:border-color .15s;}}
-#pred-input:focus{{border-color:#2563EB;}}
-#pred-send{{width:36px;height:36px;border-radius:8px;
-  background:linear-gradient(135deg,#0F1F3D,#2563EB);border:none;
-  color:#fff;cursor:pointer;font-size:16px;display:flex;
-  align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s;}}
-#pred-send:hover{{opacity:.88;}}
-.pred-typing{{display:flex;gap:4px;padding:10px 14px;background:#F1F5F9;
-  border-radius:4px 12px 12px 12px;align-self:flex-start;width:fit-content;}}
-.pred-typing span{{width:6px;height:6px;background:#94A3B8;border-radius:50%;
-  animation:predBounce 1.2s ease-in-out infinite;}}
-.pred-typing span:nth-child(1){{animation-delay:0s;}}
-.pred-typing span:nth-child(2){{animation-delay:.2s;}}
-.pred-typing span:nth-child(3){{animation-delay:.4s;}}
-@keyframes predBounce{{0%,60%,100%{{transform:translateY(0);opacity:.5;}}30%{{transform:translateY(-4px);opacity:1;}}}}
-@media(max-width:480px){{
-  #pred-chat{{width:calc(100vw - 20px);right:10px;left:10px;bottom:80px;max-height:70vh;}}
-  #pred-fab{{bottom:16px;right:16px;}}
-}}
-</style>
+    import streamlit.components.v1 as _comp
 
-<button id="pred-fab" onclick="predToggle()" title="Assistente Técnico Pred.IO">
-  <span id="pred-fab-icon">🤖</span>
-</button>
+    # --- icones SVG em branco ---
+    ROBOT_SVG = (
+        "<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 32 32' fill='none'>"
+        "<circle cx='16' cy='2' r='2' fill='white'/>"
+        "<rect x='15' y='4' width='2' height='4' rx='1' fill='white'/>"
+        "<rect x='5' y='8' width='22' height='13' rx='3' stroke='white' stroke-width='2' fill='none'/>"
+        "<circle cx='11' cy='14' r='2.5' fill='white'/>"
+        "<circle cx='21' cy='14' r='2.5' fill='white'/>"
+        "<circle cx='12' cy='14.9' r='1' fill='#1E3A8A'/>"
+        "<circle cx='22' cy='14.9' r='1' fill='#1E3A8A'/>"
+        "<path d='M11 18.5 Q16 21.5 21 18.5' stroke='white' stroke-width='1.8' fill='none' stroke-linecap='round'/>"
+        "<rect x='4' y='22' width='24' height='9' rx='3' stroke='white' stroke-width='2' fill='none'/>"
+        "<rect x='0' y='23' width='4' height='5' rx='2' stroke='white' stroke-width='1.6' fill='none'/>"
+        "<rect x='28' y='23' width='4' height='5' rx='2' stroke='white' stroke-width='1.6' fill='none'/>"
+        "<circle cx='11' cy='26.5' r='1.3' fill='white'/>"
+        "<circle cx='16' cy='26.5' r='1.3' fill='white'/>"
+        "<circle cx='21' cy='26.5' r='1.3' fill='white'/>"
+        "</svg>"
+    )
+    ROBOT_SM = (
+        "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 32 32' fill='none'>"
+        "<circle cx='16' cy='2' r='2' fill='white'/>"
+        "<rect x='15' y='4' width='2' height='4' rx='1' fill='white'/>"
+        "<rect x='5' y='8' width='22' height='13' rx='3' stroke='white' stroke-width='2.2' fill='none'/>"
+        "<circle cx='11' cy='14' r='2.5' fill='white'/>"
+        "<circle cx='21' cy='14' r='2.5' fill='white'/>"
+        "<circle cx='12' cy='14.9' r='1' fill='#38BDF8'/>"
+        "<circle cx='22' cy='14.9' r='1' fill='#38BDF8'/>"
+        "<path d='M11 18.5 Q16 21.5 21 18.5' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/>"
+        "<rect x='4' y='22' width='24' height='9' rx='3' stroke='white' stroke-width='2.2' fill='none'/>"
+        "<rect x='0' y='23' width='4' height='5' rx='2' stroke='white' stroke-width='1.8' fill='none'/>"
+        "<rect x='28' y='23' width='4' height='5' rx='2' stroke='white' stroke-width='1.8' fill='none'/>"
+        "<circle cx='11' cy='26.5' r='1.3' fill='white'/>"
+        "<circle cx='16' cy='26.5' r='1.3' fill='white'/>"
+        "<circle cx='21' cy='26.5' r='1.3' fill='white'/>"
+        "</svg>"
+    )
+    CLOSE_SVG = (
+        "<svg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 24 24'"
+        " fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'>"
+        "<line x1='6' y1='6' x2='18' y2='18'/>"
+        "<line x1='18' y1='6' x2='6' y2='18'/>"
+        "</svg>"
+    )
 
-<div id="pred-chat" role="dialog" aria-label="Assistente Técnico Pred.IO">
-  <div id="pred-chat-header">
-    <div id="pred-hdr-avatar">🤖</div>
-    <div id="pred-hdr-info">
-      <strong>Assistente Técnico Pred.IO</strong>
-      <span>Ativos · Manutenção · Chamados · Documentos</span>
-    </div>
-    <div id="pred-hdr-btns">
-      <button onclick="predMin()" title="Minimizar">&#8722;</button>
-      <button onclick="predClose()" title="Fechar">&#215;</button>
-    </div>
-  </div>
-  <div id="pred-chat-msgs"></div>
-  <div id="pred-sugg">
-    <span class="pred-chip" onclick="predQuick('Ver próximos planos de manutenção')">📅 Manutenção</span>
-    <span class="pred-chip" onclick="predQuick('Consultar relatórios recentes')">📋 Relatórios</span>
-    <span class="pred-chip" onclick="predQuick('Buscar manual técnico')">📚 Manual técnico</span>
-    <span class="pred-chip" onclick="predQuick('Abrir chamado técnico')">🔧 Chamado</span>
-  </div>
-  <div id="pred-input-area">
-    <input type="text" id="pred-input" placeholder="Digite sua dúvida..."
-           onkeydown="if(event.key==='Enter')predSend()" autocomplete="off" />
-    <button id="pred-send" onclick="predSend()" title="Enviar">&#10148;</button>
-  </div>
-</div>
+    # Escapa aspas simples para uso em strings JS entre aspas simples
+    def _js(s):
+        return s.replace("'", "\\'")
 
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;overflow:hidden;background:transparent;">
 <script>
-(function(){{
-  var _open=false, _init=false, _sid='{sid}';
-  try{{if(localStorage.getItem('pred_open')==='1')setTimeout(predOpen,120);}}catch(e){{}}
+(function () {{
+  var p = window.parent;
+  if (!p || p === window) return;
+  var pd = p.document;
 
-  window.predToggle=function(){{_open?predClose():predOpen();}};
-  window.predMin=function(){{
-    _open=false;
-    var c=document.getElementById('pred-chat');
-    if(c)c.classList.remove('pred-open');
-    document.getElementById('pred-fab-icon').textContent='🤖';
-  }};
-  window.predClose=function(){{
-    predMin();
-    try{{localStorage.removeItem('pred_open');}}catch(e){{}}
-  }};
+  if (pd.getElementById('pred-fab')) return;
+
+  var sty = pd.createElement('style');
+  sty.id = 'pred-styles';
+  sty.textContent = [
+    '#pred-fab{{position:fixed;bottom:24px;right:24px;width:58px;height:58px;border-radius:50%;',
+    'background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 55%,#2563EB 100%);',
+    'box-shadow:0 4px 20px rgba(15,31,61,.5),0 0 0 2px rgba(56,189,248,.3);',
+    'display:flex;align-items:center;justify-content:center;cursor:pointer;',
+    'z-index:99998;border:none;outline:none;transition:transform .2s,box-shadow .2s;}}',
+    '#pred-fab:hover{{transform:scale(1.09);box-shadow:0 6px 28px rgba(37,99,235,.6),0 0 0 3px rgba(56,189,248,.45);}}',
+    '#pred-fab>svg{{pointer-events:none;}}',
+    '#pred-chat{{position:fixed;bottom:94px;right:24px;width:360px;max-height:520px;',
+    'background:#fff;border:1px solid #E2E8F0;border-radius:16px;',
+    'box-shadow:0 12px 48px rgba(15,31,61,.18),0 2px 8px rgba(0,0,0,.08);',
+    'z-index:99999;display:none;flex-direction:column;overflow:hidden;',
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}',
+    '#pred-chat.pred-open{{display:flex;}}',
+    '#pred-chat-header{{background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 65%,#2563EB 100%);',
+    'color:#fff;padding:13px 14px;border-radius:16px 16px 0 0;',
+    'display:flex;align-items:center;gap:10px;flex-shrink:0;}}',
+    '#pred-hdr-avatar{{width:36px;height:36px;border-radius:50%;',
+    'background:linear-gradient(135deg,#38BDF8,#2563EB);',
+    'display:flex;align-items:center;justify-content:center;flex-shrink:0;}}',
+    '#pred-hdr-info{{flex:1;min-width:0;}}',
+    '#pred-hdr-info strong{{display:block;font-size:.85rem;font-weight:700;color:#fff;-webkit-text-fill-color:#fff;}}',
+    '#pred-hdr-info span{{font-size:.67rem;color:#94A3B8;-webkit-text-fill-color:#94A3B8;}}',
+    '#pred-hdr-btns{{display:flex;gap:4px;flex-shrink:0;}}',
+    '#pred-hdr-btns button{{background:rgba(255,255,255,.12);border:none;color:#CBD5E1;',
+    '-webkit-text-fill-color:#CBD5E1;width:28px;height:28px;border-radius:6px;cursor:pointer;',
+    'font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s;}}',
+    '#pred-hdr-btns button:hover{{background:rgba(255,255,255,.22);}}',
+    '#pred-chat-msgs{{flex:1;overflow-y:auto;padding:12px 12px 4px;',
+    'display:flex;flex-direction:column;gap:8px;min-height:0;}}',
+    '.pred-msg{{max-width:90%;font-size:.82rem;line-height:1.5;border-radius:12px;padding:10px 14px;}}',
+    '.pred-bot{{background:#F1F5F9;color:#0F172A;border-radius:4px 12px 12px 12px;align-self:flex-start;}}',
+    '.pred-usr{{background:linear-gradient(135deg,#1E3A8A,#2563EB);color:#fff;',
+    '-webkit-text-fill-color:#fff;border-radius:12px 4px 12px 12px;align-self:flex-end;}}',
+    '.pred-disc{{font-size:.67rem;color:#94A3B8;margin-top:4px;font-style:italic;align-self:flex-start;max-width:90%;}}',
+    '.pred-act{{display:inline-block;margin-top:8px;padding:6px 14px;',
+    'background:linear-gradient(135deg,#0F1F3D,#2563EB);color:#fff!important;',
+    '-webkit-text-fill-color:#fff!important;border-radius:8px;font-size:.75rem;',
+    'font-weight:600;cursor:pointer;border:none;transition:opacity .15s;}}',
+    '.pred-act:hover{{opacity:.88;}}',
+    '#pred-sugg{{padding:8px 12px;display:flex;flex-wrap:wrap;gap:5px;border-top:1px solid #F1F5F9;flex-shrink:0;}}',
+    '.pred-chip{{background:#EFF6FF;border:1px solid #BFDBFE;color:#1E40AF;-webkit-text-fill-color:#1E40AF;',
+    'font-size:.71rem;padding:4px 10px;border-radius:20px;cursor:pointer;white-space:nowrap;',
+    'transition:background .15s;font-weight:500;}}',
+    '.pred-chip:hover{{background:#DBEAFE;}}',
+    '#pred-input-area{{display:flex;align-items:center;gap:8px;padding:10px 12px;',
+    'border-top:1px solid #E2E8F0;flex-shrink:0;}}',
+    '#pred-input{{flex:1;border:1px solid #CBD5E1;border-radius:8px;padding:8px 11px;',
+    'font-size:.82rem;outline:none;color:#0F172A;background:#fff;transition:border-color .15s;}}',
+    '#pred-input:focus{{border-color:#2563EB;}}',
+    '#pred-send{{width:36px;height:36px;border-radius:8px;',
+    'background:linear-gradient(135deg,#0F1F3D,#2563EB);border:none;',
+    'color:#fff;cursor:pointer;font-size:16px;display:flex;align-items:center;',
+    'justify-content:center;flex-shrink:0;transition:opacity .15s;}}',
+    '#pred-send:hover{{opacity:.88;}}',
+    '.pred-typing{{display:flex;gap:4px;padding:10px 14px;background:#F1F5F9;',
+    'border-radius:4px 12px 12px 12px;align-self:flex-start;width:fit-content;}}',
+    '.pred-typing span{{width:6px;height:6px;background:#94A3B8;border-radius:50%;',
+    'animation:predBounce 1.2s ease-in-out infinite;}}',
+    '.pred-typing span:nth-child(1){{animation-delay:0s;}}',
+    '.pred-typing span:nth-child(2){{animation-delay:.2s;}}',
+    '.pred-typing span:nth-child(3){{animation-delay:.4s;}}',
+    '@keyframes predBounce{{0%,60%,100%{{transform:translateY(0);opacity:.5;}}30%{{transform:translateY(-4px);opacity:1;}}}}',
+    '@media(max-width:480px){{',
+    '#pred-chat{{width:calc(100vw - 20px);right:10px;left:10px;bottom:80px;max-height:70vh;}}',
+    '#pred-fab{{bottom:16px;right:16px;}}}}',
+  ].join('');
+  pd.head.appendChild(sty);
+
+  var ROBOT = '{_js(ROBOT_SVG)}';
+  var ROBOT_SM = '{_js(ROBOT_SM)}';
+  var CLOSE = '{_js(CLOSE_SVG)}';
+
+  var fab = pd.createElement('button');
+  fab.id = 'pred-fab'; fab.title = 'Assistente Tecnico Pred.IO';
+  fab.innerHTML = ROBOT;
+  pd.body.appendChild(fab);
+
+  var chat = pd.createElement('div');
+  chat.id = 'pred-chat';
+  chat.setAttribute('role','dialog');
+  chat.innerHTML = [
+    '<div id="pred-chat-header">',
+    '<div id="pred-hdr-avatar">' + ROBOT_SM + '</div>',
+    '<div id="pred-hdr-info">',
+    '<strong>Assistente Tecnico Pred.IO</strong>',
+    '<span>Ativos &middot; Manutencao &middot; Chamados &middot; Documentos</span>',
+    '</div>',
+    '<div id="pred-hdr-btns">',
+    '<button id="pred-min-btn" title="Minimizar">&#8722;</button>',
+    '<button id="pred-close-btn" title="Fechar">&#215;</button>',
+    '</div></div>',
+    '<div id="pred-chat-msgs"></div>',
+    '<div id="pred-sugg">',
+    '<span class="pred-chip" data-q="Ver proximos planos de manutencao">\u{1F4C5} Manutencao</span>',
+    '<span class="pred-chip" data-q="Consultar relatorios recentes">\u{1F4CB} Relatorios</span>',
+    '<span class="pred-chip" data-q="Buscar manual tecnico">\u{1F4DA} Manual tecnico</span>',
+    '<span class="pred-chip" data-q="Abrir chamado tecnico">\u{1F527} Chamado</span>',
+    '</div>',
+    '<div id="pred-input-area">',
+    '<input type="text" id="pred-input" placeholder="Digite sua duvida..." autocomplete="off"/>',
+    '<button id="pred-send" title="Enviar">&#10148;</button>',
+    '</div>'
+  ].join('');
+  pd.body.appendChild(chat);
+
+  var _open=false, _init=false, _sid='{sid}', _tc=0;
+
+  function predToggle(){{ _open ? predClose() : predOpen(); }}
+
   function predOpen(){{
     _open=true;
-    var c=document.getElementById('pred-chat');
-    if(c)c.classList.add('pred-open');
-    document.getElementById('pred-fab-icon').textContent='💬';
+    chat.classList.add('pred-open');
+    fab.innerHTML=CLOSE;
     try{{localStorage.setItem('pred_open','1');}}catch(e){{}}
     if(!_init){{
       _init=true;
       addBot(
-        '<strong>Olá! Sou o Assistente Técnico Pred.IO.</strong><br><br>'+
-        'Posso ajudar com ativos monitorados, plano de manutenção, '+
-        'relatórios técnicos, chamados e documentos disponíveis.',
-        'As respostas são baseadas nas informações do portal da sua operação.',
-        []
+        '<strong>Ola! Sou o Assistente Tecnico Pred.IO.</strong><br><br>'+
+        'Posso ajudar com ativos monitorados, plano de manutencao, '+
+        'relatorios tecnicos, chamados e documentos disponiveis.',
+        'As respostas sao baseadas nas informacoes do portal da sua operacao.',[]
       );
     }}
     scroll();
   }}
-  window.predQuick=function(t){{
-    var inp=document.getElementById('pred-input');
-    if(inp)inp.value=t;
-    predSend();
-  }};
-  window.predSend=function(){{
-    var inp=document.getElementById('pred-input');
-    var t=(inp?inp.value:'').trim();
-    if(!t)return;
-    if(inp)inp.value='';
-    addUser(t);
-    var s=document.getElementById('pred-sugg');
-    if(s)s.style.display='none';
+
+  function predMin(){{
+    _open=false; chat.classList.remove('pred-open'); fab.innerHTML=ROBOT;
+  }}
+
+  function predClose(){{
+    predMin();
+    try{{localStorage.removeItem('pred_open');}}catch(e){{}}
+  }}
+
+  function predQuick(t){{
+    var inp=pd.getElementById('pred-input');
+    if(inp)inp.value=t; predSend();
+  }}
+
+  function predSend(){{
+    var inp=pd.getElementById('pred-input');
+    var t=(inp?inp.value:'').trim(); if(!t)return;
+    inp.value=''; addUser(t);
+    var sg=pd.getElementById('pred-sugg'); if(sg)sg.style.display='none';
     var tid=showTyping();
     setTimeout(function(){{
       hideTyping(tid);
       var r=getResp(t.toLowerCase());
       addBot(r.text,null,r.actions);
     }},650+Math.random()*350);
-  }};
-  function addUser(t){{
-    var m=document.getElementById('pred-chat-msgs');
-    if(!m)return;
-    var d=document.createElement('div');
-    d.className='pred-msg pred-usr';d.textContent=t;
-    m.appendChild(d);scroll();
   }}
+
+  function addUser(t){{
+    var m=pd.getElementById('pred-chat-msgs'); if(!m)return;
+    var d=pd.createElement('div');
+    d.className='pred-msg pred-usr'; d.textContent=t;
+    m.appendChild(d); scroll();
+  }}
+
   function addBot(html,disc,actions){{
-    var m=document.getElementById('pred-chat-msgs');
-    if(!m)return;
-    var wrap=document.createElement('div');
-    var d=document.createElement('div');
-    d.className='pred-msg pred-bot';d.innerHTML=html;
-    wrap.appendChild(d);
+    var m=pd.getElementById('pred-chat-msgs'); if(!m)return;
+    var wrap=pd.createElement('div');
+    var d=pd.createElement('div');
+    d.className='pred-msg pred-bot'; d.innerHTML=html; wrap.appendChild(d);
     if(disc){{
-      var dd=document.createElement('div');
-      dd.className='pred-disc';dd.innerHTML='<em>'+disc+'</em>';
-      wrap.appendChild(dd);
+      var dd=pd.createElement('div');
+      dd.className='pred-disc'; dd.innerHTML='<em>'+disc+'</em>'; wrap.appendChild(dd);
     }}
     (actions||[]).forEach(function(a){{
-      var btn=document.createElement('button');
-      btn.className='pred-act';btn.innerHTML=a.label;
-      btn.onclick=function(){{navTo(a.page);}};
-      d.appendChild(document.createElement('br'));
-      d.appendChild(btn);
+      var btn=pd.createElement('button');
+      btn.className='pred-act'; btn.innerHTML=a.label;
+      btn.addEventListener('click',function(){{navTo(a.page);}});
+      d.appendChild(pd.createElement('br')); d.appendChild(btn);
     }});
-    m.appendChild(wrap);scroll();
+    m.appendChild(wrap); scroll();
   }}
-  var _tc=0;
+
   function showTyping(){{
-    var m=document.getElementById('pred-chat-msgs');if(!m)return null;
+    var m=pd.getElementById('pred-chat-msgs'); if(!m)return null;
     var id='pty'+(++_tc);
-    var d=document.createElement('div');d.className='pred-typing';d.id=id;
+    var d=pd.createElement('div'); d.className='pred-typing'; d.id=id;
     d.innerHTML='<span></span><span></span><span></span>';
-    m.appendChild(d);scroll();return id;
+    m.appendChild(d); scroll(); return id;
   }}
-  function hideTyping(id){{var el=document.getElementById(id);if(el)el.remove();}}
+  function hideTyping(id){{var el=pd.getElementById(id);if(el)el.remove();}}
   function scroll(){{
     setTimeout(function(){{
-      var m=document.getElementById('pred-chat-msgs');
+      var m=pd.getElementById('pred-chat-msgs');
       if(m)m.scrollTop=m.scrollHeight;
     }},20);
   }}
   function navTo(page){{
-    if(_sid)window.location.href='?sid='+encodeURIComponent(_sid)+'&portal_page='+encodeURIComponent(page);
+    if(_sid)p.location.href='?sid='+encodeURIComponent(_sid)+'&portal_page='+encodeURIComponent(page);
   }}
+
   function getResp(q){{
-    if(/manuten|próxima|proxima|plano|preventiva|overhaul|schedul|interven/.test(q))
-      return{{text:'<strong>📅 Próximas manutenções programadas:</strong><br><br>'+
-        '• Análise de óleo — prazo próximo<br>'+
-        '• Inspeção do filtro de óleo — prazo próximo<br>'+
-        '• Análise de vibração — 17/08/2026<br>'+
-        '• Termografia — 17/10/2026<br><br>'+
+    if(/manuten|pr.xima|plano|preventiva|overhaul|interven/.test(q))
+      return{{text:'<strong>\u{1F4C5} Proximas manutencoes programadas:</strong><br><br>'+
+        '&bull; Analise de oleo &mdash; prazo proximo<br>'+
+        '&bull; Inspecao do filtro de oleo &mdash; prazo proximo<br>'+
+        '&bull; Analise de vibracao &mdash; 17/08/2026<br>'+
+        '&bull; Termografia &mdash; 17/10/2026<br><br>'+
         'Acesse o plano completo para ver checklists e intervalos detalhados.',
-        actions:[{{label:'📅 Ver Plano de Manutenção',page:'manutencao'}}]}};
-
-    if(/manual|biblioteca|document|catálog|catalog|procedimento|guia|pdf|especifica/.test(q))
-      return{{text:'<strong>📚 Documentação técnica disponível:</strong><br><br>'+
-        '• Manual do compressor de parafuso<br>'+
-        '• Procedimento de análise de óleo<br>'+
-        '• Guia de inspeção preventiva<br>'+
-        '• Certificados de equipamentos<br><br>'+
-        'Acesse Relatórios e Documentos para visualizar e baixar os arquivos.',
-        actions:[{{label:'📋 Acessar Relatórios e Docs',page:'relatorios'}}]}};
-
-    if(/relatório|relatorio|laudo|resultado/.test(q))
-      return{{text:'<strong>📋 Relatórios técnicos:</strong><br><br>'+
-        'Laudos de análise de óleo, relatórios de inspeção, termografias e '+
-        'demais documentos gerados pela equipe Pred.IO ficam disponíveis aqui.<br><br>'+
-        'Os relatórios são adicionados à medida que as análises são concluídas.',
-        actions:[{{label:'📋 Ver Relatórios',page:'relatorios'}}]}};
-
-    if(/bomba|óleo|oleo|compressor|ativo|equipamento|crítico|critico|status|sensor|vibra|temperatura/.test(q))
-      return{{text:'<strong>⚙️ Status dos ativos monitorados:</strong><br><br>'+
-        'A análise de óleo do compressor principal está próxima do prazo recomendado. '+
+        actions:[{{label:'\u{1F4C5} Ver Plano de Manutencao',page:'manutencao'}}]}};
+    if(/manual|biblioteca|document|cat.log|procedimento|guia|pdf|especifica/.test(q))
+      return{{text:'<strong>\u{1F4DA} Documentacao tecnica disponivel:</strong><br><br>'+
+        '&bull; Manual do compressor de parafuso<br>'+
+        '&bull; Procedimento de analise de oleo<br>'+
+        '&bull; Guia de inspecao preventiva<br>'+
+        '&bull; Certificados de equipamentos<br><br>'+
+        'Acesse Relatorios e Documentos para visualizar e baixar.',
+        actions:[{{label:'\u{1F4CB} Acessar Relatorios e Docs',page:'relatorios'}}]}};
+    if(/relat.rio|laudo|resultado/.test(q))
+      return{{text:'<strong>\u{1F4CB} Relatorios tecnicos:</strong><br><br>'+
+        'Laudos de analise de oleo, relatorios de inspecao, termografias e '+
+        'demais documentos gerados pela equipe Pred.IO ficam disponiveis aqui.',
+        actions:[{{label:'\u{1F4CB} Ver Relatorios',page:'relatorios'}}]}};
+    if(/bomba|.leo|compressor|ativo|equipamento|cr.tico|status|sensor|vibra|temperatura/.test(q))
+      return{{text:'<strong>\u{2699}️ Status dos ativos monitorados:</strong><br><br>'+
+        'A analise de oleo do compressor principal esta proxima do prazo recomendado. '+
         'Recomenda-se agendar a coleta de amostra com a equipe Pred.IO.<br><br>'+
-        'Acesse Ativos para ver score de saúde e histórico de cada equipamento.',
-        actions:[{{label:'⚙️ Ver Ativos',page:'ativos'}}]}};
-
-    if(/chamado|ticket|abrir|problema|falha|defeito|urgente|solicitar|atendimento|visita/.test(q))
-      return{{text:'<strong>🔧 Abertura de chamado técnico:</strong><br><br>'+
+        'Acesse Ativos para ver score de saude e historico de cada equipamento.',
+        actions:[{{label:'\u{2699}️ Ver Ativos',page:'ativos'}}]}};
+    if(/chamado|ticket|abrir|problema|falha|defeito|urgente|solicitar|atendimento/.test(q))
+      return{{text:'<strong>\u{1F527} Abertura de chamado tecnico:</strong><br><br>'+
         'Para abrir um chamado, informe:<br>'+
-        '• Nome do equipamento com problema<br>'+
-        '• Sintoma observado<br>'+
-        '• Prioridade (normal / urgente / crítico)<br><br>'+
-        '<em>Tempo de resposta: até 4 horas úteis para chamados críticos.</em>',
-        actions:[{{label:'🔧 Abrir Chamado',page:'chamados'}}]}};
-
+        '&bull; Nome do equipamento com problema<br>'+
+        '&bull; Sintoma observado<br>'+
+        '&bull; Prioridade (normal / urgente / critico)<br><br>'+
+        '<em>Tempo de resposta: ate 4 horas uteis para chamados criticos.</em>',
+        actions:[{{label:'\u{1F527} Abrir Chamado',page:'chamados'}}]}};
     if(/alerta|notifica|aviso/.test(q))
-      return{{text:'<strong>🔔 Alertas e pontos de atenção:</strong><br><br>'+
-        'Os alertas são publicados pela equipe Pred.IO quando há situações que requerem atenção imediata na sua operação.',
-        actions:[{{label:'🔔 Ver Alertas',page:'alertas'}}]}};
-
-    if(/dashboard|visão|visao|geral|resumo|inicio|início|painel|farol/.test(q))
-      return{{text:'<strong>🏠 Visão geral da operação:</strong><br><br>'+
-        'O dashboard mostra os faróis de saúde dos ativos, próximas ações de manutenção, alertas ativos e relatórios recentes.',
-        actions:[{{label:'🏠 Ir para Dashboard',page:'farois'}}]}};
-
+      return{{text:'<strong>\u{1F514} Alertas e pontos de atencao:</strong><br><br>'+
+        'Os alertas sao publicados pela equipe Pred.IO quando ha situacoes que requerem atencao imediata.',
+        actions:[{{label:'\u{1F514} Ver Alertas',page:'alertas'}}]}};
+    if(/dashboard|vis.o|geral|resumo|inicio|painel|farol/.test(q))
+      return{{text:'<strong>\u{1F3E0} Visao geral da operacao:</strong><br><br>'+
+        'O dashboard mostra os farois de saude dos ativos, proximas acoes de manutencao, alertas e relatorios recentes.',
+        actions:[{{label:'\u{1F3E0} Ir para Dashboard',page:'farois'}}]}};
     return{{text:'Posso ajudar com:<br><br>'+
-      '📅 <strong>Manutenção</strong> — plano preventivo e próximas ações<br>'+
-      '⚙️ <strong>Ativos</strong> — status e saúde dos equipamentos<br>'+
-      '📋 <strong>Relatórios</strong> — laudos e análises técnicas<br>'+
-      '🔧 <strong>Chamados</strong> — abertura de solicitações<br><br>'+
-      'Tente uma das sugestões ou reformule a sua dúvida.',
+      '\u{1F4C5} <strong>Manutencao</strong> &mdash; plano preventivo e proximas acoes<br>'+
+      '\u{2699}️ <strong>Ativos</strong> &mdash; status e saude dos equipamentos<br>'+
+      '\u{1F4CB} <strong>Relatorios</strong> &mdash; laudos e analises tecnicas<br>'+
+      '\u{1F527} <strong>Chamados</strong> &mdash; abertura de solicitacoes<br><br>'+
+      'Tente uma das sugestoes ou reformule a sua duvida.',
       actions:[]}};
   }}
+
+  fab.addEventListener('click', predToggle);
+  pd.getElementById('pred-min-btn').addEventListener('click', predMin);
+  pd.getElementById('pred-close-btn').addEventListener('click', predClose);
+  pd.getElementById('pred-send').addEventListener('click', predSend);
+  pd.getElementById('pred-input').addEventListener('keydown', function(e){{
+    if(e.key==='Enter') predSend();
+  }});
+  pd.querySelectorAll('.pred-chip').forEach(function(chip){{
+    chip.addEventListener('click', function(){{ predQuick(this.dataset.q); }});
+  }});
+  try{{if(localStorage.getItem('pred_open')==='1')setTimeout(predOpen,150);}}catch(e){{}}
 }})();
 </script>
-"""
-    st.markdown(html, unsafe_allow_html=True)
+</body></html>"""
+    _comp.html(html, height=0)
 
 
 def sv_badge(label: str, cfg: dict) -> str:
