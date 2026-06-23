@@ -155,7 +155,129 @@ Client_Id | Email | Pergunta | Resposta | Fontes | Confidence | Sources_Json | D
 
 ---
 
-## 12. Segurança — Confirmações
+## 12. Como o Assistente Consulta o Manual Operacional MYCOM
+
+O manual `doc-mycom-001` (21 chunks) é carregado no contexto via `assistant_mock_data.py`.
+O `assistant_engine.py` detecta o intent `mycom_manual` quando a pergunta contém termos como
+`mycom`, `chiller`, `fluxostato`, `soft-starter`, `pressão de descarga`, etc.
+
+Handlers específicos (em `_build_response()`):
+- `fluxostato` → resposta direta do chunk 13
+- `pressão de óleo baixa` → resposta do chunk 10
+- `análise de óleo / quando fazer` → resposta do chunk 19
+- `filtro coalescente / quando trocar` → resposta do chunk 20
+- `alinhamento / eixos` → resposta do chunk 19
+- Outros → busca via `_buscar_chunk_mycom()` por word-matching nos chunks
+
+---
+
+## 13. Como o Assistente Consulta a Tabela de Óleos Homologados
+
+A tabela `doc-mycom-002` (4 chunks) é carregada no contexto. O `assistant_engine.py` detecta
+os intents `mycold` e `oleo_homologado` antes do intent genérico `oleo`.
+
+Fluxo de intents (ordem de prioridade):
+1. `mycold` → MYCOLD AB/PAO queries
+2. `oleo_homologado` → tabela de óleos, fluido específico, listagem
+3. `revisao_condicao` → 20k horas, overhaul, desmontagem
+4. `mycom_manual` → manual MYCOM genérico
+5. `oleo` → óleo genérico (fallback com referência ao manual + tabela)
+
+---
+
+## 14. Como Responde sobre Manutenção MYCOM
+
+O plano de manutenção em `page_ativos.py` inclui tarefas derivadas do Manual MYCOM:
+
+| Pergunta tipo | Resposta esperada |
+|---------------|-------------------|
+| "Quando inspeção semanal?" | Semanal — sistema de gás e óleo, inspeção do selo de vedação |
+| "Quando fazer análise de óleo?" | Semestral / 5.000 horas — coletar amostra para laboratório |
+| "Quando trocar filtro coalescente?" | Anual / 10.000 horas — item da inspeção anual |
+| "Quando calibrar PSV?" | Anual / 10.000 horas — calibração de instrumentos e segurança |
+| "Quando conferir alinhamento?" | Semestral / 5.000 horas — tolerância 0,06 mm |
+
+---
+
+## 15. Como Responde sobre Óleo MYCOM
+
+| Pergunta | Intent detectado | Resposta |
+|----------|-----------------|----------|
+| "Qual óleo MYCOM homologado?" | `mycold` / `oleo_homologado` | MYCOLD PAO |
+| "O Mycold AB ainda é usado?" | `mycold` | MYCOLD AB 68 foi descontinuado → MYCOLD PAO |
+| "O Mycold AB pode ser usado?" | `mycold` | Descontinuado. Usar MYCOLD PAO |
+| "Quais óleos homologados?" | `oleo_homologado` | Lista dos 11 óleos ativos |
+| "Óleo para R134a?" | `oleo_homologado` | MOBIL EAL ARCTIC 68, ICEMATIC SW 68, CAPELLA HFC 68 (POE) |
+| "Óleo para Amônia?" | `oleo_homologado` | Opções PAO e mineral compatíveis com NH3 |
+| "Pode usar qualquer ISO 68?" | `oleo_homologado` | Não — fluido, classe e tabela determinam a escolha |
+
+---
+
+## 16. Como Responde sobre MYCOLD AB 68
+
+Quando o cliente perguntar sobre MYCOLD AB 68:
+
+```
+O MYCOLD AB 68 foi descontinuado. No Portal Pred.IO, a referência atual deve ser MYCOLD PAO.
+O MYCOLD AB 68 pode aparecer apenas como referência histórica/inativa para redirecionamento,
+mas não deve ser recomendado como óleo homologado atual.
+```
+
+Fonte obrigatória: `Tabela de Óleos Homologados MAYEKAWA/MYCOM`
+
+---
+
+## 17. Como Responde sobre MYCOLD PAO
+
+```
+Com base na Tabela de Óleos Homologados MAYEKAWA/MYCOM, o óleo MYCOM homologado atual
+na base Pred.IO é MYCOLD PAO (ISO VG 68, classe PAO sintético, fluido: NH3/R22, 53 cSt @ 40°C).
+A referência antiga MYCOLD AB 68 foi descontinuada e não deve ser usada como recomendação atual.
+```
+
+---
+
+## 18. Como Responde sobre 20.000 horas
+
+Quando o cliente perguntar sobre 20.000 horas, revisão geral, overhaul, desmontagem ou kit revisão,
+o intent `revisao_condicao` é detectado e a resposta obrigatória é:
+
+```
+O manual cita a revisão/desmontagem como referência técnica para inspeção bienal ou 20.000 horas,
+porém no Portal Pred.IO essa decisão não é automática por horímetro. A indicação deve considerar
+a saúde real da máquina, com base em análise de vibração, análise de óleo, termografia, histórico
+operacional, tendência de score, falhas recorrentes e avaliação técnica da equipe Pred.IO.
+
+20.000 horas é referência técnica, não gatilho automático de overhaul.
+A decisão depende da saúde real da máquina.
+
+Recomenda-se abrir um chamado técnico ou aguardar a recomendação dos relatórios preditivos.
+```
+
+---
+
+## 19. Como Evita Recomendações Automáticas de Overhaul
+
+1. O plano de manutenção **não tem** tarefa com `tipo = "horimetro"` e `vencimento_horas = 20000`.
+2. Os itens `pm-revisao-geral` e `pm-kit-revisao` têm `tipo = "condicao"`.
+3. O `_SYSTEM_PROMPT` em `ai_assistant.py` instrui explicitamente a IA a nunca recomendar overhaul por horímetro.
+4. O intent `revisao_condicao` captura qualquer variante de pergunta antes da IA responder.
+5. A resposta sempre inclui a frase-chave obrigatória.
+
+---
+
+## 20. Como Orienta Abertura de Chamado em Situações Críticas
+
+- Qualquer resposta sobre falha crítica, parada de máquina, ou risco operacional inclui
+  o botão `🔧 Abrir Chamado Técnico` (page: `chamados`).
+- Respostas sobre overhaul, desmontagem e kit revisão sempre incluem o botão de chamado.
+- Respostas com `confidence: "baixa"` sempre incluem o chamado em `suggested_actions`.
+- A função `is_critical_question()` em `ai_assistant.py` força o botão de chamado
+  independentemente da resposta da IA.
+
+---
+
+## 21. Segurança — Confirmações
 
 - ✅ Não criou sidebar
 - ✅ Não expôs `ANTHROPIC_API_KEY` no front-end
@@ -165,3 +287,7 @@ Client_Id | Email | Pergunta | Resposta | Fontes | Confidence | Sources_Json | D
 - ✅ Observações internas removidas em `get_documentos_tecnicos(staff=False)`
 - ✅ Dados de outros clientes nunca entram no contexto
 - ✅ Perguntas sem autenticação não chegam à IA (require_auth no portal)
+- ✅ MYCOLD AB 68 não aparece como óleo homologado ativo
+- ✅ MYCOLD PAO cadastrado como óleo MYCOM atual
+- ✅ 20.000 horas não gera tarefa automática no plano de manutenção
+- ✅ Overhaul / desmontagem / kit revisão apenas como Decisão por Condição

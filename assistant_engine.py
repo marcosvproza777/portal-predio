@@ -42,11 +42,65 @@ from __future__ import annotations
 # ── Mapa de intenções ────────────────────────────────────────────────────────
 
 _INTENTS: dict[str, list[str]] = {
+    # MYCOLD AB 68 / PAO — verificar antes de qualquer outra intent de óleo
+    "mycold": [
+        "mycold", "mycold ab", "mycold pao", "mycold ab 68",
+        "oleo mycom", "óleo mycom",
+    ],
+    # Óleos homologados MAYEKAWA/MYCOM (tabela)
+    "oleo_homologado": [
+        "óleo homologado", "oleo homologado", "homologado", "homologados",
+        "tabela de oleo", "tabela de óleo", "tabela de oleos", "tabela de óleos",
+        "reflo", "rab 68", "r 200", "gargoyle", "esso refrigeration",
+        "eal arctic", "icematic", "capella hfc", "capella 68",
+        "pao", "poe", "polialfaolefina", "poliolester",
+        "oleo para r134a", "óleo para r134a", "oleo para r404a",
+        "oleo para amonia", "óleo para amônia", "oleo para nh3",
+        "pode usar qualquer oleo", "pode usar qualquer óleo",
+        "qual oleo usar", "qual óleo usar",
+    ],
+    # Manual MYCOM / Sistema Chiller
+    "mycom_manual": [
+        "mycom", "chiller", "sistema chiller",
+        "fluxostato", "soft-starter", "inversor de frequencia", "inversor de frequência",
+        "condensador a placa", "trocador a placa",
+        "pressao de descarga", "pressão de descarga",
+        "pressao de succao", "pressão de sucção",
+        "pressao de oleo", "pressão de óleo",
+        "temperatura de descarga", "temperatura do selo",
+        "painel eletrico", "painel elétrico",
+        "filtro coalescente", "filtro de succao", "filtro de sucção",
+        "alinhamento motor", "alinhamento eixo",
+        "inspeção diária", "inspecao diaria",
+        "inspeção semanal", "inspecao semanal",
+        "inspeção mensal", "inspecao mensal",
+        "inspeção trimestral", "inspecao trimestral",
+        "inspeção semestral", "inspecao semestral",
+        "inspeção anual", "inspecao anual",
+        "5000 horas", "5.000 horas", "10000 horas", "10.000 horas",
+        "psv", "pressostato", "termostato",
+        "quando trocar filtro", "quando trocar oleo",
+        "quando conferir alinhamento",
+        "analise de oleo", "análise de óleo",
+        "coletar amostra", "amostra de oleo",
+        "quando fazer analise", "quando devo fazer analise",
+        "oleo o manual", "oleo que o manual", "oleo cita",
+        "qual oleo o manual", "oleo do manual",
+    ],
+    # 20.000 horas / overhaul / kit revisão — resposta obrigatória por condição
+    "revisao_condicao": [
+        "20000 horas", "20.000 horas", "20 000 horas", "bienal",
+        "desmontagem", "desmontar compressor", "desmontar o compressor",
+        "kit revisão", "kit revisao", "revisão geral", "revisao geral",
+        "overhaul", "preciso revisar", "preciso fazer overhaul",
+        "preciso trocar kit", "hora de revisar", "hora do overhaul",
+        "quando fazer overhaul", "quando fazer revisao",
+    ],
     "manutencao": [
         "manutenção", "manutencao", "próxima", "proxima", "plano", "vencimento",
         "horímetro", "horimetro", "análise de óleo", "analise de oleo",
         "vibração", "vibracao", "termografia", "preventiva", "preditiva",
-        "inspeção", "inspecao", "overhaul", "lubrificação", "lubrificacao",
+        "inspeção", "inspecao", "lubrificação", "lubrificacao",
         "filtro", "próximas ações", "proximas acoes",
     ],
     "relatorios": [
@@ -60,11 +114,10 @@ _INTENTS: dict[str, list[str]] = {
         "guia", "instrução", "instrucao", "ficha técnica", "ficha tecnica",
     ],
     "oleo": [
-        "qual óleo", "qual oleo", "óleo usar", "oleo usar",
-        "especificação de óleo", "especificacao de oleo",
+        "óleo", "oleo", "especificação de óleo", "especificacao de oleo",
         "óleo recomendado", "oleo recomendado",
         "tipo de óleo", "tipo de oleo",
-        "viscosidade", "lubrificante recomendado",
+        "viscosidade", "lubrificante recomendado", "iso 68", "iso vg 68",
     ],
     "status_ativo": [
         "status", "condição", "condicao", "saúde", "saude", "score",
@@ -87,12 +140,22 @@ _INTENTS: dict[str, list[str]] = {
 def detect_intent(pergunta: str) -> str:
     """
     Identifica a intenção da pergunta.
-    Retorna a chave do intent ou 'nao_encontrado'.
-    A ordem importa: 'oleo' antes de 'manutencao' para capturar perguntas específicas.
+    A ordem importa — intents mais específicos aparecem primeiro.
     """
     q = pergunta.lower()
-    for intent in ["oleo", "manutencao", "relatorios", "documentos",
-                   "status_ativo", "chamados", "alertas"]:
+    for intent in [
+        "mycold",           # MYCOLD AB/PAO — antes de qualquer oleo
+        "oleo_homologado",  # Tabela de óleos MAYEKAWA/MYCOM
+        "revisao_condicao", # 20k horas / overhaul / kit revisão
+        "mycom_manual",     # Manual MYCOM / Sistema Chiller
+        "oleo",             # Óleo genérico
+        "manutencao",       # Plano de manutenção
+        "relatorios",
+        "documentos",
+        "status_ativo",
+        "chamados",
+        "alertas",
+    ]:
         if any(kw in q for kw in _INTENTS[intent]):
             return intent
     return "nao_encontrado"
@@ -215,6 +278,273 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
 
     empresa = ctx.get("empresa", "sua operação")
 
+    # ── MYCOLD AB 68 / MYCOLD PAO ─────────────────────────────────────────────
+    if intent == "mycold":
+        q = pergunta.lower()
+        hist = ctx.get("mycold_ab_historico", {})
+        if any(kw in q for kw in ["ab 68", "mycold ab", "ab68"]):
+            return _resp(
+                "O MYCOLD AB 68 foi descontinuado. No Portal Pred.IO, a referência atual deve ser "
+                "<strong>MYCOLD PAO</strong>. O MYCOLD AB 68 pode aparecer apenas como referência "
+                "histórica/inativa para redirecionamento, mas não deve ser recomendado como óleo "
+                "homologado atual.",
+                links=[
+                    {"label": "📚 Ver Tabela de Óleos", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+            )
+        return _resp(
+            "Com base na Tabela de Óleos Homologados MAYEKAWA/MYCOM, o óleo MYCOM homologado atual "
+            "na base Pred.IO é <strong>MYCOLD PAO</strong> (ISO VG 68, classe PAO sintético, fluido: "
+            "NH3/R22, 53 cSt @ 40°C). A referência antiga MYCOLD AB 68 foi descontinuada e não deve "
+            "ser usada como recomendação atual.",
+            links=[{"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"}],
+            documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+        )
+
+    # ── Óleos homologados MAYEKAWA/MYCOM ──────────────────────────────────────
+    if intent == "oleo_homologado":
+        q = pergunta.lower()
+        oleos = ctx.get("oleos_homologados", [])
+
+        # Pode usar qualquer ISO 68?
+        if "qualquer" in q:
+            return _resp(
+                "Não. A viscosidade ISO VG 68 é apenas um dos critérios. A seleção do óleo deve "
+                "considerar o fluido refrigerante, a classe do lubrificante (PAO, POE, mineral), "
+                "a aplicação, a condição operacional, a compatibilidade e a tabela homologada "
+                "MAYEKAWA/MYCOM. Recomenda-se validação técnica antes de qualquer substituição.",
+                links=[{"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"}],
+                documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+            )
+
+        # Óleo para R134a / R404a
+        if any(kw in q for kw in ["r134a", "r404a", "hfc"]):
+            return _resp(
+                "Com base na Tabela de Óleos Homologados MAYEKAWA/MYCOM, para R134a/R404a as "
+                "opções são óleos sintéticos <strong>POE (Poliolester) ISO VG 68</strong>: "
+                "MOBIL EAL ARCTIC 68, ICEMATIC SW 68 e CAPELLA HFC 68. A aplicação deve ser "
+                "validada conforme fluido, equipamento, condição operacional e orientação técnica "
+                "da equipe Pred.IO.",
+                links=[
+                    {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+            )
+
+        # Óleo para Amônia / NH3
+        if any(kw in q for kw in ["amônia", "amonia", "nh3"]):
+            return _resp(
+                "Com base na Tabela de Óleos Homologados MAYEKAWA/MYCOM, para Amônia/NH3 há opções "
+                "ISO VG 68 com classe PAO, semi-sintético PAO e mineral: REFLO 68A, RAB 68, R 200, "
+                "MOBIL GARGOYLE ARCTIC SHC 226 E, MOBIL GARGOYLE ARCTIC EH, ESSO REFRIGERATION 68, "
+                "CAPELLA 68 e MYCOLD PAO. A seleção deve considerar fluido, operação, análise de óleo "
+                "e validação técnica da equipe Pred.IO.",
+                links=[
+                    {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+            )
+
+        # Listagem geral de óleos homologados
+        if oleos:
+            ativos = [o for o in oleos if o.get("status") == "Homologado"]
+            nomes = ", ".join(o["nome"] for o in ativos)
+            return _resp(
+                "Com base na Tabela de Óleos Homologados MAYEKAWA/MYCOM, os óleos homologados "
+                f"cadastrados (ISO VG 68) são: <strong>{nomes}</strong>. A seleção depende do "
+                "fluido refrigerante, da classe do lubrificante, da aplicação, da condição "
+                "operacional, da análise de óleo e da validação técnica da equipe Pred.IO.",
+                links=[{"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"}],
+                documents=[{"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"}],
+            )
+
+        # Fallback: busca em chunks
+        chunk_result = _buscar_chunk_oleo_mycom(ctx, pergunta)
+        if chunk_result:
+            return _resp(
+                chunk_result["answer"],
+                links=[{"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"}],
+                documents=chunk_result.get("docs", []),
+            )
+        return _resp(
+            "Não encontrei informação suficiente na base de óleos homologados. "
+            "Consulte a Tabela de Óleos Homologados MAYEKAWA/MYCOM na Biblioteca Técnica "
+            "ou abra um chamado para validação da equipe Pred.IO.",
+            links=[
+                {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
+                {"label": "🔧 Abrir Chamado", "page": "chamados"},
+            ],
+        )
+
+    # ── 20.000 horas / Overhaul / Kit revisão / Desmontagem ──────────────────
+    if intent == "revisao_condicao":
+        q = pergunta.lower()
+        if any(kw in q for kw in ["overhaul", "preciso fazer overhaul", "quando fazer overhaul"]):
+            return _resp(
+                "O overhaul não deve ser decidido automaticamente por horímetro. A recomendação "
+                "deve considerar a saúde real da máquina, com base em: análise de vibração, "
+                "análise de óleo, termografia, histórico operacional, tendência de score de saúde, "
+                "falhas recorrentes e avaliação técnica da equipe Pred.IO. "
+                "<strong>20.000 horas é referência técnica, não gatilho automático de overhaul. "
+                "A decisão depende da saúde real da máquina.</strong> "
+                "Recomendo abrir um chamado técnico ou aguardar a recomendação dos relatórios preditivos.",
+                links=[
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                    {"label": "📚 Ver Manual", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+        if any(kw in q for kw in ["kit revisão", "kit revisao", "kit de revisao", "kit de revisão"]):
+            return _resp(
+                "A substituição do kit revisão do compressor não é automática por horímetro. "
+                "A indicação deve depender de avaliação técnica e da condição real da máquina, "
+                "considerando análise de vibração, análise de óleo, termografia, histórico "
+                "operacional e avaliação da equipe Pred.IO. "
+                "<strong>20.000 horas é referência técnica, não gatilho automático de overhaul. "
+                "A decisão depende da saúde real da máquina.</strong>",
+                links=[
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                    {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+        # Resposta padrão para 20k horas / revisão / desmontagem
+        return _resp(
+            "O manual cita a revisão/desmontagem como referência técnica para inspeção bienal ou "
+            "20.000 horas, porém <strong>no Portal Pred.IO essa decisão não é automática por "
+            "horímetro</strong>. A indicação deve considerar a saúde real da máquina, com base em "
+            "análise de vibração, análise de óleo, termografia, histórico operacional, tendência de "
+            "score, falhas recorrentes e avaliação técnica da equipe Pred.IO. "
+            "<strong>20.000 horas é referência técnica, não gatilho automático de overhaul. "
+            "A decisão depende da saúde real da máquina.</strong> "
+            "Recomenda-se abrir um chamado técnico ou aguardar a recomendação dos relatórios preditivos.",
+            links=[
+                {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                {"label": "📚 Ver Manual", "page": "biblioteca"},
+                {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+            ],
+            documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+        )
+
+    # ── Manual MYCOM / Sistema Chiller ────────────────────────────────────────
+    if intent == "mycom_manual":
+        q = pergunta.lower()
+
+        # Fluxostato
+        if "fluxostato" in q:
+            return _resp(
+                "Com base no <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "(Seção: Fluxostato), encontrei: O fluxostato é uma chave de controle de fluxo "
+                "usada para indicar presença ou ausência de fluxo dentro da tubulação. Ele atua "
+                "como dispositivo complementar de segurança e proteção para ligar ou desligar "
+                "alarmes, motores, compressores, máquinas e bombas d'água.",
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Pressão de óleo baixa
+        if any(kw in q for kw in ["pressao de oleo", "pressão de óleo", "oleo baixo", "óleo baixo", "pressao oleo baixa"]):
+            return _resp(
+                "Com base no <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "(Seção: Parâmetros operacionais — Pressão de óleo), pressão de óleo abaixo do "
+                "valor indicado pode estar relacionada à diminuição da viscosidade do óleo, "
+                "obstrução do filtro, óleo deteriorado ou defeito na bomba de óleo. As ações "
+                "indicadas incluem ajustar a pressão do óleo, limpar o filtro, trocar o óleo ou "
+                "examinar/consertar a bomba. Em caso de condição crítica, recomenda-se abrir chamado técnico.",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "🔧 Abrir Chamado Técnico", "page": "chamados"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Análise de óleo — quando fazer
+        if any(kw in q for kw in ["analise de oleo", "análise de óleo", "quando fazer analise", "coletar amostra"]):
+            return _resp(
+                "Com base no <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "(Seção: Inspeção semestral ou 5.000 horas), a análise de óleo está prevista na "
+                "inspeção semestral ou a cada 5.000 horas de funcionamento. O manual orienta coletar "
+                "amostra de óleo do compressor e enviar para análise de laboratório. Se o relatório "
+                "for desfavorável, o óleo deve ser drenado e substituído por carga correta de óleo "
+                "novo ISO 68. A seleção do óleo deve considerar a Tabela de Óleos Homologados "
+                "MAYEKAWA/MYCOM, fluido refrigerante, condição operacional e validação técnica.",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                ],
+                documents=[
+                    {"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"},
+                    {"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"},
+                ],
+            )
+
+        # Filtro coalescente — quando trocar
+        if any(kw in q for kw in ["coalescente", "filtro coalescente", "quando trocar filtro"]):
+            return _resp(
+                "Com base no <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "(Seção: Inspeção anual ou 10.000 horas), a substituição do elemento filtro "
+                "coalescente aparece na inspeção anual ou 10.000 horas. O manual também cita o "
+                "filtro coalescente na referência bienal, mas no Portal Pred.IO a revisão de "
+                "20.000 horas não é tratada como gatilho automático de intervenção.",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Alinhamento — quando conferir
+        if any(kw in q for kw in ["alinhamento", "alinhar", "eixos", "motor x compressor", "quando conferir alinhamento"]):
+            return _resp(
+                "Com base no <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "(Seção: Inspeção semestral ou 5.000 horas), a conferência do alinhamento dos "
+                "eixos motor x compressor está prevista na inspeção semestral ou 5.000 horas. "
+                "O manual cita tolerância radial/axial de 0,06 mm.",
+                links=[
+                    {"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"},
+                    {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                ],
+                documents=[{"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"}],
+            )
+
+        # Busca em chunks do manual MYCOM
+        chunk_result = _buscar_chunk_mycom(ctx, pergunta)
+        if chunk_result:
+            return _resp(
+                chunk_result["answer"],
+                links=[{"label": "📚 Abrir Manual MYCOM", "page": "biblioteca"}],
+                documents=chunk_result.get("docs", []),
+            )
+
+        # Tem manual MYCOM?
+        docs = ctx.get("documentos", [])
+        mycom_docs = [d for d in docs if "mycom" in d.get("titulo", "").lower() or "chiller" in d.get("titulo", "").lower()]
+        if mycom_docs:
+            answer = (
+                "Encontrei o <strong>Manual Operacional MYCOM - Sistema Chiller</strong> "
+                "disponível na Biblioteca Técnica. O manual contém informações sobre funcionamento, "
+                "defeitos, parâmetros operacionais, painel elétrico, fluxostato, condensador a "
+                "placa e rotinas de inspeção."
+            )
+            return _resp(
+                answer,
+                links=[{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}],
+                documents=[{"titulo": d["titulo"], "id": d.get("id", "")} for d in mycom_docs],
+            )
+        return _resp(
+            "Não encontrei informação suficiente no Manual MYCOM cadastrado. "
+            "Consulte a Biblioteca Técnica ou abra um chamado técnico.",
+            links=[
+                {"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"},
+                {"label": "🔧 Abrir Chamado", "page": "chamados"},
+            ],
+        )
+
     # ── Manutenção ────────────────────────────────────────────────────────────
     if intent == "manutencao":
         mans = ctx.get("manutencoes", [])
@@ -300,7 +630,7 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             documents=[{"titulo": d["titulo"], "id": d.get("id", "")} for d in docs],
         )
 
-    # ── Especificação de óleo (intent mais específico) ────────────────────────
+    # ── Especificação de óleo (genérico) ─────────────────────────────────────
     if intent == "oleo":
         spec = ctx.get("especificacoes", {}).get("oleo")
         if spec:
@@ -308,20 +638,31 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
                 f"O óleo recomendado para esta unidade é: {spec}.",
                 links=[{"label": "📚 Ver Manual", "page": "biblioteca"}],
             )
-        # Busca em chunks de documentos indexados
-        chunk_result = _buscar_chunk_oleo(ctx)
+        # Busca no manual MYCOM (menciona ISO 68 e direciona para tabela)
+        chunk_result = _buscar_chunk_oleo(ctx) or _buscar_chunk_oleo_mycom(ctx, pergunta)
         if chunk_result:
             return _resp(
                 chunk_result["answer"],
-                links=[{"label": "📚 Ver Manual", "page": "biblioteca"}],
+                links=[
+                    {"label": "📚 Ver Manual", "page": "biblioteca"},
+                    {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
+                ],
                 documents=chunk_result.get("docs", []),
             )
         return _resp(
-            "Não encontrei especificação de óleo cadastrada para este ativo. "
-            "Consulte o manual técnico disponível na Biblioteca Técnica ou abra "
-            "um chamado para validação da equipe Pred.IO.",
-            links=[{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"},
-                   {"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            "Com base no Manual Operacional MYCOM - Sistema Chiller, o manual cita óleo "
+            "lubrificante ISO 68. Para seleção do óleo homologado, consulte a Tabela de Óleos "
+            "Homologados MAYEKAWA/MYCOM. A referência MYCOLD AB 68 foi descontinuada e deve ser "
+            "substituída por MYCOLD PAO. Antes de qualquer substituição, recomenda-se validar "
+            "a aplicação com a equipe Pred.IO.",
+            links=[
+                {"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"},
+                {"label": "🔧 Abrir Chamado", "page": "chamados"},
+            ],
+            documents=[
+                {"titulo": "Manual Operacional MYCOM - Sistema Chiller", "id": "doc-mycom-001"},
+                {"titulo": "Tabela de Óleos Homologados MAYEKAWA/MYCOM", "id": "doc-mycom-002"},
+            ],
         )
 
     # ── Status do ativo ───────────────────────────────────────────────────────
@@ -415,6 +756,62 @@ def _buscar_chunk_overhaul(ctx: dict) -> dict | None:
                 chunk.get("conteudo", "") + " " + chunk.get("titulo_secao", "")
             )
             if any(kw in hay for kw in kws):
+                return {
+                    "answer": (
+                        f"Com base no documento <strong>{doc['titulo']}</strong> "
+                        f"(Seção: {chunk['titulo_secao']}), encontrei: {chunk['conteudo']}"
+                    ),
+                    "docs": [{"titulo": doc["titulo"], "id": doc.get("id", "")}],
+                }
+    return None
+
+
+def _buscar_chunk_mycom(ctx: dict, pergunta: str) -> dict | None:
+    """Busca por palavras-chave da pergunta nos chunks do Manual MYCOM."""
+    q_norm = _normalizar(pergunta)
+    words = [w for w in q_norm.split() if len(w) > 2]
+    if not words:
+        return None
+    best_score = 0
+    best_result = None
+    for doc in ctx.get("documentos", []):
+        if "mycom" not in doc.get("titulo", "").lower() and "mayekawa" not in doc.get("titulo", "").lower():
+            continue
+        for chunk in doc.get("chunks", []):
+            hay = _normalizar(
+                chunk.get("titulo_secao", "") + " "
+                + chunk.get("conteudo", "") + " "
+                + chunk.get("palavras_chave", "")
+            )
+            score = sum(1 for w in words if w in hay)
+            if score > best_score:
+                best_score = score
+                best_result = {
+                    "answer": (
+                        f"Com base no documento <strong>{doc['titulo']}</strong> "
+                        f"(Seção: {chunk['titulo_secao']}), encontrei: {chunk['conteudo']}"
+                    ),
+                    "docs": [{"titulo": doc["titulo"], "id": doc.get("id", "")}],
+                }
+    return best_result if best_score > 0 else None
+
+
+def _buscar_chunk_oleo_mycom(ctx: dict, pergunta: str = "") -> dict | None:
+    """Busca por especificação de óleo nos chunks da tabela MAYEKAWA/MYCOM."""
+    kws = ["oleo", "lubrificante", "mycold", "pao", "poe", "mineral", "homologado",
+           "reflo", "rab", "gargoyle", "esso", "icematic", "capella"]
+    for doc in ctx.get("documentos", []):
+        if "mayekawa" not in doc.get("titulo", "").lower() and "oleo" not in doc.get("titulo", "").lower():
+            continue
+        for chunk in doc.get("chunks", []):
+            hay = _normalizar(
+                chunk.get("conteudo", "") + " " + chunk.get("palavras_chave", "")
+            )
+            q_norm = _normalizar(pergunta) if pergunta else ""
+            q_words = [w for w in q_norm.split() if len(w) > 2]
+            score_q = sum(1 for w in q_words if w in hay) if q_words else 0
+            score_kw = sum(1 for kw in kws if kw in hay)
+            if score_q > 0 or score_kw >= 2:
                 return {
                     "answer": (
                         f"Com base no documento <strong>{doc['titulo']}</strong> "

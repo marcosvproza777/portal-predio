@@ -206,7 +206,93 @@ _PLANO_MOCK_COMPRESSOR = [
             "relatórios de vibração indiquem suspeita de desalinhamento."
         ),
     },
+    {
+        "id": "pm-semestral-align", "nome": "Alinhamento motor x compressor (5.000h)",
+        "tipo": "horimetro", "categoria": "Alinhamento",
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 5000, "vencimento_horas": 5000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Conferir alinhamento dos eixos motor x compressor conforme inspeção semestral ou "
+            "5.000 horas do Manual Operacional MYCOM. Tolerância radial/axial de referência: 0,06 mm."
+        ),
+    },
+    {
+        "id": "pm-anual-calib", "nome": "Calibração de instrumentos e PSV (10.000h)",
+        "tipo": "horimetro", "categoria": "Calibração, filtros e segurança",
+        "tipo_label": "Preventiva por horímetro",
+        "periodicidade_horas": 10000, "vencimento_horas": 10000,
+        "horimetro_atual": _HORIMETRO_ATUAL_MOCK,
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Conforme inspeção anual ou 10.000 horas do Manual Operacional MYCOM: calibrar "
+            "manômetros, transmissores de pressão e temperatura, pressostatos, termostatos, "
+            "fluxostatos e válvulas de segurança PSV. Realizar testes de vazamento e estanqueidade. "
+            "Substituir óleo lubrificante ISO 68 (conforme condição/análise), filtros de óleo e "
+            "elemento filtro coalescente."
+        ),
+    },
     # ─ Por calendário ─────────────────────────────────────────────────────────
+    {
+        "id": "pm-insp-diaria", "nome": "Inspeção diária — Leitura operacional",
+        "tipo": "calendario", "categoria": "Operação",
+        "tipo_label": "Preventiva por tempo",
+        "periodicidade_texto": "Diária", "periodicidade_dias": 1,
+        "proxima_data": "24/06/2026",
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Registrar pressão de descarga, pressão de sucção, pressão de óleo, corrente e voltagem "
+            "do motor, temperatura de descarga, temperatura de sucção e temperatura do óleo em diário "
+            "de leitura. O manual cita registros em intervalos de 2 a 3 horas durante operação."
+        ),
+    },
+    {
+        "id": "pm-insp-semanal", "nome": "Inspeção semanal — Sistema de gás e óleo",
+        "tipo": "calendario", "categoria": "Inspeção",
+        "tipo_label": "Preventiva por tempo",
+        "periodicidade_texto": "Semanal", "periodicidade_dias": 7,
+        "proxima_data": "28/06/2026",
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Inspecionar sistema de entrada de gás e sistema de óleo. Usar detector de gás ou "
+            "cordão de enxofre para inspecionar linhas, conexões, instrumentos de pressão e válvulas. "
+            "Vazamento de óleo pelo selo de vedação acima de 6 gotas por minuto indica selo danificado."
+        ),
+    },
+    {
+        "id": "pm-insp-mensal", "nome": "Inspeção mensal — Trips de segurança e capacidade",
+        "tipo": "calendario", "categoria": "Segurança e controle",
+        "tipo_label": "Preventiva por tempo",
+        "periodicidade_texto": "Mensal", "periodicidade_dias": 30,
+        "proxima_data": "23/07/2026",
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Checar funcionamento dos trips de segurança, verificando se estão operando "
+            "satisfatoriamente e corretamente ajustados. Testar operação do sistema de controle "
+            "de capacidade, se necessário, incluindo calibração da slide válvula e testes de "
+            "atuação da válvula direcional de 4 vias."
+        ),
+    },
+    {
+        "id": "pm-insp-trimestral", "nome": "Inspeção trimestral — Instrumentação e motor",
+        "tipo": "calendario", "categoria": "Instrumentação e motor",
+        "tipo_label": "Preventiva por tempo",
+        "periodicidade_texto": "Trimestral", "periodicidade_dias": 90,
+        "proxima_data": "23/09/2026",
+        "prioridade": "Média",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Revisar ajustes dos instrumentos de pressão e temperatura, substituindo se necessário. "
+            "Lubrificar rolamentos do motor elétrico. Revisar terminais e cabeamento. "
+            "Realizar megagem do embobinamento."
+        ),
+    },
     {
         "id": "pm-lubri", "nome": "Lubrificação/inspeção do motor",
         "tipo": "calendario", "categoria": "Lubrificação",
@@ -217,6 +303,34 @@ _PLANO_MOCK_COMPRESSOR = [
         "descricao": (
             "Verificar condição de lubrificação/inspeção do motor conforme orientação técnica, "
             "regime operacional e recomendação do fabricante."
+        ),
+    },
+    {
+        "id": "pm-vibracao", "nome": "Análise de vibração",
+        "tipo": "calendario", "categoria": "Preditiva",
+        "tipo_label": "Preditiva por calendário",
+        "periodicidade_texto": "A cada 2 meses", "periodicidade_dias": 60,
+        "proxima_data": "17/08/2026",
+        "prioridade": "Alta",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Realizar análise de vibração periódica para acompanhar a condição mecânica da unidade, "
+            "motor, compressor, acoplamento, bomba de óleo e demais componentes aplicáveis. "
+            "Resultado da análise informa decisões sobre manutenção corretiva, overhaul e troca de rolamentos."
+        ),
+    },
+    {
+        "id": "pm-termografia", "nome": "Termografia",
+        "tipo": "calendario", "categoria": "Preditiva",
+        "tipo_label": "Preditiva por calendário",
+        "periodicidade_texto": "A cada 4 meses", "periodicidade_dias": 120,
+        "proxima_data": "17/10/2026",
+        "prioridade": "Alta",
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "Realizar inspeção termográfica para identificar aquecimento anormal em motor, painéis, "
+            "conexões, componentes elétricos, rolamentos, sistema de lubrificação e pontos críticos. "
+            "Resultado da termografia informa decisões sobre manutenção, troca de rolamentos e overhaul."
         ),
     },
     # ─ Por condição ───────────────────────────────────────────────────────────
@@ -255,6 +369,41 @@ _PLANO_MOCK_COMPRESSOR = [
         "descricao": (
             "A intervenção deve considerar condição operacional, perda de desempenho, ruído, "
             "vibração, pressão, vazão e histórico de chamados."
+        ),
+    },
+    # ─ Recomendações por Condição (MYCOM) — 20.000h NÃO é gatilho automático ──
+    {
+        "id": "pm-revisao-geral", "nome": "Revisão geral / desmontagem do compressor",
+        "tipo": "condicao", "categoria": "Revisão por condição",
+        "tipo_label": "Decisão por condição",
+        "status": "Depende de análise preditiva",
+        "prioridade": "Alta", "depende_relatorio": True,
+        "tipos_relatorio_base": ["vibração", "óleo", "termografia", "inspeção"],
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "O manual cita a possibilidade de desmontagem do compressor para análise visual e "
+            "dimensional das peças móveis e possível substituição do kit revisão. No Portal Pred.IO, "
+            "essa ação NÃO deve ser tratada como manutenção automática por horímetro. A indicação "
+            "deve depender da saúde real da máquina, considerando análise de vibração, análise de "
+            "óleo, termografia, histórico operacional, tendência dos relatórios, score de saúde, "
+            "falhas recorrentes e avaliação técnica da equipe Pred.IO. "
+            "20.000 horas é referência técnica, não gatilho automático de overhaul. "
+            "A decisão depende da saúde real da máquina."
+        ),
+    },
+    {
+        "id": "pm-kit-revisao", "nome": "Substituição do kit revisão",
+        "tipo": "condicao", "categoria": "Revisão por condição",
+        "tipo_label": "Decisão por condição",
+        "status": "Depende de análise preditiva",
+        "prioridade": "Alta", "depende_relatorio": True,
+        "tipos_relatorio_base": ["vibração", "óleo", "termografia", "inspeção"],
+        "fonte": "Manual Operacional MYCOM - Sistema Chiller",
+        "descricao": (
+            "A substituição do kit revisão do compressor MYCOM não deve ser indicada "
+            "automaticamente por horímetro. A decisão deve considerar a saúde real da máquina, "
+            "com base em análise de vibração, análise de óleo, termografia, histórico operacional, "
+            "falhas recorrentes, criticidade dos achados e avaliação técnica da equipe Pred.IO."
         ),
     },
 ]
