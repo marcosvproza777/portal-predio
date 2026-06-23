@@ -75,6 +75,13 @@ def main() -> None:
     # client_id vem da sessão do servidor — NUNCA do front-end
     inject_floating_assistant(_sid, st.session_state.get("client_id", ""))
 
+    # Botões de navegação suave (ocultos via CSS, acionados pelo JS do assistente flutuante)
+    # Quando o JS clica neles, Streamlit dispara rerun via WebSocket (sem reload de página)
+    for _pnk in ["farois","ativos","manutencao","relatorios","chamados","alertas","biblioteca","assistente","preferencias"]:
+        if st.button(f"▸{_pnk}", key=f"__pnav_{_pnk}__"):
+            st.session_state["portal_page"] = _pnk
+            st.rerun()
+
     if portal_page == "farois":
         import page_farois
         page_farois.render(logo_b64)

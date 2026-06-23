@@ -820,10 +820,24 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   var p = window.parent;
   if (!p || p === window) return;
   var pd = p.document;
-  // Injeta funcao de navegacao no contexto do window pai (nao sandboxado pelo iframe)
+  // Injeta funcao de navegacao suave no contexto do window pai
   if (!p.predNavTo) {{
     var _ns=pd.createElement('script');
-    _ns.textContent='window.predNavTo=function(u){{window.location.href=u;}};';
+    _ns.textContent=(
+      'window.predNavTo=function(page){{'+
+        'var btns=document.querySelectorAll("button");'+
+        'for(var i=0;i<btns.length;i++){{'+
+          'if(btns[i].getAttribute("aria-label")==="\\u25b8"+page){{btns[i].click();return;}}'+
+        '}}'+
+        // fallback: URL navigation se botao nao encontrado
+        'var s=new URLSearchParams(window.location.search).get("sid")||"";'+
+        'window.location.href="?portal_page="+page+(s?"&sid="+s:"");'+
+      '}};'+
+      // CSS: esconde botoes de navegacao suave
+      '(function(){{var st=document.createElement("style");'+
+      'st.textContent="button[aria-label^=\\\"\\u25b8\\\"]{{display:none!important}}";'+
+      'document.head.appendChild(st);}})();'
+    );
     (pd.head||pd.body).appendChild(_ns);
   }}
   if (pd.getElementById('pred-fab')) return;
@@ -1020,14 +1034,15 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   }}
 
   function navTo(page){{
+    // Navegacao suave: clica no botao Streamlit oculto (sem reload de pagina)
+    try{{
+      if(p.predNavTo){{ p.predNavTo(page); return; }}
+    }}catch(e){{}}
+    // Fallback: navegacao por URL
     var params=new URLSearchParams((p.location.search||'').replace(/^\?/,''));
     params.set('portal_page',page);
     if(_sid) params.set('sid',_sid);
-    var url='?'+params.toString();
-    try{{
-      if(p.predNavTo) p.predNavTo(url);
-      else p.location.href=url;
-    }}catch(e){{try{{p.location.href=url;}}catch(_){{}}}}
+    try{{ p.location.href='?'+params.toString(); }}catch(_){{}}
   }}
 
   /* ── Motor de intenção JS — espelha assistant_engine.py ─────────────────
