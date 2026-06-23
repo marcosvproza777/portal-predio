@@ -983,6 +983,239 @@ def get_session(token: str) -> dict | None:
     }
 
 
+# ── Notificações Externas ─────────────────────────────────────────────────────
+
+_HEADERS_NOTIFICACOES = [
+    "Id", "Cliente_Id", "Usuario_Id", "Evento_Tipo", "Canal",
+    "Titulo", "Mensagem", "Link_Portal", "Status", "Tentativas",
+    "Erro", "Enviado_Em", "Created_At", "Updated_At",
+]
+
+_HEADERS_PREFS_NOTIF = [
+    "Id", "Usuario_Id", "Cliente_Id", "Nome", "Email", "Whatsapp",
+    "Receber_Email", "Receber_Whatsapp", "Receber_Relatorios",
+    "Receber_Alertas_Criticos", "Receber_Manutencao", "Receber_Chamados",
+    "Ativo", "Created_At", "Updated_At",
+]
+
+# Mapeamento: tipo de evento → campo de preferência que o habilita
+_EVENTO_PREF_MAP: dict = {
+    "report_published":             "Receber_Relatorios",
+    "technical_document_available": "Receber_Relatorios",
+    "critical_alarm":               "Receber_Alertas_Criticos",
+    "asset_critical":               "Receber_Alertas_Criticos",
+    "maintenance_due":              "Receber_Manutencao",
+    "maintenance_overdue":          "Receber_Manutencao",
+    "ticket_replied":               "Receber_Chamados",
+    "ticket_waiting_customer":      "Receber_Chamados",
+}
+
+
+def get_notificacoes(client_id: str = "") -> pd.DataFrame:
+    """Carrega notificações externas. Staff chama sem filtro; cliente passa o próprio client_id."""
+    df = load_sheet("NotificacoesExternas")
+    if df.empty:
+        return pd.DataFrame()
+    if client_id:
+        df = df[
+            df["Cliente_Id"].astype(str).str.strip().str.lower()
+            == client_id.strip().lower()
+        ]
+    return df.reset_index(drop=True)
+
+
+def add_notificacao(dados: dict) -> str | None:
+    """Registra uma notificação externa com status Pendente. Retorna ID ou None."""
+    _ensure_tab_headers("NotificacoesExternas", _HEADERS_NOTIFICACOES)
+    notif_id = _gerar_id("NOTIF")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("NotificacoesExternas", [
+        notif_id,
+        dados.get("cliente_id",  ""),
+        dados.get("usuario_id",  ""),
+        dados.get("evento_tipo", ""),
+        dados.get("canal",       ""),
+        dados.get("titulo",      ""),
+        dados.get("mensagem",    ""),
+        dados.get("link_portal", ""),
+        dados.get("status",      "Pendente"),
+        "0",   # Tentativas
+        "",    # Erro
+        "",    # Enviado_Em
+        now,   # Created_At
+        now,   # Updated_At
+    ])
+    return notif_id if ok else None
+
+
+def update_notificacao_status(
+    notif_id: str,
+    status: str,
+    enviado_em: str = "",
+    erro: str = "",
+) -> bool:
+    """Atualiza o status de uma notificação externa. Retorna True em caso de sucesso."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("NotificacoesExternas")
+        headers = ws.row_values(1)
+        cell = ws.find(notif_id)
+        if not cell:
+            return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        row = cell.row
+
+        def _col(name: str) -> int:
+            return headers.index(name) + 1 if name in headers else 0
+
+        ws.update_cell(row, _col("Status"),     status)
+        ws.update_cell(row, _col("Updated_At"), now)
+        if enviado_em:
+            ws.update_cell(row, _col("Enviado_Em"), enviado_em)
+        if erro:
+            ws.update_cell(row, _col("Erro"), erro)
+        if status == "Enviado":
+            tc = _col("Tentativas")
+            if tc:
+                try:
+                    current_t = int(ws.cell(row, tc).value or 0)
+                    ws.update_cell(row, tc, str(current_t + 1))
+                    ws.update_cell(row, _col("Enviado_Em"), enviado_em or now)
+                except Exception:
+                    pass
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def get_preferencias_notificacao(usuario_id: str = "", client_id: str = "") -> pd.DataFrame:
+    """Carrega preferências de notificação. Filtra por usuario_id ou client_id."""
+    df = load_sheet("PreferenciasNotificacao")
+    if df.empty:
+        return pd.DataFrame()
+    if usuario_id:
+        df = df[df["Usuario_Id"].astype(str).str.strip() == usuario_id.strip()]
+    elif client_id:
+        df = df[
+            df["Cliente_Id"].astype(str).str.strip().str.lower()
+            == client_id.strip().lower()
+        ]
+    return df.reset_index(drop=True)
+
+
+def upsert_preferencias_notificacao(dados: dict) -> bool:
+    """Cria ou atualiza preferências de notificação de um usuário."""
+    _ensure_tab_headers("PreferenciasNotificacao", _HEADERS_PREFS_NOTIF)
+    usuario_id = dados.get("usuario_id", "")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("PreferenciasNotificacao")
+        try:
+            cell = ws.find(usuario_id)
+        except Exception:
+            cell = None
+
+        row_vals = [
+            dados.get("id", "") or _gerar_id("PREF"),
+            usuario_id,
+            dados.get("cliente_id", ""),
+            dados.get("nome", ""),
+            dados.get("email", ""),
+            dados.get("whatsapp", ""),
+            str(dados.get("receber_email",            False)).lower(),
+            str(dados.get("receber_whatsapp",         False)).lower(),
+            str(dados.get("receber_relatorios",       True)).lower(),
+            str(dados.get("receber_alertas_criticos", True)).lower(),
+            str(dados.get("receber_manutencao",       True)).lower(),
+            str(dados.get("receber_chamados",         True)).lower(),
+            "true",
+            dados.get("created_at", now),
+            now,
+        ]
+
+        if cell:
+            end_col = chr(64 + len(_HEADERS_PREFS_NOTIF))
+            ws.update(
+                f"A{cell.row}:{end_col}{cell.row}",
+                [row_vals],
+                value_input_option="USER_ENTERED",
+            )
+        else:
+            ws.append_row(row_vals, value_input_option="USER_ENTERED")
+
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def notify_event(
+    client_id: str,
+    evento_tipo: str,
+    titulo: str,
+    mensagem: str,
+    link_portal: str,
+) -> list:
+    """Cria registros de notificação externa conforme preferências do cliente.
+
+    Nesta versão cria registros como Pendente.
+    Integração futura: POST /api/notifications/dispatch → n8n, e-mail ou API WhatsApp.
+
+    SECURITY:
+    - client_id SEMPRE vem da sessão/autenticação, nunca do frontend.
+    - mensagem deve ser resumo apenas; nunca incluir conteúdo técnico sensível completo.
+    - WhatsApp recebe apenas resumo + link seguro.
+    - Observações internas da Pred.IO nunca são incluídas.
+    - Links devem apontar para o portal autenticado (não expõem dados diretamente).
+    """
+    prefs_df = get_preferencias_notificacao(client_id=client_id)
+    if prefs_df.empty:
+        return []
+
+    pref_key = _EVENTO_PREF_MAP.get(evento_tipo)
+    created: list = []
+
+    for _, pref in prefs_df.iterrows():
+        if str(pref.get("Ativo", "true")).lower() != "true":
+            continue
+        if pref_key and str(pref.get(pref_key, "false")).lower() != "true":
+            continue
+
+        uid = str(pref.get("Usuario_Id", "")).strip()
+
+        if str(pref.get("Receber_Email", "false")).lower() == "true":
+            nid = add_notificacao({
+                "cliente_id":  client_id,
+                "usuario_id":  uid,
+                "evento_tipo": evento_tipo,
+                "canal":       "E-mail",
+                "titulo":      titulo,
+                "mensagem":    mensagem,
+                "link_portal": link_portal,
+            })
+            if nid:
+                created.append(nid)
+
+        if str(pref.get("Receber_Whatsapp", "false")).lower() == "true":
+            # WhatsApp: apenas resumo + link — nunca conteúdo técnico completo
+            resumo_wa = f"{titulo}. Acesse o portal: {link_portal}"
+            nid = add_notificacao({
+                "cliente_id":  client_id,
+                "usuario_id":  uid,
+                "evento_tipo": evento_tipo,
+                "canal":       "WhatsApp",
+                "titulo":      titulo,
+                "mensagem":    resumo_wa,
+                "link_portal": link_portal,
+            })
+            if nid:
+                created.append(nid)
+
+    return created
+
+
 def delete_session(token: str) -> None:
     """Invalida o token marcando coluna Ativo=0."""
     try:

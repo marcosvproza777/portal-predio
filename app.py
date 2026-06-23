@@ -95,6 +95,9 @@ def main() -> None:
     elif portal_page == "alertas":
         import page_alertas
         page_alertas.render()
+    elif portal_page == "preferencias":
+        import page_preferencias_notificacao
+        page_preferencias_notificacao.render()
     else:
         import page_farois
         page_farois.render(logo_b64)
@@ -129,6 +132,9 @@ def _render_supervisao() -> None:
     elif sv_view == "alertas_sv":
         import page_sv_alertas
         page_sv_alertas.render()
+    elif sv_view == "notificacoes_sv":
+        import page_sv_notificacoes
+        page_sv_notificacoes.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

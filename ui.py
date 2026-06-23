@@ -524,13 +524,14 @@ PRIORIDADE_CFG = {
 # ── Portal do Cliente — navegação ────────────────────────────────────────────
 
 PORTAL_NAV_ITEMS = [
-    ("farois",     "📊", "Visão Geral"),
-    ("ativos",     "⚙️",  "Ativos Monitorados"),
-    ("manutencao", "📅", "Plano de Manutenção"),
-    ("relatorios", "📁", "Relatórios Técnicos"),
-    ("chamados",   "🔧", "Chamados Técnicos"),
-    ("alertas",    "🔔", "Alertas"),
-    ("assistente", "🤖", "Assistente Pred.IO"),
+    ("farois",       "📊", "Visão Geral"),
+    ("ativos",       "⚙️",  "Ativos"),
+    ("manutencao",   "📅", "Manutenção"),
+    ("relatorios",   "📁", "Relatórios"),
+    ("chamados",     "🔧", "Chamados"),
+    ("alertas",      "🔔", "Alertas"),
+    ("assistente",   "🤖", "Assistente"),
+    ("preferencias", "📱", "Config."),
 ]
 
 # ── Supervisão — constantes e componentes ─────────────────────────────────────
@@ -542,6 +543,7 @@ SV_NAV_ITEMS = [
     ("ativos_sv",        "⚙️",  "Ativos"),
     ("manutencao_sv",    "📅", "Manutenção"),
     ("alertas_sv",       "🔔", "Alertas"),
+    ("notificacoes_sv",  "📨", "Avisos"),
 ]
 
 SV_NAV_SOON = [

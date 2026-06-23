@@ -67,7 +67,7 @@ _HTML = """<!DOCTYPE html>
     var style = pd.createElement('style');
     style.textContent = [
         '#ppwa-fab{',
-        'position:fixed;bottom:28px;right:18px;z-index:2147483647;',
+        'position:fixed;top:12px;right:14px;z-index:9990;',
         'background:linear-gradient(135deg,#1565C0 0%,#2563EB 100%);',
         'color:#fff;border:none;border-radius:22px;',
         'padding:10px 16px 10px 12px;font-size:0.8rem;font-weight:700;',
