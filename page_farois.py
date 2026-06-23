@@ -842,8 +842,7 @@ def _render_visao_executiva(empresa: str) -> None:
                                   if relatorios else "Nenhum relatório publicado ainda")
     d["resumo_tecnico"]        = _build_resumo_tecnico(client_id)
 
-    alarmes = d["componentes_alarme"]
-    n_alarme = len(alarmes)
+    alarmes   = d["componentes_alarme"]
     n_critico = sum(1 for a in alarmes if a["status"] == "Crítico")
     d["componentes_criticos"]      = n_critico
     d["componentes_criticos_desc"] = (
@@ -852,6 +851,21 @@ def _render_visao_executiva(empresa: str) -> None:
             for a in alarmes if a["status"] == "Crítico"
         )[:120] or "Nenhum componente crítico"
     )
+
+    # Status geral com NS ou tag do equipamento
+    try:
+        from page_ativos import _MOCK
+        if _MOCK:
+            av  = _MOCK[0]
+            _ns  = str(av.get("numero_serie", "")).strip()
+            _mod = str(av.get("modelo", "")).strip()
+            _tag = str(av.get("Tag", av.get("nome", ""))).strip()
+            _st  = str(av.get("Status", d["status_geral"])).strip()
+            _id  = f"NS: {_ns}" if _ns and _ns.lower() not in ("", "nan") else f"tag: {_tag}"
+            d["status_geral"]      = _st
+            d["status_geral_desc"] = f"{_tag} {_mod} — {_id}"
+    except Exception:
+        pass
 
     st.markdown(
         f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1.1rem;"

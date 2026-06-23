@@ -64,10 +64,10 @@ def main() -> None:
     render_client_topnav(logo_b64, empresa, telefone)
 
     # Navegação via link do assistente flutuante (?portal_page=X na URL)
-    if "portal_page" not in st.session_state:
-        _nav = st.query_params.get("portal_page", "")
-        if _nav:
-            st.session_state["portal_page"] = _nav
+    # Lê SEMPRE que estiver na URL — garante que navTo() do assistente funcione
+    _nav = st.query_params.get("portal_page", "")
+    if _nav:
+        st.session_state["portal_page"] = _nav
 
     portal_page = st.session_state.get("portal_page", "farois")
 

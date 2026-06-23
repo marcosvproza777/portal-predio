@@ -820,6 +820,12 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   var p = window.parent;
   if (!p || p === window) return;
   var pd = p.document;
+  // Injeta funcao de navegacao no contexto do window pai (nao sandboxado pelo iframe)
+  if (!p.predNavTo) {{
+    var _ns=pd.createElement('script');
+    _ns.textContent='window.predNavTo=function(u){{window.location.href=u;}};';
+    (pd.head||pd.body).appendChild(_ns);
+  }}
   if (pd.getElementById('pred-fab')) return;
 
   var sty = pd.createElement('style');
@@ -1014,10 +1020,14 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   }}
 
   function navTo(page){{
-    var params=new URLSearchParams(p.location.search||'');
+    var params=new URLSearchParams((p.location.search||'').replace(/^\?/,''));
     params.set('portal_page',page);
     if(_sid) params.set('sid',_sid);
-    p.location.href='?'+params.toString();
+    var url='?'+params.toString();
+    try{{
+      if(p.predNavTo) p.predNavTo(url);
+      else p.location.href=url;
+    }}catch(e){{try{{p.location.href=url;}}catch(_){{}}}}
   }}
 
   /* ── Motor de intenção JS — espelha assistant_engine.py ─────────────────
