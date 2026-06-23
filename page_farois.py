@@ -10,7 +10,7 @@ except ImportError:
 import streamlit as st
 from auth import current_client_id, current_empresa
 from sheets import get_ativos
-from ui import empty_state, COLOR_NAVY, COLOR_BG, COLOR_BORDER, COLOR_MUTED
+from ui import empty_state, COLOR_NAVY, COLOR_BG, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
 
 TIPOS_LAUDOS = [
     ("ordem de servico",    "Ordem de Serviço"),
@@ -156,23 +156,13 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
     # ── Banner principal ───────────────────────────────────────────────────────
     _render_banner(empresa, total, bom, atencao, critico)
 
-    st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
-
-    # ── Gráfico de rosca ──────────────────────────────────────────────────────
-    col_donut, _ = st.columns([1.2, 3])
-    with col_donut:
-        _render_donut(total, bom, atencao, critico)
-
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-    # ── Próximas Manutenções (card discreto) ─────────────────────────────────
-    _render_proximas_manutencoes()
-
-    # ── Alertas Importantes (card discreto) ──────────────────────────────────
-    _render_alertas_importantes()
+    # ── Visão Executiva ───────────────────────────────────────────────────────
+    _render_visao_executiva(empresa)
 
     st.markdown(
-        f"<hr style='border-color:{COLOR_BORDER};margin:0 0 1rem;'/>",
+        f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0 1rem;'/>",
         unsafe_allow_html=True,
     )
 
@@ -517,8 +507,9 @@ def _render_alertas_importantes() -> None:
 
     itens_html = ""
     for a in top3:
-        tcfg = _TIPO_CFG.get(a.get("tipo", ""), {"icone": "🔔", "label": ""})
-        pcfg = _PRIO_CFG.get(a.get("prioridade", "Baixa"), _PRIO_CFG["Baixa"])
+        tcfg    = _TIPO_CFG.get(a.get("tipo", ""), {"icone": "🔔", "label": ""})
+        pcfg    = _PRIO_CFG.get(a.get("prioridade", "Baixa"), _PRIO_CFG["Baixa"])
+        dot_cor = pcfg["dot"]
         itens_html += (
             f"<div style='display:flex;align-items:center;gap:8px;padding:7px 0;"
             f"border-bottom:1px solid {CB};'>"
@@ -527,7 +518,7 @@ def _render_alertas_importantes() -> None:
             f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
             f"{a.get('titulo','')}</span>"
             f"<span style='width:8px;height:8px;border-radius:50%;flex-shrink:0;"
-            f"background:{pcfg[\"dot\"]};'></span>"
+            f"background:{dot_cor};'></span>"
             f"</div>"
         )
 
@@ -602,3 +593,393 @@ def _render_proximas_manutencoes() -> None:
         f"</p></div>",
         unsafe_allow_html=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VISÃO EXECUTIVA — mock data + funções de renderização
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EXEC_MOCK = {
+    "client_id": "coca-cola",
+    # Métricas dos 6 cards
+    "ativos_total":              1,
+    "status_geral":              "Atenção",
+    "status_geral_desc":         "Unidade Compressora 200 VLD requer acompanhamento",
+    "componentes_criticos":      1,
+    "componentes_criticos_desc": "Bomba de Óleo M60P em condição crítica",
+    "manutencoes_proximas":      2,
+    "manutencoes_desc":          "Análise de óleo e inspeção do filtro em 320 h",
+    "chamados_abertos":          1,
+    "chamados_desc":             "Chamado técnico em análise",
+    "relatorios_recentes_n":     3,
+    "relatorios_desc":           "Relatórios publicados em junho/2026",
+    # Pontos de atenção
+    "pontos_atencao": [
+        {
+            "titulo":    "Bomba de Óleo M60P em condição crítica",
+            "descricao": "Componente vinculado à Unidade Compressora 200 VLD requer acompanhamento técnico.",
+            "prioridade": "Crítica",
+            "link_page": "ativos",
+        },
+        {
+            "titulo":    "Análise de óleo próxima do vencimento",
+            "descricao": "Faltam 320 horas para a próxima análise de óleo programada.",
+            "prioridade": "Média",
+            "link_page": "manutencao",
+        },
+        {
+            "titulo":    "Unidade Compressora em status Atenção",
+            "descricao": "Score de saúde em 72/100 com redução gradual nos últimos ciclos.",
+            "prioridade": "Média",
+            "link_page": "ativos",
+        },
+    ],
+    # Próximas ações
+    "proximas_acoes": [
+        {"nome": "Análise de óleo",                      "prazo": "em 320 h",   "tipo": "Preventiva por horímetro",  "urgencia": "proximo"},
+        {"nome": "Inspeção e limpeza do filtro de óleo", "prazo": "em 320 h",   "tipo": "Preventiva por horímetro",  "urgencia": "proximo"},
+        {"nome": "Análise de vibração",                  "prazo": "17/08/2026", "tipo": "Recorrente a cada 2 meses", "urgencia": "normal"},
+        {"nome": "Termografia",                          "prazo": "17/10/2026", "tipo": "Recorrente a cada 4 meses", "urgencia": "normal"},
+    ],
+    # Resumo técnico
+    "resumo_tecnico": (
+        "A Unidade Compressora Parafuso 200 VLD apresenta status de Atenção, com score de saúde em 72/100. "
+        "O componente Bomba de Óleo M60P está em condição crítica e há tarefas preventivas próximas do "
+        "vencimento por horímetro. Recomenda-se manter acompanhamento integrado entre vibração, análise de "
+        "óleo, temperatura, operação e chamados técnicos."
+    ),
+    # Relatórios recentes
+    "relatorios": [
+        {"titulo": "Relatório de Análise Preditiva — Unidade Compressora 200 VLD — Junho/2026", "data": "17/06/2026"},
+        {"titulo": "Relatório de Análise de Óleo — Unidade Compressora 200 VLD — Junho/2026",   "data": "16/06/2026"},
+        {"titulo": "Relatório de Vibração — Motor WEG 350 CV — Junho/2026",                     "data": "15/06/2026"},
+    ],
+    # Chamados em andamento
+    "chamados": [
+        {
+            "titulo":     "Acompanhamento da Bomba de Óleo M60P",
+            "status":     "Em análise",
+            "prioridade": "Alta",
+            "descricao":  "Chamado aberto para acompanhamento da condição crítica do componente vinculado à Unidade Compressora.",
+        },
+    ],
+}
+
+_EXEC_COR = {
+    "Atenção":     "#F59E0B",
+    "Crítico":     "#EF4444",
+    "Bom":         "#10B981",
+    "Crítica":     "#EF4444",
+    "Alta":        "#F97316",
+    "Média":       "#F59E0B",
+    "Baixa":       "#64748B",
+    "Em análise":  "#3B82F6",
+    "Aberto":      "#F97316",
+    "Em andamento":"#8B5CF6",
+    "Concluído":   "#10B981",
+}
+_EXEC_COR_DEFAULT = "#94A3B8"
+
+
+def _render_visao_executiva(empresa: str) -> None:
+    """Painel executivo completo: métricas, atenção, ações, resumo, relatórios, chamados."""
+    d = _EXEC_MOCK  # TODO: filtrar por client_id da sessão quando houver banco real
+
+    st.markdown(
+        f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1.1rem;"
+        f"margin:0.75rem 0 0.25rem;'>📊 Visão Executiva</p>"
+        f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0 0 1rem;'>"
+        f"Resumo da condição dos ativos, manutenções, relatórios e chamados da sua operação.</p>",
+        unsafe_allow_html=True,
+    )
+
+    _render_exec_cards(d)
+
+    st.markdown("<div style='height:0.9rem'></div>", unsafe_allow_html=True)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        _render_pontos_atencao(d)
+    with col_b:
+        _render_proximas_acoes(d)
+
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+
+    _render_resumo_tecnico(d)
+
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+
+    col_r, col_c = st.columns(2)
+    with col_r:
+        _render_relatorios_recentes(d)
+    with col_c:
+        _render_chamados_abertos(d)
+
+
+def _render_exec_cards(d: dict) -> None:
+    cards = [
+        {
+            "titulo":    "Ativos monitorados",
+            "valor":     str(d["ativos_total"]),
+            "subtitulo": "Unidade Compressora acompanhada",
+            "cor":       COLOR_NAVY,
+            "icone":     "⚙️",
+        },
+        {
+            "titulo":    "Status geral",
+            "valor":     d["status_geral"],
+            "subtitulo": d["status_geral_desc"],
+            "cor":       _EXEC_COR.get(d["status_geral"], _EXEC_COR_DEFAULT),
+            "icone":     "🟡" if d["status_geral"] == "Atenção" else ("🔴" if d["status_geral"] == "Crítico" else "🟢"),
+        },
+        {
+            "titulo":    "Componentes críticos",
+            "valor":     str(d["componentes_criticos"]),
+            "subtitulo": d["componentes_criticos_desc"],
+            "cor":       "#EF4444" if d["componentes_criticos"] > 0 else "#10B981",
+            "icone":     "🔴" if d["componentes_criticos"] > 0 else "🟢",
+        },
+        {
+            "titulo":    "Manutenções próximas",
+            "valor":     str(d["manutencoes_proximas"]),
+            "subtitulo": d["manutencoes_desc"],
+            "cor":       "#F59E0B" if d["manutencoes_proximas"] > 0 else "#10B981",
+            "icone":     "🔧",
+        },
+        {
+            "titulo":    "Chamados abertos",
+            "valor":     str(d["chamados_abertos"]),
+            "subtitulo": d["chamados_desc"],
+            "cor":       "#F97316" if d["chamados_abertos"] > 0 else "#10B981",
+            "icone":     "📋",
+        },
+        {
+            "titulo":    "Relatórios recentes",
+            "valor":     str(d["relatorios_recentes_n"]),
+            "subtitulo": d["relatorios_desc"],
+            "cor":       "#3B82F6",
+            "icone":     "📁",
+        },
+    ]
+
+    row1 = st.columns(3)
+    row2 = st.columns(3)
+    for col, card in zip(list(row1) + list(row2), cards):
+        with col:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-top:3px solid {card['cor']};border-radius:12px;"
+                f"padding:0.85rem 1.1rem;margin-bottom:6px;"
+                f"box-shadow:0 1px 4px rgba(15,31,61,0.05);'>"
+                f"<p style='font-size:0.61rem;color:{COLOR_MUTED};text-transform:uppercase;"
+                f"letter-spacing:.07em;margin:0 0 5px;'>{card['icone']} {card['titulo']}</p>"
+                f"<p style='font-size:1.6rem;font-weight:900;color:{card['cor']};"
+                f"-webkit-text-fill-color:{card['cor']};margin:0 0 3px;line-height:1.1;'>"
+                f"{card['valor']}</p>"
+                f"<p style='font-size:0.72rem;color:#64748B;margin:0;line-height:1.4;'>"
+                f"{card['subtitulo']}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+
+def _render_pontos_atencao(d: dict) -> None:
+    PRIO_COR = {
+        "Crítica": "#EF4444",
+        "Alta":    "#F97316",
+        "Média":   "#F59E0B",
+        "Baixa":   "#64748B",
+    }
+
+    itens_html = ""
+    for pa in d.get("pontos_atencao", []):
+        cor = PRIO_COR.get(pa.get("prioridade", "Média"), "#F59E0B")
+        itens_html += (
+            f"<div style='border-left:4px solid {cor};padding:0.55rem 0.75rem;"
+            f"margin-bottom:8px;background:{cor}12;border-radius:0 8px 8px 0;'>"
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:flex-start;gap:6px;margin-bottom:3px;'>"
+            f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.84rem;"
+            f"line-height:1.35;'>{pa['titulo']}</span>"
+            f"<span style='background:{cor}22;color:{cor};-webkit-text-fill-color:{cor};"
+            f"border:1px solid {cor}55;font-size:0.61rem;font-weight:700;"
+            f"padding:1px 7px;border-radius:8px;white-space:nowrap;flex-shrink:0;'>"
+            f"{pa.get('prioridade','')}</span>"
+            f"</div>"
+            f"<p style='color:#475569;font-size:0.77rem;margin:0;line-height:1.45;'>"
+            f"{pa['descricao']}</p>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:12px;padding:1rem 1.25rem;'>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.75rem;'>"
+        f"⚠️ Pontos de Atenção</p>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("⚠️ Ver ativos monitorados →", key="exec_ver_ativos"):
+        st.session_state["portal_page"] = "ativos"
+        st.session_state.pop("portal_ativo_id", None)
+        st.rerun()
+
+
+def _render_proximas_acoes(d: dict) -> None:
+    URGENCIA = {
+        "proximo": {"cor": "#F59E0B", "bg": "#FFFBEB"},
+        "normal":  {"cor": "#3B82F6", "bg": "#EFF6FF"},
+    }
+
+    itens_html = ""
+    for ac in d.get("proximas_acoes", []):
+        ucfg = URGENCIA.get(ac.get("urgencia", "normal"), URGENCIA["normal"])
+        itens_html += (
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:flex-start;padding:7px 0;border-bottom:1px solid {COLOR_BORDER};gap:8px;'>"
+            f"<div style='flex:1;min-width:0;'>"
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.83rem;margin:0 0 2px;"
+            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{ac['nome']}</p>"
+            f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0;'>{ac['tipo']}</p>"
+            f"</div>"
+            f"<span style='background:{ucfg['bg']};color:{ucfg['cor']};"
+            f"-webkit-text-fill-color:{ucfg['cor']};border:1px solid {ucfg['cor']}55;"
+            f"font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:8px;"
+            f"white-space:nowrap;flex-shrink:0;'>{ac['prazo']}</span>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:12px;padding:1rem 1.25rem;'>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.75rem;'>"
+        f"🗓️ Próximas Ações</p>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("📅 Ver plano completo →", key="exec_ver_plano"):
+        st.session_state["portal_page"] = "manutencao"
+        st.rerun()
+
+
+def _render_resumo_tecnico(d: dict) -> None:
+    texto = d.get("resumo_tecnico", "")
+    if not texto:
+        return
+    st.markdown(
+        f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;"
+        f"border-left:5px solid #2563EB;border-radius:0 12px 12px 0;"
+        f"padding:1rem 1.25rem;'>"
+        f"<p style='font-size:0.66rem;font-weight:700;color:#1E40AF;"
+        f"text-transform:uppercase;letter-spacing:.07em;margin:0 0 6px;'>"
+        f"📝 Resumo Técnico da Operação</p>"
+        f"<p style='color:#1E3A8A;font-size:0.88rem;margin:0;line-height:1.65;'>{texto}</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_relatorios_recentes(d: dict) -> None:
+    itens_html = ""
+    for r in d.get("relatorios", []):
+        itens_html += (
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;padding:7px 0;border-bottom:1px solid {COLOR_BORDER};gap:8px;'>"
+            f"<p style='font-size:0.82rem;font-weight:600;color:{COLOR_NAVY};margin:0;"
+            f"flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>"
+            f"{r['titulo']}</p>"
+            f"<span style='font-size:0.7rem;color:{COLOR_MUTED};white-space:nowrap;flex-shrink:0;'>"
+            f"{r['data']}</span>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:12px;padding:1rem 1.25rem;'>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.75rem;'>"
+        f"📁 Relatórios Recentes</p>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("📁 Ver todos os relatórios →", key="exec_ver_relat"):
+        st.session_state["portal_page"] = "relatorios"
+        st.rerun()
+
+
+def _render_chamados_abertos(d: dict) -> None:
+    chamados = d.get("chamados", [])
+
+    PRIO_CFG = {
+        "Crítica": {"cor": "#EF4444", "bg": "#FEF2F2"},
+        "Alta":    {"cor": "#F97316", "bg": "#FFF7ED"},
+        "Média":   {"cor": "#F59E0B", "bg": "#FFFBEB"},
+        "Baixa":   {"cor": "#64748B", "bg": "#F8FAFC"},
+    }
+    ST_CFG = {
+        "Em análise":   {"cor": "#3B82F6", "bg": "#EFF6FF"},
+        "Aberto":       {"cor": "#F97316", "bg": "#FFF7ED"},
+        "Em andamento": {"cor": "#8B5CF6", "bg": "#F5F3FF"},
+        "Concluído":    {"cor": "#10B981", "bg": "#F0FDF4"},
+    }
+
+    if not chamados:
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:12px;padding:1rem 1.25rem;'>"
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.5rem;'>"
+            f"🔧 Chamados em Andamento</p>"
+            f"<p style='color:{COLOR_MUTED};font-size:0.85rem;margin:0;'>Nenhum chamado em aberto.</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🔧 Ver chamados →", key="exec_ver_cham"):
+            st.session_state["portal_page"] = "chamados"
+            st.rerun()
+        return
+
+    itens_html = ""
+    for ch in chamados:
+        pcfg = PRIO_CFG.get(ch.get("prioridade", "Média"), PRIO_CFG["Média"])
+        scfg = ST_CFG.get(ch.get("status", "Aberto"), ST_CFG["Aberto"])
+        itens_html += (
+            f"<div style='border:1px solid {COLOR_BORDER};"
+            f"border-left:4px solid {pcfg['cor']};border-radius:0 10px 10px 0;"
+            f"padding:0.75rem 1rem;margin-bottom:8px;background:{pcfg['bg']};'>"
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:flex-start;gap:6px;flex-wrap:wrap;margin-bottom:5px;'>"
+            f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.87rem;"
+            f"line-height:1.35;'>{ch['titulo']}</span>"
+            f"<div style='display:flex;gap:5px;flex-shrink:0;'>"
+            f"<span style='background:{scfg['bg']};color:{scfg['cor']};"
+            f"-webkit-text-fill-color:{scfg['cor']};border:1px solid {scfg['cor']}55;"
+            f"font-size:0.64rem;font-weight:700;padding:2px 8px;border-radius:8px;'>"
+            f"{ch['status']}</span>"
+            f"<span style='background:{pcfg['bg']};color:{pcfg['cor']};"
+            f"-webkit-text-fill-color:{pcfg['cor']};border:1px solid {pcfg['cor']}55;"
+            f"font-size:0.64rem;font-weight:700;padding:2px 8px;border-radius:8px;'>"
+            f"{ch['prioridade']}</span>"
+            f"</div></div>"
+            f"<p style='color:#475569;font-size:0.8rem;margin:0;line-height:1.5;'>"
+            f"{ch['descricao']}</p>"
+            f"</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:12px;padding:1rem 1.25rem;'>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.75rem;'>"
+        f"🔧 Chamados em Andamento</p>"
+        f"{itens_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("🔧 Ver chamados →", key="exec_ver_cham"):
+        st.session_state["portal_page"] = "chamados"
+        st.rerun()
