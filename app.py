@@ -72,7 +72,8 @@ def main() -> None:
     portal_page = st.session_state.get("portal_page", "farois")
 
     # Assistente flutuante — visível em todas as páginas do portal do cliente
-    inject_floating_assistant(_sid)
+    # client_id vem da sessão do servidor — NUNCA do front-end
+    inject_floating_assistant(_sid, st.session_state.get("client_id", ""))
 
     if portal_page == "farois":
         import page_farois

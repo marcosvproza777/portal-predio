@@ -730,22 +730,36 @@ def render_sv_topnav() -> None:
     )
 
 
-def inject_floating_assistant(sid: str = "") -> None:
-    """Injeta o Assistente Tecnico Pred.IO como botao flutuante no portal do cliente.
+def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
+    """Injeta o Assistente Tecnico Pred.IO como botao flutuante no portal.
 
-    Usa components.html() + injecao no parent.document (mesmo padrao do PWA button).
-    st.markdown() nao executa <script> via innerHTML — por isso os botoes nao respondiam.
+    Usa components.html() + injecao no parent.document.
+    Dados do cliente (ativos, manutencoes, relatorios etc.) sao buscados
+    server-side via assistant_engine.get_client_context() e embutidos no JS
+    como PRED_CONTEXT — o client_id nunca e exposto ao front-end.
 
-    FUTURE API INTEGRATION:
-      POST /api/assistant/technical-query
-      Payload: { pergunta, rota_atual, usuario_id (sessao), cliente_id (sessao) }
+    SECURITY:
+      - client_id vem da sessao/autenticacao, NUNCA do front-end.
+      - PRED_CONTEXT contem apenas dados autorizados para o cliente logado.
+      - Documentos internos nao aparecem para cliente.
+      - Dados da Supervisao Pred.IO nao aparecem aqui.
 
-    SECURITY RULES:
-      - cliente_id SEMPRE vem da sessao/autenticacao, NUNCA do frontend
-      - assistente nunca acessa dados de outro cliente
-      - observacoes internas nunca sao retornadas ao portal do cliente
+    FUTURE API: POST /api/assistant/technical-query
+      Quando a IA real for integrada, o JS fara fetch() para esse endpoint
+      em vez de usar PRED_CONTEXT local. O endpoint chamara query_assistant()
+      de assistant_engine.py com o client_id da sessao do servidor.
     """
+    import json as _json
     import streamlit.components.v1 as _comp
+    from assistant_engine import get_client_context
+
+    # Busca dados autorizados server-side. client_id ja validado pela sessao.
+    try:
+        _ctx = get_client_context(client_id) if client_id else {}
+    except Exception:
+        _ctx = {}
+
+    _ctx_json = _json.dumps(_ctx, ensure_ascii=False)
 
     # --- icones SVG em branco ---
     ROBOT_SVG = (
@@ -792,11 +806,11 @@ def inject_floating_assistant(sid: str = "") -> None:
         "</svg>"
     )
 
-    # Escapa aspas simples para uso em strings JS entre aspas simples
     def _js(s):
         return s.replace("'", "\\'")
 
-    html = f"""<!DOCTYPE html>
+    # CSS e estrutura HTML usam {{ }} por ser f-string com JS
+    html_top = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;overflow:hidden;background:transparent;">
 <script>
@@ -804,7 +818,6 @@ def inject_floating_assistant(sid: str = "") -> None:
   var p = window.parent;
   if (!p || p === window) return;
   var pd = p.document;
-
   if (pd.getElementById('pred-fab')) return;
 
   var sty = pd.createElement('style');
@@ -816,7 +829,6 @@ def inject_floating_assistant(sid: str = "") -> None:
     'display:flex;align-items:center;justify-content:center;cursor:pointer;',
     'z-index:99998;border:none;outline:none;transition:transform .2s,box-shadow .2s;}}',
     '#pred-fab:hover{{transform:scale(1.09);box-shadow:0 6px 28px rgba(37,99,235,.6),0 0 0 3px rgba(56,189,248,.45);}}',
-    '#pred-fab>svg{{pointer-events:none;}}',
     '#pred-chat{{position:fixed;bottom:94px;right:24px;width:360px;max-height:520px;',
     'background:#fff;border:1px solid #E2E8F0;border-radius:16px;',
     'box-shadow:0 12px 48px rgba(15,31,61,.18),0 2px 8px rgba(0,0,0,.08);',
@@ -888,8 +900,7 @@ def inject_floating_assistant(sid: str = "") -> None:
   pd.body.appendChild(fab);
 
   var chat = pd.createElement('div');
-  chat.id = 'pred-chat';
-  chat.setAttribute('role','dialog');
+  chat.id = 'pred-chat'; chat.setAttribute('role','dialog');
   chat.innerHTML = [
     '<div id="pred-chat-header">',
     '<div id="pred-hdr-avatar">' + ROBOT_SM + '</div>',
@@ -903,10 +914,10 @@ def inject_floating_assistant(sid: str = "") -> None:
     '</div></div>',
     '<div id="pred-chat-msgs"></div>',
     '<div id="pred-sugg">',
-    '<span class="pred-chip" data-q="Ver proximos planos de manutencao">📅 Manutencao</span>',
-    '<span class="pred-chip" data-q="Consultar relatorios recentes">📋 Relatorios</span>',
-    '<span class="pred-chip" data-q="Buscar manual tecnico">📚 Manual tecnico</span>',
-    '<span class="pred-chip" data-q="Abrir chamado tecnico">🔧 Chamado</span>',
+    '<span class="pred-chip" data-q="Quais sao as proximas manutencoes?">📅 Manutencao</span>',
+    '<span class="pred-chip" data-q="Quais relatorios foram publicados?">📋 Relatorios</span>',
+    '<span class="pred-chip" data-q="Tem manual tecnico do compressor?">📚 Manual tecnico</span>',
+    '<span class="pred-chip" data-q="Quero abrir um chamado tecnico">🔧 Chamado</span>',
     '</div>',
     '<div id="pred-input-area">',
     '<input type="text" id="pred-input" placeholder="Digite sua duvida..." autocomplete="off"/>',
@@ -917,33 +928,24 @@ def inject_floating_assistant(sid: str = "") -> None:
 
   var _open=false, _init=false, _sid='{sid}', _tc=0;
 
-  function predToggle(){{ _open ? predClose() : predOpen(); }}
+"""
+
+    # PRED_CONTEXT e injetado aqui como JSON puro, fora do f-string para nao conflitar com {{ }}
+    html_ctx = "  var PRED_CONTEXT = __CTX_JSON__;\n\n".replace("__CTX_JSON__", _ctx_json)
+
+    html_bot = f"""  function predToggle(){{ _open ? predClose() : predOpen(); }}
 
   function predOpen(){{
-    _open=true;
-    chat.classList.add('pred-open');
-    fab.innerHTML=CLOSE;
+    _open=true; chat.classList.add('pred-open'); fab.innerHTML=CLOSE;
     try{{localStorage.setItem('pred_open','1');}}catch(e){{}}
     if(!_init){{
       _init=true;
-      addBot(
-        '<strong>Ola! Sou o Assistente Tecnico Pred.IO.</strong><br><br>'+
-        'Posso ajudar com ativos monitorados, plano de manutencao, '+
-        'relatorios tecnicos, chamados e documentos disponiveis.',
-        'As respostas sao baseadas nas informacoes do portal da sua operacao.',[]
-      );
+      addBot('<strong>Ola! Sou o Assistente Tecnico Pred.IO.</strong><br><br>Posso ajudar com ativos monitorados, plano de manutencao, relatorios tecnicos, chamados e documentos disponiveis.', null, []);
     }}
     scroll();
   }}
-
-  function predMin(){{
-    _open=false; chat.classList.remove('pred-open'); fab.innerHTML=ROBOT;
-  }}
-
-  function predClose(){{
-    predMin();
-    try{{localStorage.removeItem('pred_open');}}catch(e){{}}
-  }}
+  function predMin(){{ _open=false; chat.classList.remove('pred-open'); fab.innerHTML=ROBOT; }}
+  function predClose(){{ predMin(); try{{localStorage.removeItem('pred_open');}}catch(e){{}} }}
 
   function predQuick(t){{
     var inp=pd.getElementById('pred-input');
@@ -956,32 +958,30 @@ def inject_floating_assistant(sid: str = "") -> None:
     inp.value=''; addUser(t);
     var sg=pd.getElementById('pred-sugg'); if(sg)sg.style.display='none';
     var tid=showTyping();
+    // Simula latencia de API — quando endpoint real estiver pronto,
+    // substituir este setTimeout por fetch('/api/assistant/technical-query', ...)
     setTimeout(function(){{
       hideTyping(tid);
-      var r=getResp(t.toLowerCase());
-      addBot(r.text,null,r.actions);
-    }},650+Math.random()*350);
+      var r = getResp(t);
+      addBot(r.text, null, r.actions);
+    }}, 500 + Math.floor(Math.random() * 400));
   }}
 
   function addUser(t){{
     var m=pd.getElementById('pred-chat-msgs'); if(!m)return;
-    var d=pd.createElement('div');
-    d.className='pred-msg pred-usr'; d.textContent=t;
+    var d=pd.createElement('div'); d.className='pred-msg pred-usr'; d.textContent=t;
     m.appendChild(d); scroll();
   }}
 
   function addBot(html,disc,actions){{
     var m=pd.getElementById('pred-chat-msgs'); if(!m)return;
     var wrap=pd.createElement('div');
-    var d=pd.createElement('div');
-    d.className='pred-msg pred-bot'; d.innerHTML=html; wrap.appendChild(d);
+    var d=pd.createElement('div'); d.className='pred-msg pred-bot'; d.innerHTML=html; wrap.appendChild(d);
     if(disc){{
-      var dd=pd.createElement('div');
-      dd.className='pred-disc'; dd.innerHTML='<em>'+disc+'</em>'; wrap.appendChild(dd);
+      var dd=pd.createElement('div'); dd.className='pred-disc'; dd.innerHTML='<em>'+disc+'</em>'; wrap.appendChild(dd);
     }}
     (actions||[]).forEach(function(a){{
-      var btn=pd.createElement('button');
-      btn.className='pred-act'; btn.innerHTML=a.label;
+      var btn=pd.createElement('button'); btn.className='pred-act'; btn.innerHTML=a.label;
       btn.addEventListener('click',function(){{navTo(a.page);}});
       d.appendChild(pd.createElement('br')); d.appendChild(btn);
     }});
@@ -996,67 +996,96 @@ def inject_floating_assistant(sid: str = "") -> None:
     m.appendChild(d); scroll(); return id;
   }}
   function hideTyping(id){{var el=pd.getElementById(id);if(el)el.remove();}}
+
   function scroll(){{
     setTimeout(function(){{
-      var m=pd.getElementById('pred-chat-msgs');
-      if(m)m.scrollTop=m.scrollHeight;
+      var m=pd.getElementById('pred-chat-msgs'); if(m)m.scrollTop=m.scrollHeight;
     }},20);
   }}
+
   function navTo(page){{
-    if(_sid)p.location.href='?sid='+encodeURIComponent(_sid)+'&portal_page='+encodeURIComponent(page);
+    if(_sid) p.location.href='?sid='+encodeURIComponent(_sid)+'&portal_page='+encodeURIComponent(page);
   }}
 
-  function getResp(q){{
-    if(/manuten|pr.xima|plano|preventiva|overhaul|interven/.test(q))
-      return{{text:'<strong>📅 Proximas manutencoes programadas:</strong><br><br>'+
-        '&bull; Analise de oleo &mdash; prazo proximo<br>'+
-        '&bull; Inspecao do filtro de oleo &mdash; prazo proximo<br>'+
-        '&bull; Analise de vibracao &mdash; 17/08/2026<br>'+
-        '&bull; Termografia &mdash; 17/10/2026<br><br>'+
-        'Acesse o plano completo para ver checklists e intervalos detalhados.',
-        actions:[{{label:'📅 Ver Plano de Manutencao',page:'manutencao'}}]}};
-    if(/manual|biblioteca|document|cat.log|procedimento|guia|pdf|especifica/.test(q))
-      return{{text:'<strong>📚 Documentacao tecnica disponivel:</strong><br><br>'+
-        '&bull; Manual do compressor de parafuso<br>'+
-        '&bull; Procedimento de analise de oleo<br>'+
-        '&bull; Guia de inspecao preventiva<br>'+
-        '&bull; Certificados de equipamentos<br><br>'+
-        'Acesse Relatorios e Documentos para visualizar e baixar.',
-        actions:[{{label:'📋 Acessar Relatorios e Docs',page:'relatorios'}}]}};
-    if(/relat.rio|laudo|resultado/.test(q))
-      return{{text:'<strong>📋 Relatorios tecnicos:</strong><br><br>'+
-        'Laudos de analise de oleo, relatorios de inspecao, termografias e '+
-        'demais documentos gerados pela equipe Pred.IO ficam disponiveis aqui.',
-        actions:[{{label:'📋 Ver Relatorios',page:'relatorios'}}]}};
-    if(/bomba|.leo|compressor|ativo|equipamento|cr.tico|status|sensor|vibra|temperatura/.test(q))
-      return{{text:'<strong>⚙️ Status dos ativos monitorados:</strong><br><br>'+
-        'A analise de oleo do compressor principal esta proxima do prazo recomendado. '+
-        'Recomenda-se agendar a coleta de amostra com a equipe Pred.IO.<br><br>'+
-        'Acesse Ativos para ver score de saude e historico de cada equipamento.',
-        actions:[{{label:'⚙️ Ver Ativos',page:'ativos'}}]}};
-    if(/chamado|ticket|abrir|problema|falha|defeito|urgente|solicitar|atendimento/.test(q))
-      return{{text:'<strong>🔧 Abertura de chamado tecnico:</strong><br><br>'+
-        'Para abrir um chamado, informe:<br>'+
-        '&bull; Nome do equipamento com problema<br>'+
-        '&bull; Sintoma observado<br>'+
-        '&bull; Prioridade (normal / urgente / critico)<br><br>'+
-        '<em>Tempo de resposta: ate 4 horas uteis para chamados criticos.</em>',
-        actions:[{{label:'🔧 Abrir Chamado',page:'chamados'}}]}};
-    if(/alerta|notifica|aviso/.test(q))
-      return{{text:'<strong>🔔 Alertas e pontos de atencao:</strong><br><br>'+
-        'Os alertas sao publicados pela equipe Pred.IO quando ha situacoes que requerem atencao imediata.',
-        actions:[{{label:'🔔 Ver Alertas',page:'alertas'}}]}};
-    if(/dashboard|vis.o|geral|resumo|inicio|painel|farol/.test(q))
-      return{{text:'<strong>🏠 Visao geral da operacao:</strong><br><br>'+
-        'O dashboard mostra os farois de saude dos ativos, proximas acoes de manutencao, alertas e relatorios recentes.',
-        actions:[{{label:'🏠 Ir para Dashboard',page:'farois'}}]}};
-    return{{text:'Posso ajudar com:<br><br>'+
-      '📅 <strong>Manutencao</strong> &mdash; plano preventivo e proximas acoes<br>'+
-      '⚙️ <strong>Ativos</strong> &mdash; status e saude dos equipamentos<br>'+
-      '📋 <strong>Relatorios</strong> &mdash; laudos e analises tecnicas<br>'+
-      '🔧 <strong>Chamados</strong> &mdash; abertura de solicitacoes<br><br>'+
-      'Tente uma das sugestoes ou reformule a sua duvida.',
-      actions:[]}};
+  /* ── Motor de intenção JS — espelha assistant_engine.py ─────────────────
+     Usa PRED_CONTEXT embutido server-side (dados autorizados do cliente).
+     Quando POST /api/assistant/technical-query estiver ativo, este bloco
+     sera substituido por um fetch() para o endpoint Python. */
+  function getResp(q) {{
+    var ctx = PRED_CONTEXT;
+    var ql  = q.toLowerCase();
+
+    /* Ordem importa: oleo antes de manutencao para perguntas especificas */
+    if (/qual.*leo|leo.*usar|especifica.*leo|recomend.*leo|viscosidade|lubrificante recomendado/.test(ql)) {{
+      var spec = ctx.especificacoes && ctx.especificacoes.oleo;
+      if (spec) {{
+        return {{ text: 'O oleo recomendado para esta unidade e: <strong>' + spec + '</strong>.', actions: [{{label:'📚 Ver Manual', page:'biblioteca'}}] }};
+      }}
+      return {{ text: 'Nao encontrei especificacao de oleo cadastrada para este ativo. Consulte o manual tecnico disponivel na Biblioteca Tecnica ou abra um chamado para validacao da equipe Pred.IO.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    if (/manuten|plano|preventiva|preditiva|vibra|termografia|hor.metro|filtro|inspec|overhaul|lubrifica|pr.xima|proxima|vencimento|analise de|analise d/.test(ql)) {{
+      var mans = ctx.manutencoes || [];
+      if (!mans.length) {{
+        return {{ text: 'Nao encontrei planos de manutencao cadastrados para sua operacao. Recomendo abrir um chamado tecnico.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      var itens = mans.map(function(m) {{
+        var prazo = m.vencimento_data || (m.vencimento_horas ? m.vencimento_horas + ' horas' : 'a definir');
+        return '&bull; ' + m.acao + ' &mdash; ' + prazo;
+      }}).join('<br>');
+      return {{ text: '<strong>📅 Proximas manutencoes programadas:</strong><br><br>' + itens + '<br><br>Acesse o plano completo para ver checklists e intervalos detalhados.', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+    }}
+
+    if (/relat|laudo|preditiva|resultado|publicado/.test(ql)) {{
+      var rels = ctx.relatorios || [];
+      if (!rels.length) {{
+        return {{ text: 'Nenhum relatorio tecnico publicado ainda para sua operacao.', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
+      }}
+      var rlist = rels.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data; }}).join('<br>');
+      return {{ text: '<strong>📋 Relatorios tecnicos recentes:</strong><br><br>' + rlist, actions: [{{label:'📋 Ver Relatorios Tecnicos', page:'relatorios'}}] }};
+    }}
+
+    if (/manual|datasheet|documento|especifica|cat.logo|biblioteca|pdf|procedimento|guia|instru/.test(ql)) {{
+      var docs = ctx.documentos || [];
+      if (!docs.length) {{
+        return {{ text: 'Nenhum documento tecnico publicado na Biblioteca ainda. Entre em contato com a equipe Pred.IO para solicitar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      var dlist = docs.map(function(d) {{ return '&bull; ' + d.titulo; }}).join('<br>');
+      return {{ text: '<strong>📚 Documentacao tecnica disponivel:</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
+    }}
+
+    if (/status|condi|sa.de|score|cr.tico|aten|bomba|compressor|motor|ativo|equipamento|falha|alarme|sensor/.test(ql)) {{
+      var ativos = ctx.ativos || [];
+      if (!ativos.length) {{
+        return {{ text: 'Nenhum ativo monitorado cadastrado ainda para sua operacao.', actions: [{{label:'⚙️ Ver Ativos', page:'ativos'}}] }};
+      }}
+      var av = ativos[0];
+      var criticos = (av.componentes || []).filter(function(c) {{ return c.status === 'Critico' || c.status === 'Crítico'; }});
+      var txt = '<strong>⚙️ Status dos ativos monitorados:</strong><br><br>A <strong>' + av.nome + '</strong> esta com status <strong>' + av.status + '</strong> e score de saude <strong>' + av.score + '/100</strong>.';
+      if (criticos.length) {{
+        txt += '<br><br>Componente(s) critico(s): ' + criticos.map(function(c){{return '<strong>'+c.nome+'</strong>';}}).join(', ') + '.';
+      }}
+      return {{ text: txt, actions: [{{label:'⚙️ Ver Ativos Monitorados', page:'ativos'}}] }};
+    }}
+
+    if (/chamado|abrir chamado|solicita|atendimento|suporte|problema|defeito|urgente|t.cnico/.test(ql)) {{
+      var chams = ctx.chamados || [];
+      var txt2 = 'Voce pode abrir ou acompanhar solicitacoes pela area de Chamados Tecnicos.';
+      if (chams.length) {{ txt2 += ' Chamado em aberto: <strong>' + chams[0].titulo + '</strong> (' + chams[0].status + ').'; }}
+      return {{ text: '<strong>🔧 Chamados Tecnicos:</strong><br><br>' + txt2, actions: [{{label:'🔧 Abrir Chamados Tecnicos', page:'chamados'}}] }};
+    }}
+
+    if (/alerta|aviso|notifica|ponto de aten/.test(ql)) {{
+      var als = ctx.alertas || [];
+      if (!als.length) {{
+        return {{ text: 'Nenhum alerta ativo no momento para sua operacao.', actions: [{{label:'🔔 Ver Alertas', page:'alertas'}}] }};
+      }}
+      var alist = als.map(function(a){{return '&bull; '+a.titulo+' ('+a.prioridade+')';}}).join('<br>');
+      return {{ text: '<strong>🔔 Alertas ativos:</strong><br><br>' + alist, actions: [{{label:'🔔 Ver Alertas', page:'alertas'}}] }};
+    }}
+
+    /* Fallback — duvida nao encontrada */
+    return {{ text: 'Nao encontrei informacao suficiente nos dados disponiveis do portal para responder com seguranca. Recomendo abrir um chamado tecnico para avaliacao da equipe Pred.IO.', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
   }}
 
   fab.addEventListener('click', predToggle);
@@ -1073,6 +1102,8 @@ def inject_floating_assistant(sid: str = "") -> None:
 }})();
 </script>
 </body></html>"""
+
+    html = html_top + html_ctx + html_bot
     _comp.html(html, height=0)
 
 
