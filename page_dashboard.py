@@ -335,10 +335,12 @@ def _render_top_cards(d: dict) -> None:
     # 3 + 3 layout
     row1 = st.columns(3)
     row2 = st.columns(3)
-    for (icon, label, val, sub, cor, page_key), col in zip(cards, list(row1) + list(row2)):
+    for i, ((icon, label, val, sub, cor, page_key), col) in enumerate(
+        zip(cards, list(row1) + list(row2))
+    ):
         with col:
             st.markdown(_card(icon, label, val, sub, cor), unsafe_allow_html=True)
-            if st.button(f"Ver →", key=f"dash_card_{page_key}_{label[:6]}",
+            if st.button("Ver →", key=f"dash_card_{i}",
                          use_container_width=True):
                 st.session_state["portal_page"] = page_key
                 st.rerun()

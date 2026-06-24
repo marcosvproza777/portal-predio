@@ -5,6 +5,7 @@ Chamado a partir de page_sv_homologacao.render() dentro do contexto Streamlit.
 Retorna lista de (status, mensagem) para exibição.
 """
 
+import time
 from datetime import datetime
 
 
@@ -84,6 +85,20 @@ ATIVO_B = {
 }
 
 # ─── HELPERS INTERNOS ────────────────────────────────────────────────────────
+
+def _sheets_err() -> str:
+    """Retorna o último erro registrado pelo sheets.py no session_state."""
+    try:
+        import streamlit as st
+        return st.session_state.get("_sheets_last_error", "")
+    except Exception:
+        return ""
+
+
+def _pause() -> None:
+    """Pequena pausa para evitar quota do Google Sheets (60 req/min)."""
+    time.sleep(0.4)
+
 
 def _find_ativo_id(df, client_id: str, nome: str) -> str | None:
     """Busca ativo existente por client_id + nome (Tag na planilha)."""
@@ -287,16 +302,19 @@ def _step_relatorios(log: list, ativo_ids: dict) -> dict:
             ids[key] = existing
             log.append(("✓", f"Relatório já existe: «{titulo[:50]}»"))
         else:
+            _pause()
             rep_id = sheets.add_technical_report(r, created_by=EMAIL_STAFF)
             if rep_id:
                 if pub:
+                    _pause()
                     sheets.update_technical_report(rep_id, {"Status": "Publicado"})
                 ids[key] = rep_id
                 status_label = "Publicado" if pub else "Rascunho"
                 log.append(("✚", f"Relatório criado ({status_label}): «{titulo[:50]}»"))
                 df = sheets.load_sheet("TechnicalReports")
             else:
-                log.append(("✗", f"Erro ao criar relatório: {titulo[:50]}"))
+                err = _sheets_err()
+                log.append(("✗", f"Erro ao criar relatório: {titulo[:50]}" + (f" — {err}" if err else "")))
 
     return ids
 
@@ -321,6 +339,7 @@ def _step_manutencao(log: list, ativo_ids: dict) -> None:
     if plan_id:
         log.append(("✓", f"Plano já existe: {plan_nome} (id={plan_id})"))
     else:
+        _pause()
         plan_id = sheets.add_maintenance_plan({
             "cliente_id": CLIENT_ID_A,
             "ativo_id":   ativo_ids.get("MYCOM-Q63-01", ""),
@@ -331,7 +350,8 @@ def _step_manutencao(log: list, ativo_ids: dict) -> None:
         if plan_id:
             log.append(("✚", f"Plano criado: {plan_nome} (id={plan_id})"))
         else:
-            log.append(("✗", "Erro ao criar plano de manutenção"))
+            err = _sheets_err()
+            log.append(("✗", "Erro ao criar plano de manutenção" + (f" — {err}" if err else "")))
             return
 
     # Tarefas
@@ -424,6 +444,7 @@ def _step_manutencao(log: list, ativo_ids: dict) -> None:
         if existing:
             log.append(("✓", f"Tarefa já existe: {nome_t}"))
         else:
+            _pause()
             dados = {
                 "cliente_id": CLIENT_ID_A,
                 "plano_id":   plan_id,
@@ -434,7 +455,8 @@ def _step_manutencao(log: list, ativo_ids: dict) -> None:
             if task_id:
                 log.append(("✚", f"Tarefa criada: {nome_t} (id={task_id})"))
             else:
-                log.append(("✗", f"Erro ao criar tarefa: {nome_t}"))
+                err = _sheets_err()
+                log.append(("✗", f"Erro ao criar tarefa: {nome_t}" + (f" — {err}" if err else "")))
 
 
 def _step_alertas(log: list, ativo_ids: dict) -> dict:
@@ -488,18 +510,19 @@ def _step_alertas(log: list, ativo_ids: dict) -> dict:
             ids[key] = existing
             log.append(("✓", f"Alerta já existe: {titulo[:60]}"))
         else:
+            _pause()
             ok = sheets.add_alerta_sv(**alerta)
             if ok:
                 log.append(("✚", f"Alerta criado: {titulo[:60]}"))
                 df = sheets.load_sheet("AlertasSV")
-                # Reler para pegar o id recém-criado
                 row2 = df[
                     df["Titulo"].astype(str).str.strip() == titulo
                 ] if not df.empty and "Titulo" in df.columns else None
                 if row2 is not None and not row2.empty:
                     ids[key] = str(row2.iloc[0]["Id"]).strip()
             else:
-                log.append(("✗", f"Erro ao criar alerta: {titulo[:60]}"))
+                err = _sheets_err()
+                log.append(("✗", f"Erro ao criar alerta: {titulo[:60]}" + (f" — {err}" if err else "")))
 
     return ids
 
@@ -525,6 +548,7 @@ def _step_chamado(log: list, ativo_ids: dict) -> str | None:
         log.append(("✓", f"Chamado já existe: {titulo} (id={existing})"))
         return existing
 
+    _pause()
     ch_id = sheets.abrir_chamado_v2({
         "client_id":   CLIENT_ID_A,
         "empresa":     EMPRESA_A,
@@ -540,7 +564,8 @@ def _step_chamado(log: list, ativo_ids: dict) -> str | None:
     })
 
     if not ch_id:
-        log.append(("✗", f"Erro ao criar chamado: {titulo}"))
+        err = _sheets_err()
+        log.append(("✗", f"Erro ao criar chamado: {titulo}" + (f" — {err}" if err else "")))
         return None
 
     log.append(("✚", f"Chamado criado: {titulo} (id={ch_id})"))
@@ -639,6 +664,7 @@ def _step_notificacoes(log: list, ativo_ids: dict, report_ids: dict, chamado_id:
         if existing:
             log.append(("✓", f"Notificação já existe: {titulo[:60]}"))
         else:
+            _pause()
             nid = sheets.add_portal_notification({
                 "cliente_id": CLIENT_ID_A,
                 **n,
@@ -646,7 +672,8 @@ def _step_notificacoes(log: list, ativo_ids: dict, report_ids: dict, chamado_id:
             if nid:
                 log.append(("✚", f"Notificação criada: {titulo[:60]} (id={nid})"))
             else:
-                log.append(("✗", f"Erro ao criar notificação: {titulo[:60]}"))
+                err = _sheets_err()
+                log.append(("✗", f"Erro ao criar notificação: {titulo[:60]}" + (f" — {err}" if err else "")))
 
 
 def _step_ativo_b(log: list) -> None:
