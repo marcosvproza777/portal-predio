@@ -707,9 +707,9 @@ def render_sv_topnav() -> None:
         _logo = load_image_b64("logo.jpg")
         if _logo:
             st.markdown(
-                f"<div style='display:flex;align-items:center;height:100%;padding-top:4px;'>"
+                f"<div style='display:flex;align-items:center;height:100%;padding-top:2px;'>"
                 f"<img src='data:image/jpeg;base64,{_logo}' "
-                f"style='height:34px;object-fit:contain;max-width:100%;' /></div>",
+                f"style='height:56px;object-fit:contain;max-width:100%;' /></div>",
                 unsafe_allow_html=True,
             )
 

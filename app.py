@@ -8,9 +8,14 @@ from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav
 
 
 def main() -> None:
+    try:
+        from PIL import Image as _PILImage
+        _favicon = _PILImage.open("logo.jpg")
+    except Exception:
+        _favicon = "⚙️"
     st.set_page_config(
         page_title="Portal de Confiabilidade Pred.IO",
-        page_icon="⚙️",
+        page_icon=_favicon,
         layout="wide",
         initial_sidebar_state="expanded",
     )
