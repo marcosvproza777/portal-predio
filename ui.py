@@ -741,6 +741,24 @@ def render_sv_topnav() -> None:
     )
 
 
+def remove_floating_assistant() -> None:
+    """Remove o assistente flutuante do DOM (chamado na tela de login / logout)."""
+    import streamlit.components.v1 as _comp
+    _comp.html("""<!DOCTYPE html><html><head></head><body style="margin:0">
+<script>
+(function(){
+  var p=window.parent; if(!p||p===window)return;
+  var pd=p.document;
+  ['pred-fab','pred-chat','pred-styles'].forEach(function(id){
+    var el=pd.getElementById(id); if(el)el.remove();
+  });
+  // Reseta guard para que o assistente seja reinjetado no proximo login
+  try{ delete p.predNavTo; }catch(e){ p.predNavTo=undefined; }
+})();
+</script>
+</body></html>""", height=0)
+
+
 def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     """Injeta o Assistente Tecnico Pred.IO como botao flutuante no portal.
 
