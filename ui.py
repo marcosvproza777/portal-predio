@@ -861,9 +861,6 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     );
     (pd.head||pd.body).appendChild(_ns);
   }}
-  // Adiciona viewport-fit=cover para safe area no iOS funcionar com env()
-  var _vm=pd.querySelector('meta[name="viewport"]');
-  if(_vm){{var _vc=_vm.getAttribute('content')||'';if(_vc.indexOf('viewport-fit')<0)_vm.setAttribute('content',_vc+',viewport-fit=cover');}}
   if (pd.getElementById('pred-fab')) return;
 
   var sty = pd.createElement('style');
@@ -873,13 +870,13 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     'background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 55%,#2563EB 100%);',
     'box-shadow:0 4px 20px rgba(15,31,61,.5),0 0 0 2px rgba(56,189,248,.3);',
     'display:flex;align-items:center;justify-content:center;cursor:pointer;',
-    'z-index:2147483647;border:none;outline:none;transition:transform .2s,box-shadow .2s;',
+    'z-index:999998;border:none;outline:none;transition:transform .2s,box-shadow .2s;',
     '-webkit-tap-highlight-color:transparent;touch-action:manipulation;}}',
     '#pred-fab:hover{{transform:scale(1.09);box-shadow:0 6px 28px rgba(37,99,235,.6),0 0 0 3px rgba(56,189,248,.45);}}',
     '#pred-chat{{position:fixed;bottom:94px;right:24px;width:360px;max-height:520px;',
     'background:#fff;border:1px solid #E2E8F0;border-radius:16px;',
     'box-shadow:0 12px 48px rgba(15,31,61,.18),0 2px 8px rgba(0,0,0,.08);',
-    'z-index:2147483646;display:none;flex-direction:column;overflow:hidden;',
+    'z-index:999999;display:none;flex-direction:column;overflow:hidden;',
     'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}}',
     '#pred-chat.pred-open{{display:flex;}}',
     '#pred-chat-header{{background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 65%,#2563EB 100%);',
@@ -932,12 +929,9 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     '.pred-typing span:nth-child(3){{animation-delay:.4s;}}',
     '@keyframes predBounce{{0%,60%,100%{{transform:translateY(0);opacity:.5;}}30%{{transform:translateY(-4px);opacity:1;}}}}',
     '@media(max-width:768px){{',
-    '#pred-fab{{bottom:calc(72px + env(safe-area-inset-bottom,0px));right:16px;',
-    'width:56px;height:56px;}}',
+    '#pred-fab{{bottom:72px;right:16px;width:56px;height:56px;}}',
     '#pred-chat{{width:calc(100vw - 16px);left:8px;right:8px;',
-    'bottom:calc(140px + env(safe-area-inset-bottom,0px));',
-    'max-height:calc(70dvh - env(safe-area-inset-bottom,0px));',
-    'max-height:calc(70vh - env(safe-area-inset-bottom,0px));}}}}',
+    'bottom:140px;max-height:62vh;}}}}',
   ].join('');
   pd.head.appendChild(sty);
 
