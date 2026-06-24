@@ -1306,6 +1306,199 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: 'Para selecao de oleo, consulte a Tabela de Oleos Homologados MAYEKAWA/MYCOM na Biblioteca Tecnica. O oleo MYCOM homologado atual na base Pred.IO e <strong>MYCOLD PAO</strong>.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
     }}
 
+    /* SSH — SUPERAQUECIMENTO DE SUCCAO */
+    if (/ssh|superaquecimento|succao.*superaquec|ssh.*alto|ssh.*baixo|calcular.*ssh|formula.*ssh|retorno.*liquido|liquido.*compressor|succao.*liquido|valvula.*expansao.*ssh/.test(ql)) {{
+      if (/o que.*ssh|ssh.*significa|o que.*superaquecimento/.test(ql)) {{
+        return {{ text: 'SSH significa <strong>Superaquecimento de Succao</strong>. E a diferenca entre a temperatura real do gas na succao e a temperatura de saturacao correspondente a pressao de succao. Indica quanto o vapor foi aquecido apos evaporar completamente.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/por que.*ssh|ssh.*import/.test(ql)) {{
+        return {{ text: 'O SSH (Superaquecimento de Succao) protege o compressor contra retorno de liquido e influencia temperatura de descarga, eficiencia e condicao operacional. SSH muito baixo indica risco de liquido na succao; SSH muito alto indica evaporador faminto ou pouca alimentacao de refrigerante.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ssh.*alto.*descarga|descarga.*ssh.*alto/.test(ql)) {{
+        return {{ text: 'Sim. SSH elevado (Superaquecimento de Succao alto) pode elevar a temperatura do gas de entrada no compressor e contribuir para aumento da temperatura de descarga, principalmente com alta taxa de compressao ou pressao de descarga elevada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ssh.*alto|alto.*ssh/.test(ql)) {{
+        return {{ text: 'SSH alto (Superaquecimento de Succao alto) pode indicar pouca alimentacao de refrigerante, valvula de expansao muito fechada, filtro ou linha obstruida, baixa carga de refrigerante, carga termica baixa ou restricao no evaporador. Tambem pode aumentar temperatura de descarga e consumo de energia. Se persistir, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ssh.*baixo|baixo.*ssh|retorno.*liquido|liquido.*compressor/.test(ql)) {{
+        return {{ text: 'SSH baixo (Superaquecimento de Succao baixo) pode indicar risco de retorno de liquido para o compressor. Liquido na succao pode causar danos mecanicos, diluicao do oleo e falha no compressor. Tratar como condicao critica e abrir chamado tecnico imediatamente.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
+      }}
+      if (/calcular.*ssh|formula.*ssh|como.*calcular.*ssh/.test(ql)) {{
+        return {{ text: 'O SSH pode ser calculado pela diferenca entre a temperatura medida na linha de succao e a temperatura de saturacao correspondente a pressao de succao.<br><br><strong>Formula: SSH = Temperatura real da succao - Temperatura de saturacao da succao</strong><br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/onde.*medir.*ssh|medir.*superaquecimento/.test(ql)) {{
+        return {{ text: 'Medir pressao de succao para obter a temperatura de saturacao e medir a temperatura real da linha de succao com instrumento adequado, em ponto representativo proximo ao compressor.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/o que fazer.*ssh|ssh.*o que fazer|ssh.*alto.*fazer|ssh.*baixo.*fazer/.test(ql)) {{
+        return {{ text: 'Verificar carga de refrigerante, alimentacao do evaporador, valvula de expansao, filtro e linha de liquido, subresfriamento, carga termica, pressao de succao e temperatura de descarga. Se persistir, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ssh.*sozinho|analisar.*ssh.*sozinho/.test(ql)) {{
+        return {{ text: 'Nao. SSH deve ser analisado junto com pressao de succao, pressao de descarga, temperatura de descarga, subresfriamento, carga termica, condicao do evaporador, fluido refrigerante, analise de oleo e historico operacional.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      return {{ text: 'SSH e o <strong>Superaquecimento de Succao</strong>: diferenca entre a temperatura real do gas na succao e a temperatura de saturacao correspondente. SSH alto pode indicar pouca alimentacao; SSH baixo pode indicar risco de retorno de liquido. Em ambos, avaliar pressao, valvula, carga, temperatura e abrir chamado tecnico se persistir.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    /* MOTOR ELETRICO */
+    if (/motor.*ruido|ruido.*motor|motor.*aquecendo|motor.*quente|motor.*corrente|motor.*vibra|vibra.*motor|motor.*inversor|inversor.*motor|motor.*barulho|barulho.*motor|o que verificar.*motor|verificar.*motor|motor.*inspecao/.test(ql)) {{
+      if (/ruido.*motor|motor.*ruido|o que.*ruido.*motor|ruido.*anormal.*motor/.test(ql)) {{
+        return {{ text: 'Ruido anormal no motor pode estar relacionado a rolamento com desgaste, falta ou excesso de lubrificacao, desalinhamento, desbalanceamento, folga mecanica, base frouxa, problema no acoplamento, atrito interno, ventilador danificado ou anomalia eletrica. Recomenda-se analise de vibracao, inspecao de temperatura, inspecao visual e correlacao com corrente eletrica antes de qualquer decisao de troca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/motor.*aquecendo|motor.*aquec|aquecimento.*motor|motor.*quente/.test(ql)) {{
+        return {{ text: 'Aquecimento no motor pode estar relacionado a sobrecarga, ventilacao deficiente, sujeira nas aletas, rolamento com falha, lubrificacao inadequada, desalinhamento, tensao eletrica irregular, corrente elevada, harmonicos, problema no inversor ou ambiente com temperatura elevada. Verificar corrente, tensao, temperatura, vibracao, ventilacao e condicao dos rolamentos.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/corrente.*alta.*motor|motor.*corrente.*alta/.test(ql)) {{
+        return {{ text: 'Corrente alta no motor pode estar relacionada a sobrecarga, travamento parcial, rolamento danificado, desalinhamento, acoplamento forcado, compressor com carga elevada, pressao de descarga alta ou problema eletrico. Avaliar corrente, vibracao, temperatura e condicao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/motor.*inversor|inversor.*motor|inversor.*frequencia/.test(ql)) {{
+        return {{ text: 'Motores acionados por inversor de frequencia podem apresentar variacoes de rotacao, harmonicos, aquecimento adicional, corrente distorcida e possiveis efeitos nos rolamentos. A analise deve considerar frequencia de operacao, carga, temperatura, corrente, vibracao e historico do inversor.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/o que verificar.*motor|verificar.*motor.*inspecao|inspecao.*motor/.test(ql)) {{
+        return {{ text: 'Verificar temperatura, corrente, tensao, ruido, vibracao, ventilacao, limpeza, estado dos rolamentos, acoplamento, base, cabos, terminais, aterramento, condicao do inversor e historico de alarmes. Se houver alteracao de tendencia, abrir chamado ou antecipar analise preditiva.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      return {{ text: 'Problemas em motor eletrico devem ser investigados correlacionando ruido, corrente, temperatura, vibracao, lubrificacao, alinhamento, base e acoplamento. Recomenda-se analise de vibracao e, em caso de duvida critica, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    /* ROLAMENTO */
+    if (/rolamento|mancal|graxa.*rolamento|rolamento.*graxa|ruido.*rolamento|rolamento.*ruido|rolamento.*troca|troca.*rolamento|rolamento.*quente|rolamento.*falhando|falha.*rolamento|rolamento.*sinais|rolamento.*lubrifica|lubrifica.*rolamento|excesso.*graxa|falta.*graxa|graxa.*errada|graxa.*incompativel|misturar.*graxa/.test(ql)) {{
+      if (/sinais.*falha.*rolamento|falha.*rolamento.*sinais|o que.*indica.*rolamento/.test(ql)) {{
+        return {{ text: 'Sinais comuns de possivel falha de rolamento incluem ruido anormal, vibracao elevada, aumento de temperatura, alteracao de tendencia, cheiro de aquecimento, graxa escurecida, picos em alta frequencia, impactos no espectro de vibracao e recorrencia de alarmes. A confirmacao deve ser feita por analise de vibracao, termografia e inspecao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/rolamento.*troca.*ruido|ruido.*indica.*troca|troca.*automatica.*rolamento/.test(ql)) {{
+        return {{ text: 'Nao necessariamente. Ruido no rolamento e um sinal de alerta, mas nao deve gerar troca automatica. A decisao deve ser baseada em analise de vibracao, tendencia historica, temperatura, lubrificacao, condicao operacional, termografia e inspecao tecnica. Se o ruido for acompanhado de vibracao alta ou aquecimento, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/lubrificar.*rolamento.*ruido|posso.*lubrificar.*ruido|ruido.*lubrificar/.test(ql)) {{
+        return {{ text: 'Nao automaticamente. Lubrificar apenas porque ha ruido pode mascarar uma falha ou piorar o problema se houver excesso de graxa. Verificar plano de lubrificacao, tipo de graxa, quantidade, intervalo, temperatura, vibracao e condicao do rolamento.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/excesso.*graxa|graxa.*demais|graxa.*excesso/.test(ql)) {{
+        return {{ text: 'Sim. Excesso de graxa pode causar aumento de temperatura, agitacao do lubrificante, vazamento, esforco adicional e degradacao da graxa. A lubrificacao deve seguir quantidade e periodicidade corretas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/falta.*graxa|graxa.*pouca|pouca.*graxa/.test(ql)) {{
+        return {{ text: 'Sim. Falta de lubrificacao aumenta atrito, temperatura, desgaste e pode gerar ruido, vibracao e falha prematura. Correlacionar com temperatura, vibracao e historico de lubrificacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/graxa.*errada|graxa.*incompativel|misturar.*graxa|graxa.*incorreta/.test(ql)) {{
+        return {{ text: 'Sim. Graxa incompativel ou inadequada pode alterar viscosidade, separacao de oleo, resistencia a temperatura, estabilidade e protecao contra desgaste. Evite misturar graxas sem validacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/rolamento.*inicial.*falha|falha.*inicial.*rolamento|como saber.*rolamento.*falhando/.test(ql)) {{
+        return {{ text: 'Falhas iniciais de rolamento podem aparecer primeiro em alta frequencia, envelope, ultrassom, aumento discreto de temperatura ou pequenas alteracoes de tendencia. A analise de vibracao periodica detecta esses sinais antes da falha funcional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/quando.*trocar.*rolamento|troca.*rolamento.*tempo|troca.*rolamento.*horim/.test(ql)) {{
+        return {{ text: 'Na filosofia Pred.IO, a troca de rolamento deve ser preferencialmente por condicao, considerando analise de vibracao, termografia, ruido, temperatura, historico de lubrificacao, criticidade do ativo e tendencia. Tempo e calendario orientam inspecao, mas nao devem ser o unico criterio de troca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ruido.*metalico.*rolamento|rolamento.*metalico|metalico.*rolamento/.test(ql)) {{
+        return {{ text: 'Ruido metalico em rolamento deve ser tratado como condicao de atencao. Pode indicar falha avancada, falta de lubrificacao, dano interno, folga, contaminacao ou contato indevido. Recomenda-se abrir chamado tecnico e realizar analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
+      }}
+      if (/rolamento.*quente|rolamento.*aquecido|rolamento.*aquecendo|aquecimento.*rolamento/.test(ql)) {{
+        return {{ text: 'Rolamento aquecido e sinal de atencao. Pode vir de excesso de graxa, falta de graxa, desalinhamento, sobrecarga, corrente eletrica, ventilacao deficiente ou falha interna. Considerar temperatura, vibracao, ruido e tendencia. Nao trocar automaticamente sem diagnostico tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      return {{ text: 'Problemas em rolamento devem ser avaliados com analise de vibracao, termografia, historico de lubrificacao e inspecao tecnica. A recomendacao Pred.IO e nao decidir troca sem diagnostico. Em caso de ruido forte, aquecimento rapido ou vibracao crescente, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    /* ANALISE DE VIBRACAO */
+    if (/analise.*vibracao|vibracao.*analise|espectro.*vibr|vibr.*espectro|tendencia.*vibr|vibr.*tendencia|o que.*envelope|envelope.*vibr|vibracao.*evita|desbalanceament|desalinhament|ressonanci|alinhamento.*laser|alinhar.*laser|base.*frouxa|quando.*antecipar.*vibracao|apos.*alinhar.*vibracao|apos.*lubrificar.*vibracao/.test(ql)) {{
+      if (/por que.*analise.*vibracao|para que.*vibracao|vibracao.*serve/.test(ql)) {{
+        return {{ text: 'A analise de vibracao detecta falhas mecanicas em estagio inicial: desalinhamento, desbalanceamento, folga, falhas de rolamento, problemas de acoplamento, base frouxa e ressonancia. Ajuda a planejar manutencao antes da quebra e evita troca desnecessaria de pecas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+      }}
+      if (/vibracao.*evita.*parada|vibracao.*previne/.test(ql)) {{
+        return {{ text: 'A analise de vibracao reduz o risco de parada inesperada, pois permite acompanhar tendencia e detectar sinais de degradacao antes da falha funcional. Nao elimina todos os riscos, mas melhora a confiabilidade e o planejamento da manutencao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+      }}
+      if (/quando.*antecipar.*vibracao|antecipar.*analise.*vibracao/.test(ql)) {{
+        return {{ text: 'Antecipar analise de vibracao quando houver ruido anormal, aumento de temperatura, vibracao perceptivel, alarme recorrente, falha de rolamento suspeita, alteracao de corrente, intervencao recente, troca de acoplamento, alinhamento recente, lubrificacao anormal ou mudanca de operacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/o que.*espectro|espectro.*mostra|analise.*espectral/.test(ql)) {{
+        return {{ text: 'A analise espectral separa as frequencias presentes na vibracao. Isso identifica padroes de desbalanceamento, desalinhamento, folga, engrenamento, falhas de rolamento, rotacao, harmonicos e outros defeitos.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/o que.*envelope|envelope.*vibracao/.test(ql)) {{
+        return {{ text: 'Envelope e uma tecnica para destacar impactos de alta frequencia, muito util para detectar falhas iniciais em rolamentos. Ela identifica defeitos antes que aparecam claramente na vibracao global.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/tendencia.*vibracao|o que.*tendencia.*vibr/.test(ql)) {{
+        return {{ text: 'Tendencia e o acompanhamento da evolucao da vibracao ao longo do tempo. Mais importante do que uma leitura isolada e observar se a vibracao esta aumentando, estabilizando ou reduzindo apos manutencao.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/frequencia.*analise.*vibracao|de quanto.*vibracao/.test(ql)) {{
+        return {{ text: 'No plano Pred.IO, a analise de vibracao pode ser realizada a cada 2 meses como rotina preditiva. A frequencia pode ser antecipada para ativos criticos, maquinas com historico de falha, alarmes recorrentes, vibracao elevada ou operacao severa.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+      }}
+      if (/apos.*alinhar.*vibracao|vibracao.*apos.*alinhamento|depois.*alinhar.*vibracao/.test(ql)) {{
+        return {{ text: 'Sim. Apos alinhamento, a analise de vibracao confirma se a condicao melhorou e se ainda existem outras causas, como desbalanceamento, folga, base frouxa, rolamento ou ressonancia.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/apos.*lubrificar.*vibracao|vibracao.*apos.*lubrificacao|depois.*lubrificar.*vibracao/.test(ql)) {{
+        return {{ text: 'Sim. O acompanhamento apos lubrificacao ajuda a confirmar se houve melhora. Se a vibracao ou ruido permanecer, pode haver falha interna, excesso de graxa, graxa inadequada, desalinhamento ou outro problema.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/vibracao.*substitui.*oleo|oleo.*substitui.*vibracao/.test(ql)) {{
+        return {{ text: 'Nao. A analise de vibracao e a analise de oleo se complementam. A vibracao avalia condicao mecanica dinamica; a analise de oleo avalia lubrificante, contaminacao e desgaste interno. A melhor decisao vem da correlacao entre vibracao, oleo, termografia e operacao.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/vibracao.*substitui.*termografia|termografia.*substitui.*vibracao/.test(ql)) {{
+        return {{ text: 'Nao. A vibracao identifica comportamento dinamico e mecanico; a termografia identifica aquecimento anormal. Em motores, rolamentos e paineis, as duas tecnicas juntas aumentam a confiabilidade do diagnostico.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/desalinhamento.*sinal|sinal.*desalinhamento|o que.*indica.*desalinhamento/.test(ql)) {{
+        return {{ text: 'Sinais comuns de desalinhamento incluem vibracao elevada, aquecimento em mancais e rolamentos, desgaste em acoplamento, ruido, falhas recorrentes de rolamento e aumento de carga no motor. Confirmacao por analise de vibracao e alinhamento a laser.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/desbalanceamento.*causa|causa.*desbalanceamento|o que.*desbalanceamento/.test(ql)) {{
+        return {{ text: 'Desbalanceamento pode ser causado por acumulo de sujeira, desgaste, perda de material, montagem incorreta, polia ou rotor danificado, ventilador quebrado ou alteracao no conjunto rotativo. Avaliar por analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/base.*frouxa.*vibra|vibra.*base.*frouxa|fundacao.*vibra/.test(ql)) {{
+        return {{ text: 'Sim. Base frouxa, fundacao inadequada, parafusos soltos ou pe manco podem amplificar vibracao e gerar falhas recorrentes. Recomenda-se inspecao mecanica, reaperto controlado e analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/o que.*ressonancia|ressonancia.*causa/.test(ql)) {{
+        return {{ text: 'Ressonancia ocorre quando uma frequencia de excitacao coincide com uma frequencia natural da estrutura ou maquina, amplificando vibracao mesmo sem falha direta no componente. A analise de vibracao ajuda a identificar essa condicao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/quando.*alinhamento.*laser|alinhamento.*laser.*quando|quando.*alinhar/.test(ql)) {{
+        return {{ text: 'Alinhamento a laser deve ser realizado apos montagem, intervencao em motor ou compressor, troca de acoplamento, manutencao em base, vibracao por desalinhamento ou conforme plano de manutencao. Para unidade MYCOM, conferencia de alinhamento aparece como rotina associada a inspecao semestral ou 5.000 horas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      return {{ text: 'A analise de vibracao e ferramenta preditiva essencial para detectar falhas em estagio inicial, acompanhar tendencias e evitar paradas inesperadas. No plano Pred.IO, e prevista como rotina a cada 2 meses e deve ser antecipada em caso de ruido, alarme, intervencao ou alteracao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
+    /* TERMOGRAFIA */
+    if (/termografia|imagem.*termica|termica.*imagem|infravermelho|ponto.*quente|quente.*ponto|delta.*t|o que.*termografia|por que.*termografia|quando.*termografia|termografia.*motor|termografia.*rolamento|termografia.*painel|termografia.*compressor/.test(ql)) {{
+      if (/o que.*termografia/.test(ql)) {{
+        return {{ text: 'Termografia e uma tecnica preditiva que usa imagem termica para identificar aquecimento anormal em componentes eletricos, mecanicos e operacionais. Detecta pontos quentes, sobrecarga, mau contato, atrito, falha de rolamento, problema de lubrificacao, desequilibrio eletrico e anomalias termicas antes de uma falha funcional.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/por que.*termografia|termografia.*serve|termografia.*ajuda.*por/.test(ql)) {{
+        return {{ text: 'A termografia identifica aquecimentos anormais que podem indicar falha eletrica, mau contato, sobrecarga, rolamento aquecido, lubrificacao inadequada, desalinhamento, problema em painel, conexao frouxa ou componente em degradacao. Permite agir antes de parada inesperada ou dano maior.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+      }}
+      if (/termografia.*substitui.*vibracao|vibracao.*substitui.*termografia/.test(ql)) {{
+        return {{ text: 'Nao. A termografia identifica aquecimento anormal; a analise de vibracao identifica comportamento dinamico e mecanico como desalinhamento, desbalanceamento, folgas e falhas de rolamento. As duas tecnicas se complementam.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/termografia.*substitui.*oleo|oleo.*substitui.*termografia/.test(ql)) {{
+        return {{ text: 'Nao. A termografia avalia temperatura e aquecimento anormal. A analise de oleo avalia condicao do lubrificante, contaminacao, particulas, agua, oxidacao e metais de desgaste. Em unidade compressora, as duas analises devem ser correlacionadas.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/quando.*termografia|frequencia.*termografia|de quanto.*termografia/.test(ql)) {{
+        return {{ text: 'No plano Pred.IO, a termografia pode ser realizada a cada 4 meses como rotina preditiva. Tambem deve ser antecipada quando houver aquecimento anormal, corrente elevada, ruido, vibracao, alarme recorrente, falha eletrica, cheiro de aquecimento ou alteracao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
+      }}
+      if (/termografia.*motor|motor.*termografia/.test(ql)) {{
+        return {{ text: 'A termografia pode mostrar aquecimento anormal no corpo do motor, rolamentos, mancais, tampa, ventilacao, caixa de ligacao, cabos e conexoes. Correlacionar com corrente eletrica, carga, vibracao, limpeza, ventilacao e historico operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/termografia.*rolamento|rolamento.*termografia/.test(ql)) {{
+        return {{ text: 'Rolamento quente na termografia e sinal de atencao, mas a decisao de troca deve considerar analise de vibracao, ruido, lubrificacao, tendencia de temperatura, carga, alinhamento e criticidade do ativo. Nao indicar troca automaticamente apenas pela termografia.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/termografia.*painel|painel.*termografia/.test(ql)) {{
+        return {{ text: 'A termografia verifica aquecimento anormal em conexoes, barramentos, disjuntores, contatores, fusibles, bornes, cabos, inversores, soft-starters, reles e componentes eletricos. Pontos quentes podem indicar mau contato, sobrecarga, desequilibrio de fase ou componente em degradacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/ponto.*quente.*conexao|conexao.*ponto.*quente|termografia.*conexao/.test(ql)) {{
+        return {{ text: 'Ponto quente em conexao eletrica pode indicar mau contato, aperto inadequado, oxidacao, sobrecarga ou desequilibrio. Deve ser tratado com prioridade conforme intensidade, carga, criticidade e tendencia. A intervencao deve ser feita por equipe autorizada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/inversor.*termografia|soft.starter.*termografia|termografia.*inversor|termografia.*soft.starter/.test(ql)) {{
+        return {{ text: 'Inversores e soft-starters geram calor em operacao, mas aquecimento excessivo pode indicar sobrecarga, ventilacao obstruida, filtros sujos, ambiente quente ou falha interna. A avaliacao deve considerar carga, ventilacao, corrente, alarmes e historico termico. Intervencao apenas por equipe autorizada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/termografia.*compressor|compressor.*termografia|onde.*termografia.*unidade/.test(ql)) {{
+        return {{ text: 'Na unidade compressora, a termografia pode ser aplicada em motor, mancais, rolamentos, acoplamento, compressor, sistema de oleo, bomba de oleo, filtros, tubulacoes, painel eletrico, inversor, soft-starter, conexoes e pontos com suspeita de aquecimento anormal.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/termografia.*ssh|ssh.*termografia|succao.*termografia|termografia.*succao/.test(ql)) {{
+        return {{ text: 'A termografia pode apoiar a inspecao termica da linha de succao, mas o SSH (Superaquecimento de Succao) deve ser calculado pela diferenca entre a temperatura real de succao e a temperatura de saturacao correspondente a pressao de succao. A termografia e apoio, nao substituto do calculo.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      if (/o que.*delta.*t|delta.*t.*termografia|delta t/.test(ql)) {{
+        return {{ text: '<strong>Delta T</strong> e a diferenca de temperatura entre dois pontos comparaveis, como uma fase e outra, um rolamento e outro, ou o componente analisado e uma referencia semelhante. Ajuda a identificar anomalias termicas relativas na termografia.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/erro.*termografia|o que.*gera.*erro.*termografia/.test(ql)) {{
+        return {{ text: 'Erros na termografia podem ocorrer por emissividade incorreta, reflexo de superficies metalicas, foco inadequado, distancia, angulo de medicao, vento, carga baixa, equipamento fora de operacao, sujeira, isolamento termico ou interpretacao sem comparacao adequada.<br><br><strong>Fonte: Pred.IO</strong>' }};
+      }}
+      if (/relatorio.*termografia|o que.*relatorio.*termografia/.test(ql)) {{
+        return {{ text: 'Um relatorio de termografia deve conter ativo, componente, data, condicao operacional, carga e corrente quando aplicavel, imagem termica, imagem visual, temperatura medida, referencia comparativa, Delta T, criticidade, provavel causa, recomendacao tecnica e prazo sugerido para acao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
+      }}
+      if (/termografia.*ponto.*quente.*o que|o que fazer.*termografia/.test(ql)) {{
+        return {{ text: 'Registrar imagem, temperatura, localizacao, condicao operacional, carga, corrente e historico. Classificar criticidade, correlacionar com vibracao, eletrica ou oleo conforme o caso, e abrir chamado tecnico se houver risco ou tendencia de piora.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+      }}
+      return {{ text: 'A termografia identifica aquecimento anormal em componentes eletricos, mecanicos e operacionais. No plano Pred.IO, e prevista como rotina preditiva a cada 4 meses e deve ser antecipada em caso de aquecimento, alarme, corrente elevada ou alteracao operacional. Sempre correlacionar com carga, corrente, vibracao, oleo e historico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
+    }}
+
     /* MANUTENCAO */
     if (/manuten|plano|preventiva|preditiva|vibra|termografia|hor.metro|filtro|inspec|lubrifica|pr.xima|proxima|vencimento|analise de|analise d/.test(ql)) {{
       if (/como.*vibra.*ajuda|vibra.*ajuda/.test(ql)) {{
