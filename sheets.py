@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import gspread
 import pandas as pd
 import streamlit as st
-from oauth2client.service_account import ServiceAccountCredentials
 
 SHEET_ID = "1cyDz6nuZ9ro7Inq-DNg9OH9d7GNn17WHZSIikkQ6hOA"
 SCOPE = [
@@ -18,28 +17,53 @@ SCOPE = [
 ]
 
 
+def _build_creds():
+    """Retorna credenciais google-auth (gspread 6.x). Tenta todas as fontes."""
+    from google.oauth2.service_account import Credentials as _SA
+
+    # 1. st.secrets
+    try:
+        if "gcp_service_account" in st.secrets:
+            info = dict(st.secrets["gcp_service_account"])
+            info["private_key"] = info["private_key"].replace("\\n", "\n")
+            return _SA.from_service_account_info(info, scopes=SCOPE)
+    except Exception:
+        pass
+
+    # 2. env var base64
+    try:
+        import base64, json as _json
+        raw_b64 = os.environ.get("GCP_CREDENTIALS_B64", "")
+        if raw_b64:
+            raw = base64.b64decode(raw_b64).decode("utf-8")
+            return _SA.from_service_account_info(_json.loads(raw), scopes=SCOPE)
+    except Exception:
+        pass
+
+    # 3. env var JSON string
+    try:
+        import json as _json
+        raw_j = os.environ.get("GCP_CREDENTIALS_JSON", "")
+        if raw_j:
+            return _SA.from_service_account_info(_json.loads(raw_j), scopes=SCOPE)
+    except Exception:
+        pass
+
+    # 4. arquivo em disco
+    for path in ("/etc/secrets/credentials.json", "credentials.json"):
+        try:
+            if os.path.exists(path):
+                return _SA.from_service_account_file(path, scopes=SCOPE)
+        except Exception:
+            pass
+
+    return None
+
+
 @st.cache_resource(show_spinner=False)
 def get_spreadsheet():
     try:
-        creds = None
-        try:
-            if "gcp_service_account" in st.secrets:
-                info = dict(st.secrets["gcp_service_account"])
-                info["private_key"] = info["private_key"].replace("\\n", "\n")
-                creds = ServiceAccountCredentials.from_json_keyfile_dict(info, SCOPE)
-        except Exception:
-            pass
-        if creds is None and os.environ.get("GCP_CREDENTIALS_B64"):
-            raw = base64.b64decode(os.environ["GCP_CREDENTIALS_B64"]).decode("utf-8")
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(raw), SCOPE)
-        if creds is None and os.environ.get("GCP_CREDENTIALS_JSON"):
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                json.loads(os.environ["GCP_CREDENTIALS_JSON"]), SCOPE)
-        if creds is None and os.path.exists("/etc/secrets/credentials.json"):
-            creds = ServiceAccountCredentials.from_json_keyfile_name(
-                "/etc/secrets/credentials.json", SCOPE)
-        if creds is None and os.path.exists("credentials.json"):
-            creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", SCOPE)
+        creds = _build_creds()
         if creds is None:
             st.error("Credenciais não encontradas. Configure GCP_CREDENTIALS_B64 no Render.")
             st.stop()
@@ -77,11 +101,21 @@ def append_row(tab_name: str, values: list) -> bool:
         try:
             ws = ss.worksheet(tab_name)
         except gspread.exceptions.WorksheetNotFound:
-            ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
+            ws = ss.add_worksheet(title=tab_name, rows=1000, cols=max(len(values), 26))
         ws.append_row(values, value_input_option="USER_ENTERED")
         load_sheet.clear()
+        try:
+            st.session_state.pop("_sheets_last_error", None)
+        except Exception:
+            pass
         return True
-    except Exception:
+    except Exception as _e:
+        try:
+            st.session_state["_sheets_last_error"] = str(_e)
+        except Exception:
+            pass
+        import logging
+        logging.error("append_row(%s): %s", tab_name, _e)
         return False
 
 

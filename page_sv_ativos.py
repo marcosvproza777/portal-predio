@@ -790,10 +790,14 @@ def _form_novo_ativo_content(inline: bool = False) -> None:
                 st.session_state["sv_view"] = "ativos_sv"
             st.rerun()
         else:
-            st.error(
-                "Erro ao cadastrar o ativo. Verifique se a aba 'Ativos' existe na planilha "
-                "e se as credenciais têm permissão de escrita."
-            )
+            _detail = st.session_state.get("_sheets_last_error", "")
+            if _detail:
+                st.error(f"❌ Erro ao cadastrar o ativo: {_detail}")
+            else:
+                st.error(
+                    "❌ Erro ao cadastrar o ativo. Verifique se a aba 'Ativos' existe "
+                    "na planilha e se as credenciais têm permissão de escrita."
+                )
 
 
 def _render_form_novo_ativo() -> None:
