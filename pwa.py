@@ -15,13 +15,17 @@ import streamlit.components.v1 as components
 
 _BASE  = os.path.dirname(__file__)
 _ICONS = os.path.join(_BASE, "static", "icons")
+_I32   = os.path.join(_ICONS, "icon-32.png")
+_I180  = os.path.join(_ICONS, "icon-180.png")
 _I192  = os.path.join(_ICONS, "icon-192.png")
 _I512  = os.path.join(_ICONS, "icon-512.png")
-_I180  = os.path.join(_ICONS, "icon-180.png")
+
+_ICON_SIZES = [(_I32, 32), (_I180, 180), (_I192, 192), (_I512, 512)]
 
 
 def _ensure_icons() -> None:
-    if all(os.path.exists(p) for p in (_I192, _I512, _I180)):
+    """Gera ícones a partir de logo.jpg se não existirem."""
+    if all(os.path.exists(p) for p, _ in _ICON_SIZES):
         return
     os.makedirs(_ICONS, exist_ok=True)
     logo = os.path.join(_BASE, "logo.jpg")
@@ -34,7 +38,7 @@ def _ensure_icons() -> None:
         side = max(w, h)
         bg   = Image.new("RGBA", (side, side), (8, 20, 43, 255))
         bg.paste(img, ((side - w) // 2, (side - h) // 2))
-        for path, size in ((_I192, 192), (_I512, 512), (_I180, 180)):
+        for path, size in _ICON_SIZES:
             bg.resize((size, size), Image.LANCZOS).save(path, "PNG")
     except Exception:
         pass
@@ -77,6 +81,31 @@ _HTML = """<!DOCTYPE html>
 
     var pd = p.document;
 
+    /* ── Substitui manifest e favicons do Streamlit pelos nossos ──────── */
+    /* Faz isso a cada recarga para garantir (Streamlit re-injeta no rerun) */
+    (function () {
+        /* Remove todos os <link rel="manifest"> existentes */
+        pd.querySelectorAll('link[rel="manifest"]').forEach(function(el) {
+            el.parentNode.removeChild(el);
+        });
+        var lnk = pd.createElement('link');
+        lnk.rel = 'manifest'; lnk.href = '/app/static/manifest.json';
+        pd.head.appendChild(lnk);
+
+        /* Substitui favicons do Streamlit pelo nosso ícone */
+        pd.querySelectorAll('link[rel~="icon"]').forEach(function(el) {
+            el.parentNode.removeChild(el);
+        });
+        ['icon-32.png','icon-192.png'].forEach(function(name, i) {
+            var fi = pd.createElement('link');
+            fi.rel  = 'icon';
+            fi.type = 'image/png';
+            fi.sizes = i === 0 ? '32x32' : '192x192';
+            fi.href = '/app/static/icons/' + name;
+            pd.head.appendChild(fi);
+        });
+    })();
+
     /* ── Cria elementos DOM apenas uma vez ────────────────────────────── */
     if (!pd.getElementById('ppwa-fab')) {
 
@@ -84,13 +113,10 @@ _HTML = """<!DOCTYPE html>
             var m = pd.createElement('meta'); m.name = name; m.content = content;
             pd.head.appendChild(m);
         }
-        var lnk = pd.createElement('link');
-        lnk.rel = 'manifest'; lnk.href = '/app/static/manifest.json';
-        pd.head.appendChild(lnk);
         addMeta('apple-mobile-web-app-capable', 'yes');
         addMeta('apple-mobile-web-app-status-bar-style', 'black-translucent');
-        addMeta('apple-mobile-web-app-title', 'Portal de Confiabilidade Pred.IO');
-        addMeta('theme-color', '#1565C0');
+        addMeta('apple-mobile-web-app-title', 'Pred.IO');
+        addMeta('theme-color', '#0F1F3D');
         var ai = pd.createElement('link');
         ai.rel = 'apple-touch-icon'; ai.href = '/app/static/icons/icon-180.png';
         pd.head.appendChild(ai);
