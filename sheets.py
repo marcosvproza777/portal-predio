@@ -83,7 +83,26 @@ def load_sheet(tab_name: str) -> pd.DataFrame:
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet(tab_name)
-        records = ws.get_all_records()
+        try:
+            records = ws.get_all_records()
+        except Exception:
+            # Fallback para abas com headers duplicados/vazios (ex.: Ativos corrompida).
+            # Lê valores brutos, descarta colunas sem nome e filtra só linhas com dados
+            # nos índices válidos (ignora linhas com dados deslocados para colunas extras).
+            all_values = ws.get_all_values()
+            if not all_values:
+                return pd.DataFrame()
+            raw_headers = all_values[0]
+            valid = [(i, h) for i, h in enumerate(raw_headers) if h.strip()]
+            if not valid:
+                return pd.DataFrame()
+            indices, names = zip(*valid)
+            rows = []
+            for row in all_values[1:]:
+                cells = [row[i] if i < len(row) else "" for i in indices]
+                if any(c.strip() for c in cells):
+                    rows.append(dict(zip(names, cells)))
+            records = rows
         df = pd.DataFrame(records)
         if not df.empty:
             df.columns = [c.strip().title() for c in df.columns]

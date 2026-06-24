@@ -750,13 +750,12 @@ def _load(client_id: str):
         df = pd.DataFrame()
 
     if df.empty:
-        return _MOCK, True
+        return [], False
 
     # Old-format Ativos (Tag/Equipamentos/NS/Status) belongs to page_farois.
     # New-format ativos (from cadastrar_ativo_sv) have an Id column.
-    # If Id column is absent, fall back to mock to avoid DuplicateWidgetID errors.
     if "Id" not in df.columns:
-        return _MOCK, True
+        return [], False
 
     rows = []
     for _, row in df.iterrows():
@@ -793,7 +792,7 @@ def _load(client_id: str):
             "analise_oleo":          None,
         })
 
-    return (rows if rows else _MOCK), (not rows)
+    return rows, False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -823,11 +822,12 @@ def _render_lista(ativos: list, mock: bool) -> None:
         "Acompanhe o status dos equipamentos monitorados pela Pred.IO.",
     )
 
-    if mock:
-        st.caption(
-            "Exibindo dados de demonstração. "
-            "Os dados reais dos seus ativos aparecerão aqui automaticamente."
+    if not ativos:
+        st.info(
+            "Nenhum equipamento cadastrado ainda. "
+            "Seus ativos monitorados pela Pred.IO aparecerão aqui."
         )
+        return
 
     col_s, col_p, _ = st.columns([1.3, 1.3, 2.4])
     status_opts = ["Todos os status", "Bom", "Atenção", "Crítico", "Em acompanhamento"]
