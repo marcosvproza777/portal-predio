@@ -342,9 +342,169 @@ _MOCK_CHUNKS_MYCOM_OLEOS: list[dict] = [
 ]
 
 
+# ── Mock texto e chunks — Guia Prático Mypro Touch AD — Pred.IO ──────────────
+
+_MOCK_TEXTO_MYPRO_TOUCH_AD = """\
+GUIA PRÁTICO MYPRO TOUCH AD — PRED.IO
+
+SEÇÃO 1: VISÃO GERAL DO PAINEL
+O painel Mypro Touch AD é o controlador de interface homem-máquina (HMI) utilizado nos compressores de refrigeração MYCOM da MAYEKAWA. Permite monitoramento em tempo real dos parâmetros operacionais, gerenciamento de alarmes e configuração de set points. O Mypro Touch AD é a versão avançada e atual; o Mypro Touch é a versão padrão sem o sufixo AD. Nenhuma das versões é chamada de "Mypro Touch+" — esse nome não existe e não deve ser usado.
+
+SEÇÃO 2: TELA PRINCIPAL — PARÂMETROS MONITORADOS
+A tela principal do Mypro Touch AD exibe em tempo real: pressão de sucção (PS) em kg/cm² ou bar, pressão de descarga (PD) em kg/cm² ou bar, temperatura de descarga (TD) em °C, temperatura de sucção (TS) em °C, pressão de óleo diferencial (PO) em kg/cm², corrente do motor em ampères e percentual de carga, posição da válvula de capacidade (slide valve) de 0 a 100%, e status geral: RODANDO, PARADO ou EM ALARME. Os valores em vermelho indicam condição fora dos limites configurados.
+
+SEÇÃO 3: NAVEGAÇÃO ENTRE TELAS
+O Mypro Touch AD é operado por teclado numérico e botões de seleção. As telas disponíveis incluem: Tela de Operação (parâmetros ao vivo), Tela de Alarmes (ativos e histórico), Tela de Set Points (temperaturas e pressões alvo), Tela de Configurações (limites e parâmetros de controle), Tela de Histórico (registro de eventos). Para navegar, use as setas direcionais ou os botões de atalho indicados no manual do fabricante. Em caso de dúvida sobre a navegação, consulte o técnico da Pred.IO.
+
+SEÇÃO 4: ALARMES E INTERTRAVAMENTOS DE SEGURANÇA
+O Mypro Touch AD distingue dois níveis de alerta: ALARME (condição fora do limite, compressor continua operando, painel emite sinal visual e sonoro) e TRIP/DESLIGAMENTO (condição crítica que causa desligamento automático do compressor por segurança). Alarmes mais comuns: alta temperatura de descarga (TD), baixa pressão de óleo diferencial (PO), alta pressão de descarga (PD), baixa pressão de sucção (PS), sobrecarga do motor (corrente alta), falha no fluxostato de água ou gás. Cada alarme registra no histórico: data, hora, tipo do alarme e valor da variável no momento do evento.
+
+SEÇÃO 5: RESET DE ALARME — PROCEDIMENTO E RESPONSABILIDADE
+Para resetar um alarme ou trip no Mypro Touch AD: (1) Identificar e eliminar a causa raiz do alarme antes de qualquer reset. (2) Confirmar que a condição de alarme não está mais ativa (valor da variável voltou ao limite normal). (3) Acessar a tela de Alarmes. (4) Pressionar o botão RESET no painel. REGRA PRED.IO: O reset de alarme deve ser realizado APENAS por operador autorizado e treinado. Nunca resetar sem corrigir a causa. O Assistente Técnico Pred.IO orienta sobre o procedimento — o reset deve ser executado presencialmente pelo operador responsável. Em caso de trip repetido ou causa desconhecida, abrir chamado técnico Pred.IO antes de religar o compressor.
+
+SEÇÃO 6: SET POINTS — CONFIGURAÇÃO E RESPONSABILIDADE
+Set points são os valores alvo que o sistema de controle usa para manter as condições operacionais. Exemplos: temperatura de sucção alvo, pressão de sucção alvo, limite máximo de temperatura de descarga, temperatura alvo do fluido de saída. A alteração de set points no Mypro Touch AD deve ser realizada APENAS por operador autorizado. Ajustes incorretos podem comprometer a segurança, a eficiência e a integridade do processo de refrigeração. O Assistente Técnico Pred.IO não executa comandos na máquina nem altera parâmetros remotamente; apenas orienta sobre o procedimento correto. Para solicitar alteração de set point sem operador disponível, abrir chamado técnico Pred.IO.
+
+SEÇÃO 7: CONTROLE DE CAPACIDADE — VÁLVULA SLIDE
+A capacidade do compressor é controlada pela válvula slide (slide valve), cuja posição (0-100%) é exibida no Mypro Touch AD. Em condições normais, o sistema ajusta a capacidade automaticamente conforme o set point de temperatura ou pressão. Intervenção manual na capacidade (aumentar ou diminuir manualmente a carga do compressor) deve ser realizada APENAS por operador autorizado. Operar em capacidade muito baixa por período prolongado pode causar retorno de líquido — verificar SSH (Superaquecimento de Sucção). Operar em capacidade máxima em ambient de alta temperatura pode elevar a TD além dos limites.
+
+SEÇÃO 8: PARTIDA E PARADA DO COMPRESSOR
+Partida e parada do compressor controlado pelo Mypro Touch AD devem ser realizadas APENAS por operador autorizado. Pré-requisitos antes da partida: (a) nível de óleo visível no visor, (b) pressão de óleo acima de 0 bar diferencial (bomba de óleo deve ter pré-lubrificado), (c) temperatura do óleo acima de 30°C, (d) ausência de alarmes ativos no painel, (e) válvulas de sucção e descarga abertas. A parada de emergência (EMERGENCY STOP) está disponível no painel físico e no Mypro Touch AD — deve ser usada apenas em situações de segurança imediata.
+
+SEÇÃO 9: MONITORAMENTO DE PARÂMETROS CRÍTICOS
+O Mypro Touch AD monitora continuamente os parâmetros críticos. Valores de referência típicos para compressores MYCOM com amônia (NH3): pressão de óleo diferencial mínima de 1,2 a 2,0 kg/cm² acima da pressão de sucção; temperatura de descarga máxima de 140°C; corrente do motor conforme plaqueta (sobrecarga gera alarme automático); temperatura de sucção normal conforme set point. Desvios persistentes desses parâmetros devem ser registrados e comunicados à equipe técnica Pred.IO através de chamado. O Mypro Touch AD registra o histórico de eventos e anomalias — essa informação deve ser preservada para análise preditiva.
+
+SEÇÃO 10: COMUNICAÇÃO E INTEGRAÇÃO COM PRED.IO
+O Mypro Touch AD pode ser configurado para comunicação remota via Modbus RTU ou Modbus TCP/IP, dependendo da versão instalada. O Portal Pred.IO recebe dados do painel via integração Modbus para exibição nos Faróis e Alertas. Configurações de comunicação (endereço Modbus, baud rate, IP) devem ser realizadas apenas por técnico especializado MAYEKAWA ou Pred.IO. Em caso de perda de comunicação entre o Mypro Touch AD e o Portal Pred.IO (dados não atualizados no portal), abrir chamado técnico para diagnóstico.
+"""
+
+_MOCK_CHUNKS_MYPRO_TOUCH_AD: list[dict] = [
+    {
+        "chunk_index": 1, "pagina_inicio": 1, "pagina_fim": 1,
+        "titulo_secao": "Visão geral — Mypro Touch e Mypro Touch AD",
+        "conteudo": (
+            "O painel Mypro Touch AD é o HMI (interface homem-máquina) dos compressores MYCOM/MAYEKAWA. "
+            "Permite monitoramento em tempo real, gerenciamento de alarmes e configuração de set points. "
+            "O Mypro Touch AD é a versão avançada atual; o Mypro Touch é a versão padrão. "
+            "Não existe versão chamada 'Mypro Touch+' — esse nome não deve ser usado."
+        ),
+        "palavras_chave": "Mypro Touch, Mypro Touch AD, HMI, MYCOM, MAYEKAWA, painel, interface, controlador",
+    },
+    {
+        "chunk_index": 2, "pagina_inicio": 2, "pagina_fim": 2,
+        "titulo_secao": "Tela principal — parâmetros monitorados",
+        "conteudo": (
+            "A tela principal do Mypro Touch AD exibe em tempo real: pressão de sucção (PS), "
+            "pressão de descarga (PD), temperatura de descarga (TD), temperatura de sucção (TS), "
+            "pressão de óleo diferencial (PO), corrente e carga do motor, posição da válvula slide (0-100%) "
+            "e status (RODANDO, PARADO ou EM ALARME). Valores em vermelho indicam condição fora dos limites."
+        ),
+        "palavras_chave": "tela principal, parâmetros, pressão de sucção, pressão de descarga, temperatura de descarga, corrente, carga, válvula slide, status",
+    },
+    {
+        "chunk_index": 3, "pagina_inicio": 3, "pagina_fim": 3,
+        "titulo_secao": "Navegação entre telas do Mypro Touch AD",
+        "conteudo": (
+            "O Mypro Touch AD é operado por teclado numérico e botões de seleção. "
+            "Telas disponíveis: Operação (parâmetros ao vivo), Alarmes (ativos e histórico), "
+            "Set Points (temperaturas e pressões alvo), Configurações (limites e controle) e "
+            "Histórico (registro de eventos). Use as setas direcionais ou botões de atalho conforme o manual. "
+            "Em dúvida sobre a navegação, consulte o técnico da Pred.IO."
+        ),
+        "palavras_chave": "navegação, telas, teclado, Mypro Touch AD, tela de operação, tela de alarmes, set points, histórico",
+    },
+    {
+        "chunk_index": 4, "pagina_inicio": 4, "pagina_fim": 4,
+        "titulo_secao": "Alarmes e trips — tipos e causas",
+        "conteudo": (
+            "O Mypro Touch AD distingue: ALARME (fora do limite, compressor continua, sinal visual/sonoro) "
+            "e TRIP/DESLIGAMENTO (condição crítica, desligamento automático por segurança). "
+            "Alarmes mais comuns: alta temperatura de descarga, baixa pressão de óleo, alta pressão de descarga, "
+            "baixa pressão de sucção, sobrecarga do motor, falha no fluxostato. "
+            "O histórico registra data, hora, tipo e valor da variável no momento do evento."
+        ),
+        "palavras_chave": "alarme, trip, desligamento, alta temperatura de descarga, baixa pressão de óleo, sobrecarga, fluxostato, histórico de alarmes",
+    },
+    {
+        "chunk_index": 5, "pagina_inicio": 5, "pagina_fim": 5,
+        "titulo_secao": "Reset de alarme — procedimento e responsabilidade",
+        "conteudo": (
+            "Para resetar alarme ou trip no Mypro Touch AD: (1) identificar e eliminar a causa raiz; "
+            "(2) confirmar que a variável voltou ao limite normal; (3) acessar a tela de Alarmes; (4) pressionar RESET. "
+            "REGRA: reset de alarme deve ser realizado APENAS por operador autorizado. "
+            "O Assistente Técnico Pred.IO orienta; o reset deve ser executado presencialmente. "
+            "Trip repetido ou causa desconhecida: abrir chamado técnico Pred.IO antes de religar."
+        ),
+        "palavras_chave": "reset de alarme, reset de trip, operador autorizado, procedimento, Mypro Touch AD, chamado técnico",
+    },
+    {
+        "chunk_index": 6, "pagina_inicio": 6, "pagina_fim": 6,
+        "titulo_secao": "Set points — configuração e responsabilidade",
+        "conteudo": (
+            "Set points são os valores alvo que o sistema usa para manter as condições operacionais: "
+            "temperatura de sucção alvo, pressão de sucção alvo, limite de temperatura de descarga. "
+            "Alteração de set points no Mypro Touch AD deve ser realizada APENAS por operador autorizado. "
+            "Ajustes incorretos comprometem segurança e eficiência. "
+            "O Assistente Técnico Pred.IO não altera parâmetros remotamente; apenas orienta. "
+            "Para alterar set point sem operador disponível, abrir chamado técnico Pred.IO."
+        ),
+        "palavras_chave": "set point, temperatura alvo, pressão alvo, operador autorizado, Mypro Touch AD, configuração, segurança",
+    },
+    {
+        "chunk_index": 7, "pagina_inicio": 7, "pagina_fim": 7,
+        "titulo_secao": "Controle de capacidade — válvula slide",
+        "conteudo": (
+            "A capacidade do compressor é controlada pela válvula slide (posição 0-100% no Mypro Touch AD). "
+            "Em condições normais, o sistema ajusta automaticamente conforme o set point. "
+            "Intervenção manual na capacidade deve ser realizada APENAS por operador autorizado. "
+            "Capacidade muito baixa por período prolongado pode causar retorno de líquido — verificar SSH. "
+            "Capacidade máxima em ambiente quente pode elevar a temperatura de descarga além dos limites."
+        ),
+        "palavras_chave": "controle de capacidade, válvula slide, slide valve, capacidade mínima, retorno de líquido, SSH, temperatura de descarga",
+    },
+    {
+        "chunk_index": 8, "pagina_inicio": 8, "pagina_fim": 8,
+        "titulo_secao": "Partida e parada — procedimento e responsabilidade",
+        "conteudo": (
+            "Partida e parada do compressor controlado pelo Mypro Touch AD devem ser realizadas APENAS por operador autorizado. "
+            "Pré-requisitos para partida: nível de óleo visível, pressão de óleo acima de 0 diferencial, "
+            "temperatura do óleo acima de 30°C, ausência de alarmes ativos, válvulas de sucção e descarga abertas. "
+            "Parada de emergência (EMERGENCY STOP) está disponível no painel físico e no Mypro Touch AD — "
+            "usar apenas em situações de segurança imediata."
+        ),
+        "palavras_chave": "partida, parada, operador autorizado, pré-requisitos, nível de óleo, temperatura do óleo, alarmes, emergency stop, EMERGENCY STOP",
+    },
+    {
+        "chunk_index": 9, "pagina_inicio": 9, "pagina_fim": 9,
+        "titulo_secao": "Parâmetros críticos — valores de referência MYCOM",
+        "conteudo": (
+            "Valores de referência típicos para compressores MYCOM com amônia (NH3) monitorados pelo Mypro Touch AD: "
+            "pressão de óleo diferencial mínima de 1,2 a 2,0 kg/cm² acima da pressão de sucção; "
+            "temperatura de descarga máxima de 140°C; corrente do motor conforme plaqueta (sobrecarga gera alarme). "
+            "Desvios persistentes devem ser registrados e comunicados à equipe Pred.IO via chamado técnico."
+        ),
+        "palavras_chave": "parâmetros, valores de referência, pressão de óleo, temperatura de descarga, corrente do motor, amônia, NH3, MYCOM",
+    },
+    {
+        "chunk_index": 10, "pagina_inicio": 10, "pagina_fim": 10,
+        "titulo_secao": "Comunicação e integração Mypro Touch AD com Pred.IO",
+        "conteudo": (
+            "O Mypro Touch AD pode ser configurado para comunicação via Modbus RTU ou TCP/IP "
+            "para integração com o Portal Pred.IO (dados exibidos nos Faróis e Alertas). "
+            "Configurações de comunicação devem ser realizadas apenas por técnico especializado MAYEKAWA ou Pred.IO. "
+            "Perda de comunicação entre o Mypro Touch AD e o portal: abrir chamado técnico para diagnóstico."
+        ),
+        "palavras_chave": "Modbus, comunicação, integração, Pred.IO, Mypro Touch AD, Faróis, Alertas, TCP/IP, técnico",
+    },
+]
+
+
 def _get_mock_for_url(arquivo_url: str, arquivo_nome: str = "") -> tuple[str, list[dict], int]:
     """Retorna (texto, chunks, n_paginas) mock se o arquivo for de demonstração."""
     key = (arquivo_url + " " + arquivo_nome).lower()
+    # Guia Prático Mypro Touch AD
+    if ("mypro" in key and "touch" in key) or ("guia" in key and "touch" in key) or "touch ad" in key:
+        return _MOCK_TEXTO_MYPRO_TOUCH_AD, _MOCK_CHUNKS_MYPRO_TOUCH_AD, 10
     # Manual Operacional MYCOM - Sistema Chiller
     if "operacional" in key or ("mycom" in key and "chiller" in key):
         return _MOCK_TEXTO_MYCOM_OPERACIONAL, _MOCK_CHUNKS_MYCOM_OPERACIONAL, 17

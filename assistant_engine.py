@@ -152,9 +152,31 @@ _INTENTS: dict[str, list[str]] = {
     ],
     "chamados": [
         "chamado", "abrir chamado", "solicitação", "solicitacao",
-        "atendimento", "suporte", "problema", "defeito", "urgente",
+        "atendimento", "suporte", "problema", "defeito",
         "solicitar", "técnico", "tecnico",
         "quando abrir chamado", "quando devo abrir chamado",
+        "tenho chamados", "chamados abertos", "meus chamados",
+        "status do chamado", "meu chamado", "qual status",
+        "chamado foi respondido", "foi respondido", "responderam meu chamado",
+        "tem chamado para esse ativo", "chamado para o ativo",
+        "abrir solicitação", "abrir solicitacao",
+        "quero abrir chamado", "preciso de suporte", "preciso de atendimento",
+    ],
+    "notificacoes_portal": [
+        "notificações não lidas", "notificacoes nao lidas",
+        "tenho notificações", "tenho notificacoes",
+        "quantas notificações", "quantas notificacoes",
+        "minhas notificações", "minhas notificacoes",
+        "ativar notificação", "ativar notificacao",
+        "configurar notificação", "configurar notificacao",
+        "preferências de notificação", "preferencias de notificacao",
+        "como ativo notificação", "como ativo notificacao",
+        "como ativar notificação", "como ativar notificacao",
+        "notificação de manutenção", "notificacao de manutencao",
+        "notificação por email", "notificacao por email",
+        "notificação por whatsapp", "notificacao por whatsapp",
+        "recebi algum alerta", "recebi alerta hoje",
+        "avisos não lidos", "avisos nao lidos",
     ],
     "alertas": [
         "alerta", "aviso", "notificação", "notificacao", "ponto de atenção",
@@ -224,6 +246,7 @@ def detect_intent(pergunta: str) -> str:
         "documentos",
         "status_ativo",
         "chamados",
+        "notificacoes_portal",
         "alertas",
     ]:
         if any(kw in q for kw in _INTENTS[intent]):
@@ -258,6 +281,83 @@ def get_client_context(client_id: str) -> dict:
     # Tenta carregar documentos reais do Sheets.
     # SEGURANÇA: client_id da sessão; get_documentos_tecnicos() filtra
     # documentos internos e de outros clientes antes de retornar.
+    # Tenta carregar relatórios técnicos publicados do Sheets.
+    # SEGURANÇA: staff=False → somente Status=Publicado do próprio cliente.
+    try:
+        from sheets import get_technical_reports
+        df_rep = get_technical_reports(client_id=client_id, staff=False)
+        if not df_rep.empty:
+            reps = []
+            for _, r in df_rep.iterrows():
+                titulo  = str(r.get("Titulo",         "")).strip()
+                data    = str(r.get("Data_Relatorio", "")).strip()
+                tipo    = str(r.get("Tipo_Servico",   "")).strip()
+                sev     = str(r.get("Severidade",     "")).strip()
+                resumo  = str(r.get("Resumo",         "")).strip()
+                recomen = str(r.get("Recomendacoes",  "")).strip()
+                ativo   = str(r.get("Ativo_Id",       "")).strip()
+                equip   = str(r.get("Equipamento",    "")).strip()
+                if titulo:
+                    reps.append({
+                        "titulo":        titulo,
+                        "data":          data,
+                        "tipo":          tipo,
+                        "severidade":    sev,
+                        "resumo":        resumo,
+                        "recomendacoes": recomen,
+                        "ativo":         ativo or equip,
+                    })
+            if reps:
+                ctx["relatorios"] = reps
+    except Exception:
+        pass
+
+    # Carrega tarefas de manutenção reais (staff=False → sem obs_interna).
+    # SEGURANÇA: client_id da sessão; filtra pelo cliente antes de retornar.
+    try:
+        from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
+        df_mt = get_maintenance_tasks(client_id=client_id, staff=False)
+        if not df_mt.empty:
+            tarefas = []
+            for _, r in df_mt.iterrows():
+                task     = r.to_dict()
+                aid      = str(task.get("Ativo_Id", "")).strip()
+                h_at     = 0
+                if aid:
+                    try:
+                        h = get_horimetro(aid)
+                        h_at = h if h is not None else 0
+                    except Exception:
+                        pass
+                tipo   = str(task.get("Tipo_Manutencao", "")).strip()
+                status = calc_task_status(task, h_at)
+                tarefas.append({
+                    "nome":        str(task.get("Nome_Tarefa", "")).strip(),
+                    "tipo":        tipo,
+                    "categoria":   str(task.get("Categoria", "")).strip(),
+                    "prioridade":  str(task.get("Prioridade", "")).strip(),
+                    "ativo_id":    aid,
+                    "status":      status,
+                    "prox_data":   str(task.get("Proxima_Execucao_Data", "")).strip(),
+                    "prox_h":      str(task.get("Proxima_Execucao_Horimetro", "")).strip(),
+                    "h_atual":     h_at,
+                    "recomendacao": str(task.get("Recomendacao", "")).strip(),
+                })
+            if tarefas:
+                ctx["tarefas_manutencao"] = tarefas
+    except Exception:
+        pass
+
+    # Carrega chamados reais do cliente para o assistente.
+    # SEGURANÇA: client_id da sessão; nunca mostra obs. internas.
+    try:
+        from sheets import get_chamados_resumo_assistente
+        chamados_res = get_chamados_resumo_assistente(client_id=client_id)
+        if chamados_res:
+            ctx["chamados_reais"] = chamados_res
+    except Exception:
+        pass
+
     try:
         from sheets import get_documentos_tecnicos, get_chunks_documento
         df_docs = get_documentos_tecnicos(client_id=client_id, staff=False)
@@ -301,6 +401,7 @@ def get_client_context(client_id: str) -> dict:
     except Exception:
         pass  # mantém docs do mock
 
+    ctx["client_id"] = client_id
     return ctx
 
 
@@ -341,6 +442,49 @@ def query_assistant(
     intent  = detect_intent(pergunta)
     context = get_client_context(client_id)
     return _build_response(intent, context, pergunta, ativo_id)
+
+
+def query_assistant_audit(
+    client_id: str,
+    pergunta: str,
+    ativo_id: str = "",
+) -> dict:
+    """
+    Versão estendida de query_assistant() para a tela de auditoria.
+    Adiciona _intent, _confidence e _origem_resposta ao dict de resposta.
+    SEGURANÇA: client_id SEMPRE da sessão.
+    """
+    intent  = detect_intent(pergunta)
+    context = get_client_context(client_id)
+    result  = _build_response(intent, context, pergunta, ativo_id)
+
+    ans_lower = result["answer"].lower()
+    sem_base  = "não encontrei informação suficiente" in ans_lower
+
+    # Origem
+    if sem_base:
+        origem = "Sem base suficiente"
+    elif result["related_documents"]:
+        origem = "Biblioteca Técnica"
+    elif intent == "manutencao":
+        origem = "Plano de Manutenção"
+    elif intent == "relatorios":
+        origem = "Relatório Técnico"
+    else:
+        origem = "Base Pred.IO"
+
+    # Confiança
+    if sem_base:
+        confidence = "Baixa"
+    elif result["related_documents"]:
+        confidence = "Alta"
+    else:
+        confidence = "Média"
+
+    result["_intent"]          = intent
+    result["_confidence"]      = confidence
+    result["_origem_resposta"] = origem
+    return result
 
 
 def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = "") -> dict:
@@ -1149,8 +1293,110 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
                 links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
             )
 
-        mans = ctx.get("manutencoes", [])
-        if not mans:
+        # Tenta dados reais do Sheets; cai para mock legacy
+        tarefas_real = ctx.get("tarefas_manutencao", [])
+        mans_mock    = ctx.get("manutencoes", [])
+
+        # ── Próxima análise de óleo ───────────────────────────────────────────
+        if any(kw in q_lower for kw in ["análise de óleo", "analise de oleo",
+                                         "próxima análise", "proxima analise",
+                                         "coletar amostra", "amostra de oleo"]):
+            if tarefas_real:
+                oleo_tasks = [
+                    t for t in tarefas_real
+                    if "óleo" in t.get("nome", "").lower()
+                    or "oleo" in t.get("nome", "").lower()
+                    or "análise de óleo" in t.get("categoria", "").lower()
+                    or "oleo" in t.get("categoria", "").lower()
+                ]
+                if oleo_tasks:
+                    tk = oleo_tasks[0]
+                    prox = tk.get("prox_data", "") or (f"horímetro {tk['prox_h']}h" if tk.get("prox_h") else "")
+                    return _resp(
+                        f"A próxima análise de óleo está programada para: <strong>{prox or 'aguarda avaliação'}</strong>. "
+                        f"Status atual: <strong>{tk['status']}</strong>.\n\n"
+                        "A análise de óleo é fundamental para avaliar viscosidade, contaminação, "
+                        "oxidação e metais de desgaste. Recomenda-se validar o resultado com a equipe "
+                        "Pred.IO antes de decisões de troca ou intervenção.\n\nFonte: Pred.IO",
+                        links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                               {"label": "📚 Ver Tabela de Óleos", "page": "biblioteca"}],
+                    )
+
+        # ── Quais manutenções estão próximas ─────────────────────────────────
+        if any(kw in q_lower for kw in ["próximas", "proximas", "quais manutenções",
+                                         "quais manutencoes", "próxima do vencimento",
+                                         "proxima do vencimento"]):
+            if tarefas_real:
+                proximas = [t for t in tarefas_real
+                           if "próxima" in t.get("status", "").lower()
+                           or "proxima" in t.get("status", "").lower()]
+                if proximas:
+                    itens = "; ".join(
+                        f"{t['nome']}"
+                        + (f" (prevista para {t['prox_data']})" if t.get("prox_data") else
+                           f" (próxima aos {t['prox_h']}h)" if t.get("prox_h") else "")
+                        for t in proximas[:4]
+                    )
+                    return _resp(
+                        f"As tarefas próximas do vencimento são: <strong>{itens}</strong>.\n\n"
+                        "Verifique o plano completo no Portal para mais detalhes.\n\nFonte: Pred.IO",
+                        links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+                    )
+
+        # ── Tenho manutenção vencida ──────────────────────────────────────────
+        if any(kw in q_lower for kw in ["vencida", "vencidas", "atrasada", "atrasadas",
+                                         "em atraso", "ultrapassada", "ultrapassadas"]):
+            if tarefas_real:
+                vencidas = [t for t in tarefas_real
+                           if t.get("status", "").lower() == "vencida"]
+                if vencidas:
+                    itens = "; ".join(t["nome"] for t in vencidas[:4])
+                    return _resp(
+                        f"Foram encontradas <strong>{len(vencidas)} tarefa(s) vencida(s)</strong>: {itens}.\n\n"
+                        "Recomendo priorizar estas atividades e, se necessário, abrir um chamado "
+                        "técnico com a equipe Pred.IO.\n\nFonte: Pred.IO",
+                        links=[
+                            {"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
+                            {"label": "🔧 Abrir Chamado", "page": "chamados"},
+                        ],
+                    )
+                return _resp(
+                    "Não há tarefas de manutenção vencidas no momento. "
+                    "Continue acompanhando o plano de manutenção para manter o equipamento em dia.\n\n"
+                    "Fonte: Pred.IO",
+                    links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+                )
+
+        # ── Resposta geral com dados reais ────────────────────────────────────
+        if tarefas_real:
+            vencidas  = [t for t in tarefas_real if t.get("status","").lower() == "vencida"]
+            proximas  = [t for t in tarefas_real
+                        if "próxima" in t.get("status","").lower()
+                        or "proxima" in t.get("status","").lower()]
+            em_dia    = [t for t in tarefas_real if t.get("status","").lower() == "em dia"]
+
+            partes = []
+            if vencidas:
+                partes.append(
+                    f"⚠️ {len(vencidas)} tarefa(s) vencida(s): "
+                    + ", ".join(t["nome"] for t in vencidas[:3])
+                )
+            if proximas:
+                partes.append(
+                    f"🟡 {len(proximas)} tarefa(s) próxima(s) do vencimento: "
+                    + ", ".join(t["nome"] for t in proximas[:3])
+                )
+            if em_dia:
+                partes.append(f"✅ {len(em_dia)} tarefa(s) em dia")
+
+            answer = " | ".join(partes) if partes else "Plano de manutenção atualizado."
+            return _resp(
+                f"{answer}\n\nFonte: Pred.IO",
+                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}],
+            )
+
+        # ── Fallback mock ──────────────────────────────────────────────────────
+        if not mans_mock:
             return _resp(
                 "Não encontrei planos de manutenção cadastrados para sua operação. "
                 "Recomendo abrir um chamado técnico para que a equipe Pred.IO verifique.",
@@ -1160,24 +1406,8 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             (m.get("vencimento_data") and f"{m['acao']} em {m['vencimento_data']}")
             or (m.get("vencimento_horas") and f"{m['acao']} em {m['vencimento_horas']} horas")
             or m["acao"]
-            for m in mans
+            for m in mans_mock
         )
-        # Resposta segura sobre overhaul: não depende só do horímetro
-        q_lower = pergunta.lower()
-        if any(kw in q_lower for kw in ["overhaul", "revisão geral", "revisao geral"]):
-            overhaul_note = _buscar_chunk_overhaul(ctx)
-            if overhaul_note:
-                return _resp(overhaul_note["answer"],
-                             links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
-                                    {"label": "📚 Ver Manual", "page": "biblioteca"}],
-                             documents=overhaul_note.get("docs", []))
-            return _resp(
-                "O overhaul não é determinado apenas pelo horímetro. "
-                "A decisão deve considerar vibração, análise de óleo, termografia e histórico de falhas. "
-                "Consulte o manual técnico ou a equipe Pred.IO para avaliar o momento adequado.",
-                links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"},
-                       {"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}],
-            )
         answer = f"As próximas ações programadas são: {itens_str}."
         return _resp(answer, links=[{"label": "📅 Ver Plano de Manutenção", "page": "manutencao"}])
 
@@ -1324,12 +1554,131 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
 
     # ── Chamados ──────────────────────────────────────────────────────────────
     if intent == "chamados":
-        chams = ctx.get("chamados", [])
-        answer = "Você pode abrir ou acompanhar solicitações pela área de Chamados Técnicos."
-        if chams:
-            c = chams[0]
-            answer += f" Há um chamado em aberto: \"{c['titulo']}\" (status: {c['status']})."
-        return _resp(answer, links=[{"label": "🔧 Abrir Chamados Técnicos", "page": "chamados"}])
+        q_lower    = pergunta.lower()
+        chams_real = ctx.get("chamados_reais", [])
+        chams_mock = ctx.get("chamados", [])
+        chams      = chams_real or chams_mock  # preferência para dados reais
+
+        # "Tenho chamados abertos?"
+        if any(kw in q_lower for kw in ["tenho chamados", "chamados abertos",
+                                         "meus chamados", "abertos"]):
+            abertos = [c for c in chams if c.get("status", "").lower()
+                       in ("aberto", "em análise", "em analise", "em andamento",
+                           "aguardando cliente", "reaberto")]
+            if abertos:
+                itens = "; ".join(
+                    f'"{c["titulo"]}" — {c["status"]}'
+                    + (f' (ativo: {c["ativo_id"]})' if c.get("ativo_id") else "")
+                    for c in abertos[:4]
+                )
+                return _resp(
+                    f"Você tem <strong>{len(abertos)} chamado(s) em aberto</strong>: {itens}.\n\n"
+                    "Acesse a área de Chamados para acompanhar e responder.\n\nFonte: Pred.IO",
+                    links=[{"label": "🔧 Ver Chamados Técnicos", "page": "chamados"}],
+                )
+            return _resp(
+                "Não há chamados em aberto no momento. "
+                "Se precisar de suporte, use a área de Chamados Técnicos.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # "Qual status do meu chamado?" / "O chamado foi respondido?"
+        if any(kw in q_lower for kw in ["status do chamado", "meu chamado", "qual status",
+                                          "foi respondido", "responderam", "chamado respondido"]):
+            if chams:
+                c = chams[0]
+                respondido = c.get("status", "").lower() in ("em análise", "em andamento",
+                                                              "aguardando cliente")
+                resp_txt   = (
+                    f'O chamado mais recente é "<strong>{c["titulo"]}</strong>" — '
+                    f'status: <strong>{c["status"]}</strong>.'
+                )
+                if respondido:
+                    resp_txt += " A equipe Pred.IO já está analisando."
+                elif c.get("status", "").lower() == "concluído":
+                    resp_txt += " Este chamado foi concluído pela equipe Pred.IO."
+                else:
+                    resp_txt += " Ainda aguardando análise inicial."
+                return _resp(
+                    resp_txt + "\n\nFonte: Pred.IO",
+                    links=[{"label": "🔧 Ver Chamados", "page": "chamados"}],
+                )
+
+        # "Tem chamado para esse ativo?"
+        if any(kw in q_lower for kw in ["chamado para esse ativo", "chamado para o ativo",
+                                          "chamado do ativo"]):
+            if ativo_id and chams_real:
+                chams_ativo = [c for c in chams_real if c.get("ativo_id") == ativo_id]
+                if chams_ativo:
+                    itens = "; ".join(
+                        f'"{c["titulo"]}" ({c["status"]})'
+                        for c in chams_ativo[:3]
+                    )
+                    return _resp(
+                        f"Há {len(chams_ativo)} chamado(s) vinculado(s) ao ativo {ativo_id}: "
+                        f"{itens}.\n\nFonte: Pred.IO",
+                        links=[{"label": "🔧 Ver Chamados", "page": "chamados"}],
+                    )
+                return _resp(
+                    f"Não há chamados abertos para o ativo {ativo_id}.\n\nFonte: Pred.IO",
+                    links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+                )
+
+        # Resposta geral
+        n_abertos = len([c for c in chams if c.get("status", "").lower()
+                         in ("aberto", "em análise", "em analise",
+                             "em andamento", "aguardando cliente", "reaberto")])
+        if n_abertos:
+            return _resp(
+                f"Você tem <strong>{n_abertos} chamado(s) em aberto</strong>. "
+                "Acesse a área de Chamados Técnicos para acompanhar e responder.\n\nFonte: Pred.IO",
+                links=[{"label": "🔧 Ver Chamados Técnicos", "page": "chamados"}],
+            )
+        return _resp(
+            "Você pode abrir ou acompanhar solicitações pela área de Chamados Técnicos. "
+            "O Assistente não abre chamados sozinho — a abertura é sempre pelo cliente ou pela equipe Pred.IO.\n\nFonte: Pred.IO",
+            links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
+        )
+
+    # ── Notificações Portal ───────────────────────────────────────────────────
+    if intent == "notificacoes_portal":
+        client_id = ctx.get("client_id", "")
+        q = pergunta.lower()
+
+        # Orientação sobre ativar notificação de evento específico
+        if any(kw in q for kw in ["como ativo", "como ativar", "ativar notificação", "ativar notificacao",
+                                   "configurar notificação", "configurar notificacao",
+                                   "preferências", "preferencias"]):
+            return _resp(
+                "Para ativar ou configurar notificações, acesse **Preferências de Notificação** no menu do portal. "
+                "Lá você encontra cada tipo de evento (relatórios, alertas, manutenção vencida, chamados, etc.) "
+                "com opção de ativar ou desativar individualmente.\n\n"
+                "📌 Nesta fase, as notificações são exibidas dentro do Portal Pred.IO. "
+                "E-mail e WhatsApp estão preparados para uma próxima etapa.\n\nFonte: Pred.IO",
+                links=[
+                    {"label": "⚙️ Preferências de Notificação", "page": "preferencias"},
+                    {"label": "🔔 Minhas Notificações",          "page": "notificacoes"},
+                ],
+            )
+
+        # Consulta de não lidas
+        unread = 0
+        try:
+            from notifications import get_unread_count
+            unread = get_unread_count(client_id)
+        except Exception:
+            pass
+
+        if unread == 0:
+            return _resp(
+                "Você não tem notificações não lidas no portal no momento.",
+                links=[{"label": "🔔 Ver Notificações", "page": "notificacoes"}],
+            )
+        return _resp(
+            f"Você tem **{unread} notificação(ões) não lida(s)** no portal. "
+            "Acesse para visualizar todas.",
+            links=[{"label": f"🔔 Ver {unread} Notificações", "page": "notificacoes"}],
+        )
 
     # ── Alertas ───────────────────────────────────────────────────────────────
     if intent == "alertas":

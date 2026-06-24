@@ -1066,6 +1066,47 @@ def _render_detalhe(a: dict, mock: bool) -> None:
     plano = a.get("plano_manutencao", [])
     if plano:
         _render_plano_manutencao(plano)
+    elif not mock:
+        # Para ativos reais sem plano mock: carrega do Sheets
+        try:
+            from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
+            from auth import current_client_id as _ccid
+            df_mt = get_maintenance_tasks(
+                client_id = _ccid(),
+                ativo_id  = a.get("id", ""),
+                staff     = False,
+            )
+            if not df_mt.empty:
+                h_at = 0
+                try:
+                    h = get_horimetro(a.get("id", ""))
+                    h_at = h if h is not None else 0
+                except Exception:
+                    pass
+                plano_sheets = [
+                    {
+                        "nome":            str(r.get("Nome_Tarefa", "")).strip(),
+                        "categoria":       str(r.get("Categoria", "")).strip(),
+                        "tipo":            _norm(str(r.get("Tipo_Manutencao", "")).strip()),
+                        "prioridade":      str(r.get("Prioridade", "")).strip().lower(),
+                        "proxima_data":    str(r.get("Proxima_Execucao_Data", "")).strip(),
+                        "vencimento_horas": (
+                            int(float(str(r.get("Proxima_Execucao_Horimetro", "")).strip()))
+                            if str(r.get("Proxima_Execucao_Horimetro", "")).strip()
+                            not in ("", "nan", "0") else 0
+                        ),
+                        "horimetro_atual": h_at,
+                        "recomendacao":    str(r.get("Recomendacao", "")).strip(),
+                        "descricao":       str(r.get("Descricao", "")).strip(),
+                        "periodicidade_dias": str(r.get("Periodicidade_Dias", "")).strip(),
+                        "periodicidade_horas": str(r.get("Periodicidade_Horas", "")).strip(),
+                    }
+                    for _, r in df_mt.iterrows()
+                ]
+                if plano_sheets:
+                    _render_plano_manutencao(plano_sheets)
+        except Exception:
+            pass
 
     # ── Análise de óleo ───────────────────────────────────────────────────────
     analise = a.get("analise_oleo") if a.get("analise_oleo_aplicavel") else None
@@ -1074,6 +1115,35 @@ def _render_detalhe(a: dict, mock: bool) -> None:
 
     # ── Histórico Técnico ────────────────────────────────────────────────────
     ht_data = a.get("historico_tecnico", [])
+
+    # Para ativos reais (não mock), tenta carregar eventos da ReportTimeline
+    if not ht_data and not mock:
+        try:
+            from sheets import get_report_timeline_events
+            from auth import current_client_id as _ccid
+            df_tl = get_report_timeline_events(
+                ativo_id   = a.get("id", ""),
+                cliente_id = _ccid(),
+                staff      = False,
+            )
+            if not df_tl.empty:
+                ht_data = [
+                    {
+                        "id":              str(r.get("Id", "")),
+                        "tipo":            str(r.get("Tipo", "relatorio_publicado")),
+                        "titulo":          str(r.get("Titulo", "")),
+                        "descricao":       str(r.get("Descricao", "")),
+                        "data":            str(r.get("Data", "")),
+                        "origem":          str(r.get("Origem", "Relatórios Técnicos")),
+                        "link_page":       "relatorios",
+                        "visivel_cliente": True,
+                        "obs_interna":     None,
+                    }
+                    for _, r in df_tl.iterrows()
+                ]
+        except Exception:
+            pass
+
     if ht_data:
         _render_historico_tecnico(ht_data, a.get("id", ""), is_staff=False)
     elif a.get("timeline"):

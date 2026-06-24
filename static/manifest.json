@@ -1,12 +1,14 @@
 {
-  "name": "Portal de Confiabilidade Pred.IO",
-  "short_name": "Portal Pred.IO",
-  "description": "Portal de Confiabilidade Pred.IO — Monitoramento de Ativos Industriais",
+  "name": "Pred.IO",
+  "short_name": "Pred.IO",
+  "description": "Portal de Confiabilidade Pred.IO",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#08142B",
-  "theme_color": "#1565C0",
-  "orientation": "portrait-primary",
+  "orientation": "portrait",
+  "background_color": "#071122",
+  "theme_color": "#0F1F3D",
+  "lang": "pt-BR",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/app/static/icons/icon-192.png",
@@ -25,6 +27,16 @@
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "description": "Visão executiva do portal",
+      "url": "/",
+      "icons": [{ "src": "/app/static/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

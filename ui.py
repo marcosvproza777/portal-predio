@@ -379,6 +379,13 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
     except Exception:
         pass
 
+    _notif_unread = 0
+    try:
+        from notifications import get_unread_count as _gnc
+        _notif_unread = _gnc(st.session_state.get("client_id", ""))
+    except Exception:
+        pass
+
     iniciais = "".join(w[0].upper() for w in empresa.split()[:2]) if empresa else "?"
     logo_html = (
         f"<img src='data:image/jpeg;base64,{logo_b64}' "
@@ -432,7 +439,24 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
     )
 
     # ── Marcador CSS — âncora para estilizar as colunas de nav abaixo ──────────
-    st.markdown("<div class='portal-nav-marker'></div>", unsafe_allow_html=True)
+    # No mobile: barra de nav scrollável horizontalmente (bottom nav substitui)
+    st.markdown(
+        "<div class='portal-nav-marker'></div>"
+        "<style>"
+        "@media(max-width:768px){"
+        "div.portal-nav-marker+div[data-testid='stHorizontalBlock'],"
+        "div.portal-nav-marker~div[data-testid='stHorizontalBlock']{"
+        "overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;"
+        "scrollbar-width:none!important;flex-wrap:nowrap!important;"
+        "padding-bottom:4px;gap:4px!important;}"
+        "div.portal-nav-marker+div[data-testid='stHorizontalBlock']::-webkit-scrollbar{"
+        "display:none!important;}"
+        "div.portal-nav-marker+div[data-testid='stHorizontalBlock']"
+        " [data-testid='column']{min-width:52px!important;max-width:80px!important;}"
+        "}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
 
     # ── Navegação + logout ─────────────────────────────────────────────────────
     nav_cols = st.columns([1] * len(PORTAL_NAV_ITEMS) + [0.7])
@@ -443,7 +467,9 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
             or (key == "ativos" and portal_page == "ativo_detalhe")
         )
         disp = label
-        if key == "alertas" and _alerta_unread > 0:
+        if key == "notificacoes" and _notif_unread > 0:
+            disp = f"{label} · {_notif_unread}"
+        elif key == "alertas" and _alerta_unread > 0:
             disp = f"{label} · {_alerta_unread}"
         with col:
             if is_active:
@@ -533,13 +559,14 @@ PRIORIDADE_CFG = {
 # ── Portal do Cliente — navegação ────────────────────────────────────────────
 
 PORTAL_NAV_ITEMS = [
-    ("farois",       "📊", "Visão Geral"),
+    ("dashboard",    "📊", "Dashboard"),
     ("ativos",       "⚙️",  "Ativos"),
     ("manutencao",   "📅", "Manutenção"),
     ("relatorios",   "📁", "Relatórios"),
     ("biblioteca",   "📚", "Biblioteca"),
     ("chamados",     "🔧", "Chamados"),
-    ("alertas",      "🔔", "Alertas"),
+    ("notificacoes", "🔔", "Avisos"),
+    ("alertas",      "⚠️",  "Alertas"),
     ("assistente",   "🤖", "Assistente"),
     ("preferencias", "📱", "Config."),
 ]
@@ -554,11 +581,13 @@ SV_NAV_ITEMS = [
     ("manutencao_sv",    "📅", "Manutenção"),
     ("alertas_sv",       "🔔", "Alertas"),
     ("notificacoes_sv",  "📨", "Avisos"),
+    ("relatorios_sv",    "📁", "Relatórios"),
     ("biblioteca_sv",    "📚", "Biblioteca"),
+    ("assistente_sv",    "🧪", "Assistente"),
+    ("homologacao",      "🔬", "Homologação"),
 ]
 
 SV_NAV_SOON = [
-    ("relatorios_sv",    "📊", "Relatórios"),
     ("configuracoes",    "🔩", "Configurações"),
 ]
 
@@ -628,6 +657,7 @@ def render_supervisao_sidebar(logo_b64: str, nome: str, perfil: str) -> None:
                 or (key == "chamados" and sv_view == "chamado_detalhe")
                 or (key == "clientes" and sv_view in ("cliente_historico", "cliente_novo"))
                 or (key == "ativos_sv" and sv_view in ("ativo_detalhe", "ativo_novo", "componente_novo"))
+                or (key == "relatorios_sv" and sv_view in ("relatorio_novo", "relatorio_editar"))
             )
             prefix = "▶" if is_active else "   "
             if st.button(f"{prefix} {icon}  {label}", key=f"sv_nav_{key}",
@@ -693,6 +723,7 @@ def render_sv_topnav() -> None:
                 or (key == "clientes" and sv_view in ("cliente_historico", "cliente_novo"))
                 or (key == "ativos_sv" and sv_view in (
                     "ativo_detalhe", "ativo_novo", "componente_novo"))
+                or (key == "relatorios_sv" and sv_view in ("relatorio_novo", "relatorio_editar"))
             )
             with col:
                 if is_active:

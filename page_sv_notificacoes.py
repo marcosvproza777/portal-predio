@@ -98,15 +98,24 @@ _CANAL_COR: dict = {
 def render() -> None:
     require_staff()
     sv_page_header(
-        "📨 Notificações Externas",
-        "Envie avisos por e-mail e WhatsApp para contatos dos clientes cadastrados.",
+        "📨 Notificações",
+        "Gerencie notificações do portal e envios por e-mail / WhatsApp.",
     )
 
-    tab_enviar, tab_log = st.tabs(["📤 Enviar notificação", "📋 Log de envios"])
+    tab_enviar, tab_log, tab_portal, tab_prefs = st.tabs([
+        "📤 Enviar notificação",
+        "📋 Log de envios",
+        "📊 Notificações Portal",
+        "⚙️ Preferências por Cliente",
+    ])
     with tab_enviar:
         _render_tab_enviar()
     with tab_log:
         _render_tab_log()
+    with tab_portal:
+        _render_tab_portal()
+    with tab_prefs:
+        _render_tab_prefs_cliente()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -803,3 +812,271 @@ def _label_md(text: str) -> None:
         f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;margin:0.5rem 0 4px;'>{text}</p>",
         unsafe_allow_html=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB: NOTIFICAÇÕES PORTAL — visão supervisor de todas as notificações internas
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PRIO_COR_SV: dict = {
+    "Baixa":   ("#6366F1", "#EEF2FF"),
+    "Média":   ("#F59E0B", "#FFFBEB"),
+    "Media":   ("#F59E0B", "#FFFBEB"),
+    "Alta":    ("#EF4444", "#FEF2F2"),
+    "Crítica": ("#7C3AED", "#F5F3FF"),
+    "Critica": ("#7C3AED", "#F5F3FF"),
+}
+
+_STATUS_PORTAL_COR: dict = {
+    "Não lida": ("#EF4444", "#fff"),
+    "nao_lida": ("#EF4444", "#fff"),
+    "Lida":     ("#16A34A", "#fff"),
+    "lida":     ("#16A34A", "#fff"),
+}
+
+
+def _render_tab_portal() -> None:
+    from sheets import load_sheet
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin-bottom:0.75rem;'>"
+        "Visão consolidada de todas as notificações internas geradas para clientes.</p>",
+        unsafe_allow_html=True,
+    )
+
+    # Carrega NotificacoesPortal
+    try:
+        df = load_sheet("NotificacoesPortal", ttl=30)
+    except Exception:
+        df = pd.DataFrame()
+
+    if df.empty:
+        st.info("Nenhuma notificação de portal registrada ainda.")
+        return
+
+    # Normaliza colunas
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Filtros
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    with col_f1:
+        cli_opts = ["Todos"] + sorted(df.get("Cliente_Id", pd.Series(dtype=str)).dropna().unique().tolist())
+        f_cli = st.selectbox("Cliente", cli_opts, key="_sv_np_cli")
+    with col_f2:
+        prio_opts = ["Todas", "Crítica", "Alta", "Média", "Baixa"]
+        f_prio = st.selectbox("Prioridade", prio_opts, key="_sv_np_prio")
+    with col_f3:
+        st_opts = ["Todos", "Não lida", "Lida"]
+        f_st = st.selectbox("Status", st_opts, key="_sv_np_status")
+    with col_f4:
+        ev_col = df.get("Tipo_Evento", pd.Series(dtype=str))
+        ev_opts = ["Todos"] + sorted(ev_col.dropna().unique().tolist())
+        f_ev = st.selectbox("Tipo de evento", ev_opts, key="_sv_np_ev")
+
+    df_f = df.copy()
+    if "Cliente_Id" in df_f.columns and f_cli != "Todos":
+        df_f = df_f[df_f["Cliente_Id"].astype(str).str.strip() == f_cli]
+    if "Prioridade" in df_f.columns and f_prio != "Todas":
+        df_f = df_f[df_f["Prioridade"].astype(str).str.strip() == f_prio]
+    if "Status" in df_f.columns and f_st != "Todos":
+        df_f = df_f[df_f["Status"].astype(str).str.strip().str.lower() == f_st.lower()]
+    if "Tipo_Evento" in df_f.columns and f_ev != "Todos":
+        df_f = df_f[df_f["Tipo_Evento"].astype(str).str.strip() == f_ev]
+
+    total   = len(df_f)
+    nao_lid = (df_f.get("Status", pd.Series(dtype=str)).astype(str).str.lower().isin(["não lida", "nao_lida"]).sum()
+               if "Status" in df_f.columns else 0)
+
+    m1, m2 = st.columns(2)
+    m1.metric("Total filtrado", total)
+    m2.metric("Não lidas",      nao_lid)
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>",
+        unsafe_allow_html=True,
+    )
+
+    if df_f.empty:
+        st.info("Nenhuma notificação com os filtros selecionados.")
+        return
+
+    for _, row in df_f.head(80).iterrows():
+        _render_portal_notif_sv(row)
+
+
+def _render_portal_notif_sv(row) -> None:
+    cli_id   = str(row.get("Cliente_Id",   "")).strip()
+    titulo   = str(row.get("Titulo",       "")).strip() or "—"
+    mensagem = str(row.get("Mensagem",     "")).strip()
+    prio     = str(row.get("Prioridade",   "Baixa")).strip()
+    status   = str(row.get("Status",       "")).strip()
+    evento   = str(row.get("Tipo_Evento",  "")).strip()
+    criado   = str(row.get("Created_At",   "")).strip()[:16]
+    lida_em  = str(row.get("Lida_Em",      "")).strip()[:16]
+
+    tc, bg = _PRIO_COR_SV.get(prio, ("#64748B", "#F8FAFC"))
+    s_bg, s_tc = _STATUS_PORTAL_COR.get(status, ("#94A3B8", "#fff"))
+
+    st.markdown(
+        f"<div style='background:{bg};border:1px solid {COLOR_BORDER};"
+        f"border-left:4px solid {tc};border-radius:8px;"
+        f"padding:10px 14px;margin-bottom:6px;'>"
+        f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;"
+        f"margin-bottom:4px;'>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.85rem;'>{titulo}</span>"
+        f"<div style='display:flex;gap:6px;'>"
+        f"<span style='background:{tc};color:#fff;-webkit-text-fill-color:#fff;"
+        f"font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:12px;'>{prio}</span>"
+        f"<span style='background:{s_bg};color:{s_tc};-webkit-text-fill-color:{s_tc};"
+        f"font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:12px;'>{status}</span>"
+        f"</div></div>"
+        f"<p style='color:#475569;font-size:0.8rem;margin:0 0 4px;'>{mensagem}</p>"
+        f"<div style='display:flex;gap:16px;flex-wrap:wrap;'>"
+        f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0;'>🏢 {cli_id}</p>"
+        f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0;'>📅 {criado}</p>"
+        + (f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0;'>✓ Lida: {lida_em}</p>" if lida_em else "")
+        + f"<p style='color:{COLOR_MUTED};font-size:0.72rem;margin:0;'>🏷 {evento}</p>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB: PREFERÊNCIAS POR CLIENTE — supervisor edita preferências de evento
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_tab_prefs_cliente() -> None:
+    from notifications import EVENTOS, _DEFAULT_EVENT_PREFS
+    from sheets import get_all_clientes, get_event_preferences, upsert_event_preference
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin-bottom:0.75rem;'>"
+        "Visualize e edite as preferências de notificação por evento de cada cliente.</p>",
+        unsafe_allow_html=True,
+    )
+
+    df_cli = get_all_clientes()
+    if df_cli.empty or "Empresa" not in df_cli.columns:
+        st.warning("Nenhum cliente cadastrado.")
+        return
+
+    cli_map: dict = {}
+    for _, r in df_cli.iterrows():
+        nome = str(r.get("Empresa", "")).strip()
+        cid  = str(r.get("Client_Id", "")).strip()
+        if nome and cid:
+            cli_map[nome] = cid
+
+    if not cli_map:
+        st.warning("Nenhum cliente com ID cadastrado.")
+        return
+
+    cli_sel = st.selectbox(
+        "Cliente",
+        list(cli_map.keys()),
+        key="_sv_prefs_cli_sel",
+    )
+    client_id = cli_map[cli_sel]
+    if not client_id:
+        return
+
+    df_prefs = get_event_preferences(client_id)
+
+    # Monta estado atual com fallback nos defaults
+    pref_atual: dict = {}
+    for ev, default in _DEFAULT_EVENT_PREFS.items():
+        pref_atual[ev] = dict(default)
+    if not df_prefs.empty:
+        for _, row in df_prefs.iterrows():
+            ev = str(row.get("Evento", "")).strip()
+            if ev in pref_atual:
+                def _b(col: str, d: str) -> bool:
+                    return str(row.get(col, row.get(d, "true"))).strip().lower() in ("true", "1", "sim")
+                pref_atual[ev] = {
+                    "canal_portal":      _b("Canal_Portal",   "canal_portal"),
+                    "canal_email":       _b("Canal_Email",    "canal_email"),
+                    "canal_whatsapp":    _b("Canal_Whatsapp", "canal_whatsapp"),
+                    "prioridade_minima": str(row.get("Prioridade_Minima",
+                                              row.get("prioridade_minima", "Baixa"))).strip(),
+                    "frequencia":        str(row.get("Frequencia",
+                                              row.get("frequencia", "Imediata"))).strip(),
+                    "ativo":             _b("Ativo", "ativo"),
+                }
+
+    _freq_opts  = ["Imediata", "Diária", "Semanal"]
+    _prio_opts  = ["Baixa", "Média", "Alta", "Crítica"]
+
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+        f"margin:0 0 8px;'>Preferências de evento — {cli_sel}</p>",
+        unsafe_allow_html=True,
+    )
+
+    # Cabeçalho
+    h0, h1, h2, h3, h4, h5, h6 = st.columns([3, 1.1, 1.1, 1.1, 1.8, 2, 1.2])
+    for col, lbl in zip(
+        [h0, h1, h2, h3, h4, h5, h6],
+        ["EVENTO", "PORTAL", "E-MAIL", "WHATSAPP", "PRIO. MÍN.", "FREQUÊNCIA", "ATIVO"],
+    ):
+        col.markdown(
+            f"<p style='font-size:0.68rem;font-weight:700;color:{COLOR_MUTED};"
+            f"margin:0;text-transform:uppercase;'>{lbl}</p>",
+            unsafe_allow_html=True,
+        )
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:4px 0 8px;'/>", unsafe_allow_html=True)
+
+    for evento, cfg in EVENTOS.items():
+        pref = pref_atual.get(evento, _DEFAULT_EVENT_PREFS.get(evento, {}))
+        label = cfg["label"]
+        key   = f"_svpref_{client_id}_{evento}"
+
+        c0, c1, c2, c3, c4, c5, c6 = st.columns([3, 1.1, 1.1, 1.1, 1.8, 2, 1.2])
+        with c0:
+            st.markdown(
+                f"<p style='font-size:0.82rem;font-weight:600;color:{COLOR_NAVY};"
+                f"margin:8px 0 0;'>{label}</p>",
+                unsafe_allow_html=True,
+            )
+        with c1:
+            portal_on = st.toggle("P", value=bool(pref.get("canal_portal", True)),
+                                  key=f"{key}_p", label_visibility="collapsed")
+        with c2:
+            email_on = st.toggle("E", value=bool(pref.get("canal_email", False)),
+                                 key=f"{key}_e", label_visibility="collapsed",
+                                 disabled=True, help="E-mail — etapa futura")
+        with c3:
+            wa_on = st.toggle("W", value=bool(pref.get("canal_whatsapp", False)),
+                              key=f"{key}_w", label_visibility="collapsed",
+                              disabled=True, help="WhatsApp — etapa futura")
+        with c4:
+            pv = pref.get("prioridade_minima", "Baixa")
+            if pv not in _prio_opts:
+                pv = "Baixa"
+            prio = st.selectbox("pr", _prio_opts, index=_prio_opts.index(pv),
+                                key=f"{key}_pr", label_visibility="collapsed")
+        with c5:
+            fv = pref.get("frequencia", "Imediata")
+            if fv not in _freq_opts:
+                fv = "Imediata"
+            freq = st.selectbox("fr", _freq_opts, index=_freq_opts.index(fv),
+                                key=f"{key}_fr", label_visibility="collapsed")
+        with c6:
+            ativo = st.toggle("A", value=bool(pref.get("ativo", True)),
+                              key=f"{key}_a", label_visibility="collapsed")
+            if st.button("💾", key=f"{key}_save", use_container_width=True,
+                         help=f"Salvar: {label}"):
+                ok = upsert_event_preference(client_id, evento, {
+                    "canal_portal":    portal_on,
+                    "canal_email":     False,
+                    "canal_whatsapp":  False,
+                    "prioridade_minima": prio,
+                    "frequencia":      freq,
+                    "ativo":           ativo,
+                })
+                st.toast(f"✅ Salvo: {label}" if ok else "⚠️ Erro ao salvar.", icon="⚙️")
+                if ok:
+                    st.rerun()
+
+        st.markdown(
+            f"<hr style='border-color:{COLOR_BORDER};margin:4px 0;opacity:.5;'/>",
+            unsafe_allow_html=True,
+        )

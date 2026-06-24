@@ -282,13 +282,39 @@ def _render_alerta_card(alerta: dict) -> None:
         unsafe_allow_html=True,
     )
 
+    btn_cols = st.columns([1, 1, 4])
     if link_page:
-        btn_col, _ = st.columns([1, 5])
-        with btn_col:
+        with btn_cols[0]:
             if st.button("Abrir →", key=f"alerta_open_{alerta['id']}",
                          use_container_width=True):
                 st.session_state["portal_page"] = link_page
                 st.session_state.pop("portal_ativo_id", None)
                 st.rerun()
+
+    # Botão "Abrir chamado" — pré-preenche o formulário de chamado com dados do alerta
+    with btn_cols[1]:
+        _prio_map = {"Alta": "Alta", "Média": "Média", "Baixa": "Baixa", "Crítica": "Crítica"}
+        _cat_map  = {
+            "manutencao_proxima": "Manutenção próxima",
+            "manutencao_vencida": "Manutenção vencida",
+            "ativo_critico":      "Falha operacional",
+            "ativo_atencao":      "Dúvida técnica",
+            "relatorio_novo":     "Relatório técnico",
+            "chamado_respondido": "Dúvida técnica",
+            "recomendacao":       "Recomendação por condição",
+            "termografia":        "Termografia",
+        }
+        if st.button("🔧 Chamado", key=f"alerta_chamado_{alerta['id']}",
+                     use_container_width=True):
+            st.session_state["abrir_chamado_titulo"]    = alerta.get("titulo", "")
+            st.session_state["abrir_chamado_descricao"] = alerta.get("descricao", "")
+            st.session_state["abrir_chamado_categoria"] = _cat_map.get(
+                alerta.get("tipo", ""), "Dúvida técnica")
+            st.session_state["abrir_chamado_prioridade"] = _prio_map.get(
+                alerta.get("prioridade", "Média"), "Média")
+            st.session_state["abrir_chamado_origem"]    = "Alerta"
+            st.session_state["abrir_chamado_alert_id"]  = alerta.get("id", "")
+            st.session_state["portal_page"] = "chamados"
+            st.rerun()
 
     st.markdown("<div style='height:1px'></div>", unsafe_allow_html=True)

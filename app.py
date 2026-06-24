@@ -4,7 +4,7 @@ from ui import (inject_global_css, inject_login_bg, render_client_topnav,
                 render_supervisao_sidebar, load_image_b64,
                 inject_floating_assistant, remove_floating_assistant)
 from auth import is_staff, current_nome, current_perfil
-from pwa import inject_pwa
+from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav
 
 
 def main() -> None:
@@ -15,7 +15,8 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
     inject_global_css()
-    inject_pwa()
+    inject_mobile_css()   # CSS responsivo global (mobile-first)
+    inject_pwa()          # manifest + ícones + botão "Baixe o app"
 
     logo_b64 = load_image_b64("logo.jpg")
     bg_b64   = load_image_b64("bg.jpg")
@@ -65,12 +66,16 @@ def main() -> None:
     render_client_topnav(logo_b64, empresa, telefone)
 
     # Navegação via link do assistente flutuante (?portal_page=X na URL)
-    # Lê SEMPRE que estiver na URL — garante que navTo() do assistente funcione
-    _nav = st.query_params.get("portal_page", "")
+    # Sanitiza para aceitar apenas páginas do cliente — impede injeção de rotas
+    from security import sanitize_portal_page
+    _nav = sanitize_portal_page(st.query_params.get("portal_page", ""))
     if _nav:
         st.session_state["portal_page"] = _nav
 
-    portal_page = st.session_state.get("portal_page", "farois")
+    portal_page = st.session_state.get("portal_page", "dashboard")
+
+    # Menu inferior mobile (escondido em desktop via CSS media query)
+    inject_bottom_nav(portal_page)
 
     # Assistente flutuante — visível em todas as páginas do portal do cliente
     # client_id vem da sessão do servidor — NUNCA do front-end
@@ -78,12 +83,15 @@ def main() -> None:
 
     # Botões de navegação suave (ocultos via CSS, acionados pelo JS do assistente flutuante)
     # Quando o JS clica neles, Streamlit dispara rerun via WebSocket (sem reload de página)
-    for _pnk in ["farois","ativos","manutencao","relatorios","chamados","alertas","biblioteca","assistente","preferencias"]:
+    for _pnk in ["dashboard","farois","ativos","manutencao","relatorios","chamados","alertas","biblioteca","assistente","preferencias","notificacoes"]:
         if st.button(f"▸{_pnk}", key=f"__pnav_{_pnk}__"):
             st.session_state["portal_page"] = _pnk
             st.rerun()
 
-    if portal_page == "farois":
+    if portal_page == "dashboard":
+        import page_dashboard
+        page_dashboard.render()
+    elif portal_page == "farois":
         import page_farois
         page_farois.render(logo_b64)
     elif portal_page == "ativos":
@@ -110,6 +118,9 @@ def main() -> None:
     elif portal_page == "preferencias":
         import page_preferencias_notificacao
         page_preferencias_notificacao.render()
+    elif portal_page == "notificacoes":
+        import page_notificacoes_portal
+        page_notificacoes_portal.render()
     else:
         import page_farois
         page_farois.render(logo_b64)
@@ -150,6 +161,15 @@ def _render_supervisao() -> None:
     elif sv_view == "biblioteca_sv":
         import page_sv_biblioteca
         page_sv_biblioteca.render()
+    elif sv_view in ("relatorios_sv", "relatorio_novo", "relatorio_editar"):
+        import page_sv_relatorios
+        page_sv_relatorios.render()
+    elif sv_view == "assistente_sv":
+        import page_sv_assistente
+        page_sv_assistente.render()
+    elif sv_view == "homologacao":
+        import page_sv_homologacao
+        page_sv_homologacao.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

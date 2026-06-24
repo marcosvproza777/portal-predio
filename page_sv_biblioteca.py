@@ -330,10 +330,10 @@ def _render_card(row) -> None:
             unsafe_allow_html=True,
         )
 
-        # Botão processar / reprocessar
+        # Botões processar / reprocessar e testar
         if doc_id and arq_url:
             btn_label = "🔄 Reprocessar" if st_idx == STATUS_INDEXADO else "⚙️ Processar documento"
-            col_proc, _ = st.columns([3, 7])
+            col_proc, col_test, _ = st.columns([3, 3, 4])
             with col_proc:
                 if st.button(btn_label, key=f"proc_{doc_id}", use_container_width=True):
                     with st.spinner("Processando…"):
@@ -354,6 +354,52 @@ def _render_card(row) -> None:
                         st.rerun()
                     else:
                         st.error(f"❌ {result['erro']}")
+
+            with col_test:
+                if st_idx == STATUS_INDEXADO:
+                    if st.button("🔍 Testar no Assistente", key=f"test_{doc_id}", use_container_width=True):
+                        st.session_state[f"_test_open_{doc_id}"] = not st.session_state.get(f"_test_open_{doc_id}", False)
+
+            # Painel de teste — busca nos chunks indexados
+            if st.session_state.get(f"_test_open_{doc_id}") and st_idx == STATUS_INDEXADO:
+                with st.container():
+                    st.markdown(
+                        f"<div style='background:#F8FAFF;border:1px solid #BFDBFE;"
+                        f"border-radius:10px;padding:12px 16px;margin:6px 0 8px;'>",
+                        unsafe_allow_html=True,
+                    )
+                    q = st.text_input(
+                        "Pergunta de teste",
+                        placeholder="Ex: como resetar alarme? / set point de temperatura",
+                        key=f"_test_q_{doc_id}",
+                    )
+                    if q.strip():
+                        from sheets import buscar_chunks
+                        hits = buscar_chunks(cliente or "", q.strip(), top_n=3)
+                        if hits:
+                            st.markdown(
+                                f"<p style='color:#15803D;font-size:0.78rem;font-weight:700;"
+                                f"margin:4px 0;'>✅ {len(hits)} chunk(s) encontrado(s):</p>",
+                                unsafe_allow_html=True,
+                            )
+                            for i, h in enumerate(hits, 1):
+                                st.markdown(
+                                    f"<div style='background:#fff;border:1px solid #E2E8F0;"
+                                    f"border-radius:8px;padding:10px 12px;margin-bottom:6px;'>"
+                                    f"<p style='font-weight:700;font-size:0.78rem;color:#0F1F3D;"
+                                    f"margin:0 0 4px;'>{i}. {h.get('t','(sem título)')}</p>"
+                                    f"<p style='font-size:0.76rem;color:#334155;margin:0;'>"
+                                    f"{h.get('c','')[:300]}</p>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                        else:
+                            st.markdown(
+                                "<p style='color:#B45309;font-size:0.78rem;'>"
+                                "⚠️ Nenhum chunk correspondente. Tente termos diferentes.</p>",
+                                unsafe_allow_html=True,
+                            )
+                    st.markdown("</div>", unsafe_allow_html=True)
 
     with col_del:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)

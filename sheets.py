@@ -705,6 +705,203 @@ def add_chunks_lote(chunks: list[dict]) -> bool:
         return False
 
 
+def get_chunks_para_assistente(client_id: str, limit: int = 60) -> list[dict]:
+    """Retorna chunks indexados acessíveis ao cliente para busca no assistente JS.
+
+    SEGURANÇA: client_id deve vir da sessão, nunca do front-end.
+    Retorna apenas campos mínimos (sem doc_id, client_id completo etc.)
+    para reduzir o payload JS injetado na página.
+    """
+    df = load_sheet("DocumentoChunks")
+    if df.empty:
+        return []
+    for col in _HEADERS_CHUNKS:
+        if col not in df.columns:
+            df[col] = ""
+    cid = (client_id or "").strip().lower()
+    mask = (
+        df["Cliente_Id"].str.strip().str.lower() == cid
+    ) | (
+        df["Cliente_Id"].str.strip() == ""
+    )
+    df = df[mask].head(limit)
+    result = []
+    for _, row in df.iterrows():
+        conteudo = str(row.get("Conteudo", "")).strip()
+        if not conteudo:
+            continue
+        result.append({
+            "t": str(row.get("Titulo_Secao",  "")).strip()[:80],
+            "c": conteudo[:500],
+            "k": str(row.get("Palavras_Chave","")).strip()[:200],
+        })
+    return result
+
+
+def buscar_chunks(client_id: str, query: str, top_n: int = 5) -> list[dict]:
+    """Busca textual simples nos chunks indexados de um cliente.
+
+    Retorna até top_n chunks com maior sobreposição de termos com a query.
+    Usado pela área de supervisão no botão 'Testar no Assistente'.
+    """
+    import unicodedata
+    import re as _re
+
+    def _norm(s: str) -> str:
+        n = unicodedata.normalize("NFD", s.lower())
+        return _re.sub(r"[̀-ͯ]", "", n)
+
+    chunks = get_chunks_para_assistente(client_id, limit=200)
+    if not chunks:
+        return []
+    terms = [t for t in _norm(query).split() if len(t) > 2]
+    if not terms:
+        return chunks[:top_n]
+    scored = []
+    for ch in chunks:
+        haystack = _norm(ch.get("t", "") + " " + ch.get("c", "") + " " + ch.get("k", ""))
+        score = sum(1 for t in terms if t in haystack)
+        if score > 0:
+            scored.append((score, ch))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [ch for _, ch in scored[:top_n]]
+
+
+# ── AssistantLogs ─────────────────────────────────────────────────────────────
+
+_HEADERS_LOGS = [
+    "Id", "Usuario_Id", "Cliente_Id", "Ativo_Id", "Documento_Id",
+    "Pergunta", "Resposta", "Fonte", "Chunks_Usados", "Confidence",
+    "Origem_Resposta", "Avaliacao_Interna", "Observacao_Interna", "Created_At",
+]
+
+
+def save_assistant_log(
+    usuario_id: str,
+    cliente_id: str,
+    ativo_id: str,
+    documento_id: str,
+    pergunta: str,
+    resposta: str,
+    fonte: str,
+    chunks_usados: str,
+    confidence: str,
+    origem_resposta: str,
+) -> str:
+    """Salva log de interação do assistente na aba AssistantLogs."""
+    log_id = _gerar_id("LOG")
+    agora  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("AssistantLogs")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(
+                title="AssistantLogs", rows=2000, cols=len(_HEADERS_LOGS)
+            )
+            ws.append_row(_HEADERS_LOGS, value_input_option="USER_ENTERED")
+        ws.append_row(
+            [log_id, usuario_id, cliente_id, ativo_id, documento_id,
+             pergunta, resposta, fonte, chunks_usados, confidence,
+             origem_resposta, "Não avaliada", "", agora],
+            value_input_option="USER_ENTERED",
+        )
+        load_sheet.clear()
+    except Exception as _e:
+        import logging
+        logging.error("save_assistant_log: %s", _e)
+    return log_id
+
+
+def get_assistant_logs(limit: int = 100) -> pd.DataFrame:
+    """Retorna logs do assistente (apenas para staff)."""
+    df = load_sheet("AssistantLogs")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_LOGS:
+        t = col.title()
+        if t not in df.columns:
+            df[t] = ""
+    return df.iloc[-limit:].iloc[::-1].reset_index(drop=True)
+
+
+def update_log_avaliacao(log_id: str, avaliacao: str, observacao: str = "") -> bool:
+    """Atualiza avaliação interna de um log do assistente."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("AssistantLogs")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col_idx = headers.index("Id") + 1
+        cell = ws.find(log_id, in_column=id_col_idx)
+        if not cell:
+            return False
+        row_idx = cell.row
+        if "Avaliacao_Interna" in headers:
+            ws.update_cell(row_idx, headers.index("Avaliacao_Interna") + 1, avaliacao)
+        if observacao and "Observacao_Interna" in headers:
+            ws.update_cell(row_idx, headers.index("Observacao_Interna") + 1, observacao)
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+# ── AssistantFaq ──────────────────────────────────────────────────────────────
+
+_HEADERS_FAQ = [
+    "Id", "Pergunta", "Resposta", "Fonte", "Categoria", "Palavras_Chave",
+    "Ativo_Id", "Documento_Id", "Status", "Created_At", "Updated_At",
+]
+
+
+def save_assistant_faq(
+    pergunta: str,
+    resposta: str,
+    categoria: str,
+    palavras_chave: str,
+    ativo_id: str = "",
+    documento_id: str = "",
+) -> str:
+    """Salva nova pergunta frequente na aba AssistantFaq."""
+    faq_id = _gerar_id("FAQ")
+    agora  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("AssistantFaq")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(
+                title="AssistantFaq", rows=1000, cols=len(_HEADERS_FAQ)
+            )
+            ws.append_row(_HEADERS_FAQ, value_input_option="USER_ENTERED")
+        ws.append_row(
+            [faq_id, pergunta, resposta, "Pred.IO", categoria, palavras_chave,
+             ativo_id, documento_id, "Ativa", agora, agora],
+            value_input_option="USER_ENTERED",
+        )
+        load_sheet.clear()
+    except Exception as _e:
+        import logging
+        logging.error("save_assistant_faq: %s", _e)
+    return faq_id
+
+
+def get_assistant_faq(status: str = "") -> pd.DataFrame:
+    """Retorna perguntas frequentes do assistente."""
+    df = load_sheet("AssistantFaq")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_FAQ:
+        t = col.title()
+        if t not in df.columns:
+            df[t] = ""
+    if status:
+        df = df[df["Status"].str.strip() == status]
+    return df.reset_index(drop=True)
+
+
 def delete_chunks_documento(doc_id: str) -> bool:
     """Remove todos os chunks de um documento (antes de reprocessar)."""
     try:
@@ -934,12 +1131,35 @@ def get_mensagens_chamado(chamado_id: str) -> pd.DataFrame:
     return df.sort_values("_dt", ascending=True).drop(columns=["_dt"]).reset_index(drop=True)
 
 
-def get_mensagens_visiveis_cliente(chamado_id: str) -> pd.DataFrame:
-    """Mensagens visíveis ao cliente (Visivel_Cliente = 1)."""
+def get_mensagens_visiveis_cliente(chamado_id: str,
+                                   client_id: str = "") -> pd.DataFrame:
+    """
+    Mensagens visíveis ao cliente (Visivel_Cliente = 1).
+
+    SEGURANÇA:
+    - Se client_id fornecido, valida ownership do chamado antes de retornar.
+    - Nunca retorna mensagens com Visivel_Cliente != "1".
+    - Nunca retorna observações internas (Tipo_Mensagem == observacao_interna).
+    """
+    # Validação de ownership: chamado deve pertencer ao cliente
+    if client_id:
+        row = get_chamado_v2_by_id(chamado_id, client_id=client_id)
+        if row is None:
+            return pd.DataFrame()  # chamado não pertence ao cliente — retorna vazio
+
     df = get_mensagens_chamado(chamado_id)
-    if df.empty or "Visivel_Cliente" not in df.columns:
+    if df.empty:
         return df
-    return df[df["Visivel_Cliente"].astype(str).str.strip() == "1"].reset_index(drop=True)
+
+    # Filtro 1: apenas mensagens com Visivel_Cliente = 1
+    if "Visivel_Cliente" in df.columns:
+        df = df[df["Visivel_Cliente"].astype(str).str.strip() == "1"]
+
+    # Filtro 2: nunca exibir observações internas mesmo que Visivel_Cliente = 1 (defesa)
+    if "Tipo_Mensagem" in df.columns:
+        df = df[df["Tipo_Mensagem"].str.strip().str.lower() != "observacao_interna"]
+
+    return df.reset_index(drop=True)
 
 
 def add_mensagem(chamado_id: str, autor: str, autor_tipo: str,
@@ -1247,6 +1467,238 @@ def get_session(token: str) -> dict | None:
     }
 
 
+# ── Notificações do Portal (internas) ────────────────────────────────────────
+
+_HEADERS_PORTAL_NOTIF = [
+    "Id", "Cliente_Id", "Usuario_Id",
+    "Ativo_Id", "Report_Id", "Ticket_Id",
+    "MaintenanceTask_Id", "Alert_Id", "Document_Id",
+    "Tipo_Evento", "Titulo", "Mensagem", "Prioridade",
+    "Canal", "Status", "Link_Page", "Link_Id",
+    "Lida_Em", "Created_At", "Updated_At",
+]
+
+_HEADERS_EVENT_PREFS = [
+    "Id", "Cliente_Id", "Evento",
+    "Canal_Portal", "Canal_Email", "Canal_Whatsapp",
+    "Prioridade_Minima", "Frequencia", "Ativo",
+    "Created_At", "Updated_At",
+]
+
+
+def add_portal_notification(dados: dict) -> str | None:
+    """
+    Cria notificação interna do portal.
+    SEGURANÇA: client_id SEMPRE da sessão, nunca do front-end.
+    Canal E-mail e WhatsApp são registrados mas NÃO enviados nesta etapa.
+    """
+    if not dados.get("cliente_id"):
+        return None
+    _ensure_tab_headers("NotificacoesPortal", _HEADERS_PORTAL_NOTIF)
+    notif_id = _gerar_id("NP")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("NotificacoesPortal", [
+        notif_id,
+        dados.get("cliente_id",         ""),
+        dados.get("usuario_id",         ""),
+        dados.get("ativo_id",           ""),
+        dados.get("report_id",          ""),
+        dados.get("ticket_id",          ""),
+        dados.get("maintenance_task_id",""),
+        dados.get("alert_id",           ""),
+        dados.get("document_id",        ""),
+        dados.get("tipo_evento",        ""),
+        dados.get("titulo",             ""),
+        dados.get("mensagem",           ""),
+        dados.get("prioridade",         "Média"),
+        dados.get("canal",              "Portal"),
+        "Não lida",
+        dados.get("link_page",          ""),
+        dados.get("link_id",            ""),
+        "",    # Lida_Em
+        now,
+        now,
+    ])
+    return notif_id if ok else None
+
+
+def get_portal_notifications(
+    client_id: str,
+    apenas_nao_lidas: bool = False,
+    limit: int = 50,
+) -> pd.DataFrame:
+    """
+    Retorna notificações do portal para o cliente.
+    SEGURANÇA: client_id sempre da sessão — filtra por Cliente_Id.
+    """
+    if not client_id:
+        return pd.DataFrame()
+    df = load_sheet("NotificacoesPortal")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_PORTAL_NOTIF:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[
+        df["Cliente_Id"].astype(str).str.strip().str.lower()
+        == client_id.strip().lower()
+    ].copy()
+    if apenas_nao_lidas:
+        df = df[df["Status"].str.strip() == "Não lida"]
+    dt_col = "Created_At"
+    if dt_col in df.columns:
+        df["_dt"] = pd.to_datetime(df[dt_col].astype(str), dayfirst=True, errors="coerce")
+        df = df.sort_values("_dt", ascending=False).drop(columns=["_dt"])
+    return df.head(limit).reset_index(drop=True)
+
+
+def count_portal_notifications_unread(client_id: str) -> int:
+    """Conta notificações não lidas do portal para o cliente."""
+    if not client_id:
+        return 0
+    df = get_portal_notifications(client_id, apenas_nao_lidas=True)
+    return len(df)
+
+
+def mark_portal_notification_read(notif_id: str, client_id: str) -> bool:
+    """
+    Marca notificação como lida.
+    SEGURANÇA: valida que a notificação pertence ao client_id.
+    """
+    if not notif_id or not client_id:
+        return False
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("NotificacoesPortal")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(notif_id, in_column=id_col)
+        if not cell:
+            return False
+        # Valida ownership
+        row_vals = ws.row_values(cell.row)
+        cid_idx  = headers.index("Cliente_Id") if "Cliente_Id" in headers else -1
+        if cid_idx >= 0:
+            row_cid = (row_vals[cid_idx] if cid_idx < len(row_vals) else "").strip().lower()
+            if row_cid != client_id.strip().lower():
+                return False  # não pertence ao cliente
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        def _c(name): return headers.index(name) + 1 if name in headers else 0
+        ws.update_cell(cell.row, _c("Status"),  "Lida")
+        ws.update_cell(cell.row, _c("Lida_Em"), now)
+        ws.update_cell(cell.row, _c("Updated_At"), now)
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def mark_all_portal_notifications_read(client_id: str) -> int:
+    """Marca todas as notificações não lidas do cliente como lidas. Retorna contagem."""
+    df = get_portal_notifications(client_id, apenas_nao_lidas=True)
+    count = 0
+    for _, row in df.iterrows():
+        nid = str(row.get("Id", "")).strip()
+        if nid and mark_portal_notification_read(nid, client_id):
+            count += 1
+    return count
+
+
+# ── Preferências por Evento ───────────────────────────────────────────────────
+
+def get_event_preferences(client_id: str) -> pd.DataFrame:
+    """
+    Retorna preferências por evento do cliente.
+    SEGURANÇA: client_id da sessão — filtra por Cliente_Id.
+    """
+    if not client_id:
+        return pd.DataFrame()
+    df = load_sheet("PreferenciasEvento")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_EVENT_PREFS:
+        if col not in df.columns:
+            df[col] = ""
+    return df[
+        df["Cliente_Id"].astype(str).str.strip().str.lower()
+        == client_id.strip().lower()
+    ].reset_index(drop=True)
+
+
+def upsert_event_preference(client_id: str, evento: str, dados: dict) -> bool:
+    """
+    Cria ou atualiza preferência de evento.
+    SEGURANÇA: client_id sempre da sessão.
+    """
+    if not client_id or not evento:
+        return False
+    _ensure_tab_headers("PreferenciasEvento", _HEADERS_EVENT_PREFS)
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("PreferenciasEvento")
+        headers = ws.row_values(1)
+        # Busca linha existente para este client_id + evento
+        all_vals = ws.get_all_values()
+        row_num  = None
+        cid_idx  = headers.index("Cliente_Id") if "Cliente_Id" in headers else -1
+        ev_idx   = headers.index("Evento")     if "Evento"     in headers else -1
+        if cid_idx >= 0 and ev_idx >= 0:
+            for i, row in enumerate(all_vals[1:], start=2):
+                cid_v = row[cid_idx].strip().lower() if cid_idx < len(row) else ""
+                ev_v  = row[ev_idx].strip()           if ev_idx  < len(row) else ""
+                if cid_v == client_id.strip().lower() and ev_v == evento:
+                    row_num = i
+                    break
+
+        pref_id = dados.get("id", "") or _gerar_id("EP")
+        row_vals = [
+            pref_id,
+            client_id,
+            evento,
+            str(dados.get("canal_portal",    True)).lower(),
+            str(dados.get("canal_email",      False)).lower(),
+            str(dados.get("canal_whatsapp",   False)).lower(),
+            dados.get("prioridade_minima", "Baixa"),
+            dados.get("frequencia",        "Imediata"),
+            str(dados.get("ativo",         True)).lower(),
+            dados.get("created_at", now),
+            now,
+        ]
+        if row_num:
+            end_col = chr(64 + len(_HEADERS_EVENT_PREFS))
+            ws.update(f"A{row_num}:{end_col}{row_num}", [row_vals],
+                      value_input_option="USER_ENTERED")
+        else:
+            ws.append_row(row_vals, value_input_option="USER_ENTERED")
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def init_default_event_preferences(client_id: str) -> bool:
+    """
+    Inicializa preferências padrão para novo cliente.
+    Apenas cria se não existirem preferências ainda.
+    """
+    if not client_id:
+        return False
+    existing = get_event_preferences(client_id)
+    if not existing.empty:
+        return True  # já tem preferências
+
+    from notifications import _DEFAULT_EVENT_PREFS
+    ok = True
+    for evento, pref in _DEFAULT_EVENT_PREFS.items():
+        r = upsert_event_preference(client_id, evento, pref)
+        if not r:
+            ok = False
+    return ok
+
+
 # ── Notificações Externas ─────────────────────────────────────────────────────
 
 _HEADERS_NOTIFICACOES = [
@@ -1545,6 +1997,1095 @@ def notify_event(
                 created.append(nid)
 
     return created
+
+
+# ── Relatórios Técnicos ──────────────────────────────────────────────────────
+
+_HEADERS_TECH_REPORTS = [
+    "Id", "Cliente_Id", "Ativo_Id", "Titulo", "Tipo_Servico", "Severidade",
+    "Data_Relatorio", "Planta", "Equipamento", "Resumo", "Recomendacoes",
+    "Arquivo_Url", "Score_Impacto", "Status", "Obs_Interna",
+    "Created_By", "Created_At", "Updated_At",
+]
+
+_TIPO_SERVICO_TO_TIMELINE = {
+    "análise de vibração": "analise_vibracao",
+    "analise de vibracao": "analise_vibracao",
+    "análise de óleo":     "analise_oleo",
+    "analise de oleo":     "analise_oleo",
+    "termografia":         "termografia",
+}
+
+_SCORE_DELTA_MAP = {
+    "urgente": -25,
+    "crítico": -15,
+    "critico": -15,
+    "atenção": -7,
+    "atencao": -7,
+    "normal":   2,
+}
+
+
+def _calc_new_score(current: int, severidade: str) -> int:
+    delta = _SCORE_DELTA_MAP.get(severidade.strip().lower(), 0)
+    return max(5, min(100, current + delta))
+
+
+def add_technical_report(dados: dict, created_by: str = "") -> str | None:
+    """Cria relatório técnico em rascunho. cliente_id DEVE vir da sessão."""
+    if not dados.get("cliente_id"):
+        return None
+    _ensure_tab_headers("TechnicalReports", _HEADERS_TECH_REPORTS)
+    rep_id = _gerar_id("REP")
+    now    = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("TechnicalReports", [
+        rep_id,
+        dados.get("cliente_id", ""),
+        dados.get("ativo_id", ""),
+        dados.get("titulo", ""),
+        dados.get("tipo_servico", ""),
+        dados.get("severidade", "Normal"),
+        dados.get("data_relatorio", datetime.now().strftime("%d/%m/%Y")),
+        dados.get("planta", ""),
+        dados.get("equipamento", ""),
+        dados.get("resumo", ""),
+        dados.get("recomendacoes", ""),
+        dados.get("arquivo_url", ""),
+        "",
+        "Rascunho",
+        dados.get("obs_interna", ""),
+        created_by,
+        now,
+        now,
+    ])
+    return rep_id if ok else None
+
+
+def get_technical_reports(
+    client_id: str = "",
+    status: str = "",
+    ativo_id: str = "",
+    staff: bool = True,
+) -> pd.DataFrame:
+    """Retorna relatórios técnicos.
+    staff=False → somente publicados do cliente (requer client_id).
+    """
+    df = load_sheet("TechnicalReports")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_TECH_REPORTS:
+        if col not in df.columns:
+            df[col] = ""
+    if not staff:
+        if not client_id:
+            return pd.DataFrame()
+        df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+        df = df[df["Status"].str.strip() == "Publicado"]
+    else:
+        if client_id:
+            df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+        if status:
+            df = df[df["Status"].str.strip() == status]
+        if ativo_id:
+            df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+    df = df.copy()
+    df["_dt"] = pd.to_datetime(df["Data_Relatorio"].astype(str), dayfirst=True, errors="coerce")
+    df = df.sort_values("_dt", ascending=False).drop(columns=["_dt"])
+    return df.reset_index(drop=True)
+
+
+def get_technical_report_by_id(report_id: str) -> dict | None:
+    """Retorna dict com campos do relatório ou None."""
+    df = load_sheet("TechnicalReports")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == report_id.strip()]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    return {col: str(row.get(col, "")).strip() for col in _HEADERS_TECH_REPORTS}
+
+
+def update_technical_report(report_id: str, campos: dict) -> bool:
+    """Atualiza campos de um relatório técnico."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("TechnicalReports")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(report_id, in_column=id_col)
+        if not cell:
+            return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        campos.setdefault("Updated_At", now)
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def _get_ativo_score(ativo_id: str) -> int | None:
+    """Lê Score atual de um ativo pelo Id."""
+    df = load_sheet("Ativos")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == ativo_id.strip()]
+    if match.empty:
+        return None
+    try:
+        return int(float(str(match.iloc[0].get("Score", "75"))))
+    except Exception:
+        return None
+
+
+def _update_ativo_score(ativo_id: str, new_score: int) -> bool:
+    """Atualiza Score do ativo na aba Ativos."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Ativos")
+        headers = ws.row_values(1)
+        if "Id" not in headers or "Score" not in headers:
+            return False
+        id_col    = headers.index("Id") + 1
+        score_col = headers.index("Score") + 1
+        cell = ws.find(ativo_id, in_column=id_col)
+        if not cell:
+            return False
+        ws.update_cell(cell.row, score_col, str(new_score))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def publish_technical_report(report_id: str, published_by: str = "") -> dict:
+    """Publica relatório: atualiza status, score, timeline, alertas, notificações.
+
+    SEGURANÇA: Obs_Interna nunca é enviada ao cliente.
+    Retorna dict com ações executadas.
+    """
+    rep = get_technical_report_by_id(report_id)
+    if not rep:
+        return {"ok": False, "erro": "Relatório não encontrado."}
+    if rep.get("Status") == "Publicado":
+        return {"ok": False, "erro": "Relatório já publicado."}
+
+    severidade   = rep.get("Severidade", "Normal")
+    ativo_id     = rep.get("Ativo_Id", "").strip()
+    cliente_id   = rep.get("Cliente_Id", "").strip()
+    titulo       = rep.get("Titulo", "")
+    data_rel     = rep.get("Data_Relatorio", datetime.now().strftime("%d/%m/%Y"))
+    tipo_servico = rep.get("Tipo_Servico", "")
+    planta       = rep.get("Planta", "")
+    equipamento  = rep.get("Equipamento", "")
+
+    actions: dict = {
+        "ok": True,
+        "score_delta": 0,
+        "score_atualizado": False,
+        "timeline": False,
+        "alerta": False,
+        "notificado": False,
+    }
+
+    campos_upd: dict = {
+        "Status": "Publicado",
+    }
+    if published_by:
+        campos_upd["Created_By"] = published_by
+
+    # Atualiza score do ativo
+    if ativo_id:
+        current = _get_ativo_score(ativo_id) or 75
+        new_sc  = _calc_new_score(current, severidade)
+        delta   = new_sc - current
+        if _update_ativo_score(ativo_id, new_sc):
+            campos_upd["Score_Impacto"] = str(delta)
+            actions["score_delta"]       = delta
+            actions["score_atualizado"]  = True
+
+    update_technical_report(report_id, campos_upd)
+
+    # Evento na timeline
+    ev_tipo_key = tipo_servico.strip().lower()
+    ev_tipo = _TIPO_SERVICO_TO_TIMELINE.get(ev_tipo_key, "relatorio_publicado")
+    descr   = f"{tipo_servico} — {titulo}."
+    if equipamento:
+        descr += f" Equipamento: {equipamento}."
+    if actions["score_delta"]:
+        descr += f" Score impactado em {actions['score_delta']:+d} pontos."
+    add_report_timeline_event({
+        "ativo_id":        ativo_id or cliente_id,
+        "cliente_id":      cliente_id,
+        "tipo":            ev_tipo,
+        "titulo":          f"Relatório publicado: {titulo}",
+        "descricao":       descr,
+        "data":            data_rel,
+        "origem":          "Relatórios Técnicos",
+        "report_id":       report_id,
+        "visivel_cliente": "true",
+        "obs_interna":     "",
+    })
+    actions["timeline"] = True
+
+    # Alerta interno se Crítico ou Urgente
+    sev_lower = severidade.strip().lower()
+    if sev_lower in ("crítico", "critico", "urgente"):
+        prio_alerta = "Urgente" if sev_lower == "urgente" else "Alta"
+        msg_al = (
+            f"Relatório '{titulo}' publicado com severidade {severidade}."
+            + (f" Equipamento: {equipamento}." if equipamento else "")
+            + f" Cliente: {cliente_id}."
+        )
+        try:
+            df_cli  = get_all_clientes()
+            empresa = ""
+            if not df_cli.empty:
+                cid_col = "Client_Id" if "Client_Id" in df_cli.columns else "Cliente_Id"
+                if cid_col in df_cli.columns:
+                    m = df_cli[
+                        df_cli[cid_col].astype(str).str.strip().str.lower()
+                        == cliente_id.lower()
+                    ]
+                    empresa = str(m.iloc[0].get("Empresa", "")) if not m.empty else ""
+        except Exception:
+            empresa = ""
+        add_alerta_sv(
+            client_id  = cliente_id,
+            empresa    = empresa or cliente_id,
+            titulo     = f"Relatório {severidade}: {titulo}",
+            descricao  = msg_al,
+            prioridade = prio_alerta,
+        )
+        actions["alerta"] = True
+
+    # Notificação externa
+    try:
+        msg_nf = f"Novo relatório técnico disponível: {titulo} ({data_rel})."
+        if planta:
+            msg_nf += f" Planta: {planta}."
+        notifs = notify_event(
+            client_id   = cliente_id,
+            evento_tipo = "report_published",
+            titulo      = f"Novo relatório: {titulo}",
+            mensagem    = msg_nf,
+            link_portal = "/",
+        )
+        actions["notificado"] = len(notifs) > 0
+    except Exception:
+        pass
+
+    return actions
+
+
+def archive_technical_report(report_id: str) -> bool:
+    """Arquiva um relatório técnico publicado."""
+    return update_technical_report(report_id, {"Status": "Arquivado"})
+
+
+def delete_technical_report(report_id: str) -> bool:
+    """Remove relatório somente se ainda for Rascunho."""
+    rep = get_technical_report_by_id(report_id)
+    if not rep or rep.get("Status") != "Rascunho":
+        return False
+    return delete_row_by_id("TechnicalReports", "Id", report_id)
+
+
+# ── Timeline de Relatórios ───────────────────────────────────────────────────
+
+_HEADERS_REPORT_TIMELINE = [
+    "Id", "Ativo_Id", "Cliente_Id", "Tipo", "Titulo", "Descricao",
+    "Data", "Origem", "Report_Id", "Visivel_Cliente", "Obs_Interna", "Created_At",
+]
+
+
+def add_report_timeline_event(dados: dict) -> str | None:
+    """Adiciona evento à timeline de relatórios."""
+    _ensure_tab_headers("ReportTimeline", _HEADERS_REPORT_TIMELINE)
+    ev_id = _gerar_id("TL")
+    now   = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("ReportTimeline", [
+        ev_id,
+        dados.get("ativo_id",        ""),
+        dados.get("cliente_id",      ""),
+        dados.get("tipo",            "relatorio_publicado"),
+        dados.get("titulo",          ""),
+        dados.get("descricao",       ""),
+        dados.get("data",            datetime.now().strftime("%d/%m/%Y")),
+        dados.get("origem",          "Relatórios Técnicos"),
+        dados.get("report_id",       ""),
+        dados.get("visivel_cliente", "true"),
+        dados.get("obs_interna",     ""),
+        now,
+    ])
+    return ev_id if ok else None
+
+
+def get_report_timeline_events(
+    ativo_id: str = "",
+    cliente_id: str = "",
+    staff: bool = True,
+) -> pd.DataFrame:
+    """Retorna eventos da timeline de relatórios."""
+    df = load_sheet("ReportTimeline")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_REPORT_TIMELINE:
+        if col not in df.columns:
+            df[col] = ""
+    if ativo_id:
+        df = df[df["Ativo_Id"].astype(str).str.strip() == ativo_id.strip()]
+    if cliente_id:
+        df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id.strip().lower()]
+    if not staff:
+        df = df[df["Visivel_Cliente"].astype(str).str.strip().str.lower() != "false"]
+    df = df.copy()
+
+    def _dtkey(d: str) -> tuple:
+        try:
+            p = str(d).split("/")
+            return (int(p[2]), int(p[1]), int(p[0]))
+        except Exception:
+            return (0, 0, 0)
+
+    df["_s"] = df["Data"].apply(_dtkey)
+    df = df.sort_values("_s", ascending=False).drop(columns=["_s"])
+    return df.reset_index(drop=True)
+
+
+# ── Planos e Tarefas de Manutenção ──────────────────────────────────────────
+
+_HEADERS_MAINT_PLANS = [
+    "Id", "Cliente_Id", "Ativo_Id", "Nome", "Descricao", "Status", "Created_At", "Updated_At",
+]
+
+_HEADERS_MAINT_TASKS = [
+    "Id", "Cliente_Id", "Ativo_Id", "Componente_Id", "Plano_Id", "Nome_Tarefa",
+    "Categoria", "Tipo_Manutencao", "Periodicidade_Dias", "Periodicidade_Horas",
+    "Ultima_Execucao_Data", "Ultima_Execucao_Horimetro",
+    "Proxima_Execucao_Data", "Proxima_Execucao_Horimetro",
+    "Status", "Prioridade", "Depende_Relatorio", "Origem",
+    "Descricao", "Recomendacao", "Obs_Interna", "Created_At", "Updated_At",
+]
+
+_HEADERS_MAINT_EXEC = [
+    "Id", "Cliente_Id", "Ativo_Id", "Task_Id", "Executado_Em", "Horimetro_Execucao",
+    "Responsavel", "Descricao_Execucao", "Evidencias", "Arquivo_Url", "Obs_Interna", "Created_At",
+]
+
+
+def calc_task_status(task: dict, horimetro_atual: int = 0) -> str:
+    """Calcula status dinâmico de uma tarefa de manutenção (sem chamada ao Sheets).
+
+    Funciona com o formato do Sheets (campos Title_Case):
+    Tipo_Manutencao, Proxima_Execucao_Data, Proxima_Execucao_Horimetro,
+    Periodicidade_Dias, Periodicidade_Horas, Ultima_Execucao_Data, Ultima_Execucao_Horimetro.
+
+    Regras:
+    - Condição → "Depende de análise preditiva" (sempre)
+    - Calendário: diff dias → Vencida (<0) / Próxima do vencimento (≤15) / Em dia
+    - Horímetro: diff horas → Vencida (h≥prox) / Próxima do vencimento (h≥prox-500) / Em dia
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    tipo = str(task.get("Tipo_Manutencao", "")).strip()
+    if not tipo:
+        # fallback para formato mock (lowercase)
+        tipo_mock = str(task.get("tipo", "")).strip()
+        if tipo_mock == "condicao":
+            return "Depende de análise preditiva"
+        if tipo_mock == "calendario":
+            tipo = "Calendário"
+        elif tipo_mock == "horimetro":
+            tipo = "Horímetro"
+
+    if tipo in ("Condição", "Condicao"):
+        return "Depende de análise preditiva"
+
+    if tipo in ("Calendário", "Calendario"):
+        prox = str(task.get("Proxima_Execucao_Data", "")).strip()
+        if not prox or prox in ("", "nan"):
+            ultima = str(task.get("Ultima_Execucao_Data", "")).strip()
+            period = 0
+            try:
+                period = int(float(str(task.get("Periodicidade_Dias", 0) or 0)))
+            except Exception:
+                pass
+            if ultima and period:
+                try:
+                    prox = (_dt.strptime(ultima, "%d/%m/%Y") + _td(days=period)).strftime("%d/%m/%Y")
+                except Exception:
+                    return "Em dia"
+            else:
+                return "Em dia"
+        try:
+            diff = (_dt.strptime(prox, "%d/%m/%Y") - _dt.now()).days
+            if diff < 0:
+                return "Vencida"
+            if diff <= 15:
+                return "Próxima do vencimento"
+            return "Em dia"
+        except Exception:
+            return "Em dia"
+
+    if tipo in ("Horímetro", "Horimetro"):
+        prox_h = str(task.get("Proxima_Execucao_Horimetro", "")).strip()
+        if not prox_h or prox_h in ("", "nan"):
+            ultima_h = str(task.get("Ultima_Execucao_Horimetro", "")).strip()
+            period_h = 0
+            try:
+                period_h = int(float(str(task.get("Periodicidade_Horas", 0) or 0)))
+            except Exception:
+                pass
+            if period_h:
+                try:
+                    base = int(float(ultima_h)) if ultima_h and ultima_h not in ("", "nan") else 0
+                    prox_h = str(base + period_h)
+                except Exception:
+                    return "Em dia"
+            else:
+                return "Em dia"
+        try:
+            ph = int(float(prox_h))
+            if horimetro_atual >= ph:
+                return "Vencida"
+            if horimetro_atual >= ph - 500:
+                return "Próxima do vencimento"
+            return "Em dia"
+        except Exception:
+            return "Em dia"
+
+    return "Em dia"
+
+
+def get_maintenance_plans(
+    client_id: str = "",
+    ativo_id: str = "",
+    status: str = "",
+    staff: bool = True,
+) -> pd.DataFrame:
+    """Retorna planos de manutenção. staff=False → somente do próprio cliente."""
+    df = load_sheet("MaintenancePlans")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_MAINT_PLANS:
+        if col not in df.columns:
+            df[col] = ""
+    if not staff:
+        if not client_id:
+            return pd.DataFrame()
+        df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    else:
+        if client_id:
+            df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    if ativo_id:
+        df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+    if status:
+        df = df[df["Status"].str.strip() == status]
+    return df.reset_index(drop=True)
+
+
+def add_maintenance_plan(dados: dict, created_by: str = "") -> str | None:
+    """Cria plano de manutenção. cliente_id DEVE vir da sessão do supervisor."""
+    if not dados.get("cliente_id"):
+        return None
+    _ensure_tab_headers("MaintenancePlans", _HEADERS_MAINT_PLANS)
+    plan_id = _gerar_id("PLAN")
+    now     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("MaintenancePlans", [
+        plan_id,
+        dados.get("cliente_id", ""),
+        dados.get("ativo_id", ""),
+        dados.get("nome", ""),
+        dados.get("descricao", ""),
+        dados.get("status", "Ativo"),
+        now,
+        now,
+    ])
+    return plan_id if ok else None
+
+
+def update_maintenance_plan(plan_id: str, campos: dict) -> bool:
+    """Atualiza campos de um plano de manutenção."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("MaintenancePlans")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        cell = ws.find(plan_id, in_column=headers.index("Id") + 1)
+        if not cell:
+            return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        campos.setdefault("Updated_At", now)
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def get_maintenance_tasks(
+    client_id: str = "",
+    plan_id: str = "",
+    ativo_id: str = "",
+    tipo: str = "",
+    staff: bool = True,
+) -> pd.DataFrame:
+    """Retorna tarefas de manutenção. staff=False → somente do cliente, sem Obs_Interna."""
+    df = load_sheet("MaintenanceTasks")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_MAINT_TASKS:
+        if col not in df.columns:
+            df[col] = ""
+    if not staff:
+        if not client_id:
+            return pd.DataFrame()
+        df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+        # Nunca expõe obs_interna ao cliente
+        if "Obs_Interna" in df.columns:
+            df = df.drop(columns=["Obs_Interna"])
+    else:
+        if client_id:
+            df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    if plan_id:
+        df = df[df["Plano_Id"].str.strip() == plan_id.strip()]
+    if ativo_id:
+        df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+    if tipo:
+        df = df[df["Tipo_Manutencao"].str.strip() == tipo.strip()]
+    return df.reset_index(drop=True)
+
+
+def get_maintenance_task_by_id(task_id: str) -> dict | None:
+    """Retorna dict da tarefa ou None."""
+    df = load_sheet("MaintenanceTasks")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == task_id.strip()]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    return {col: str(row.get(col, "")).strip() for col in df.columns}
+
+
+def add_maintenance_task(dados: dict, created_by: str = "") -> str | None:
+    """Cria tarefa de manutenção. cliente_id DEVE vir da sessão do supervisor.
+
+    SEGURANÇA:
+    - Tarefas por Condição NUNCA têm próxima_execucao automática.
+    - 20.000h não cria tarefa automática de overhaul.
+    - Obs_Interna nunca é exibida ao cliente.
+    """
+    if not dados.get("cliente_id"):
+        return None
+    _ensure_tab_headers("MaintenanceTasks", _HEADERS_MAINT_TASKS)
+    task_id = _gerar_id("TASK")
+    now     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    tipo    = dados.get("tipo_manutencao", "Calendário")
+    # Condição: status fixo "Depende de análise preditiva", sem proxima execucao
+    status_inicial = (
+        "Depende de análise preditiva" if tipo == "Condição"
+        else dados.get("status", "Em dia")
+    )
+    ok = append_row("MaintenanceTasks", [
+        task_id,
+        dados.get("cliente_id", ""),
+        dados.get("ativo_id", ""),
+        dados.get("componente_id", ""),
+        dados.get("plano_id", ""),
+        dados.get("nome_tarefa", ""),
+        dados.get("categoria", ""),
+        tipo,
+        str(dados.get("periodicidade_dias", "") or ""),
+        str(dados.get("periodicidade_horas", "") or ""),
+        dados.get("ultima_execucao_data", ""),
+        str(dados.get("ultima_execucao_horimetro", "") or ""),
+        dados.get("proxima_execucao_data", ""),
+        str(dados.get("proxima_execucao_horimetro", "") or ""),
+        status_inicial,
+        dados.get("prioridade", "Média"),
+        "Sim" if dados.get("depende_relatorio") else "Não",
+        dados.get("origem", "Cadastro manual"),
+        dados.get("descricao", ""),
+        dados.get("recomendacao", ""),
+        dados.get("obs_interna", ""),
+        now,
+        now,
+    ])
+    return task_id if ok else None
+
+
+def update_maintenance_task(task_id: str, campos: dict) -> bool:
+    """Atualiza campos de uma tarefa de manutenção."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("MaintenanceTasks")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        cell = ws.find(task_id, in_column=headers.index("Id") + 1)
+        if not cell:
+            return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        campos.setdefault("Updated_At", now)
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def delete_maintenance_task(task_id: str) -> bool:
+    """Remove tarefa de manutenção."""
+    return delete_row_by_id("MaintenanceTasks", "Id", task_id)
+
+
+def get_maintenance_executions(
+    client_id: str = "",
+    task_id: str = "",
+    ativo_id: str = "",
+    limit: int = 50,
+) -> pd.DataFrame:
+    """Retorna execuções de manutenção."""
+    df = load_sheet("MaintenanceExecutions")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_MAINT_EXEC:
+        if col not in df.columns:
+            df[col] = ""
+    if client_id:
+        df = df[df["Cliente_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    if ativo_id:
+        df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+    if task_id:
+        df = df[df["Task_Id"].str.strip() == task_id.strip()]
+    return df.iloc[-limit:].iloc[::-1].reset_index(drop=True)
+
+
+def add_maintenance_execution(dados: dict) -> str | None:
+    """Registra execução de uma tarefa de manutenção."""
+    _ensure_tab_headers("MaintenanceExecutions", _HEADERS_MAINT_EXEC)
+    exec_id = _gerar_id("EXEC")
+    now     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("MaintenanceExecutions", [
+        exec_id,
+        dados.get("cliente_id", ""),
+        dados.get("ativo_id", ""),
+        dados.get("task_id", ""),
+        dados.get("executado_em", now[:10].replace("-", "/")),
+        str(dados.get("horimetro_execucao", "") or ""),
+        dados.get("responsavel", ""),
+        dados.get("descricao_execucao", ""),
+        dados.get("evidencias", ""),
+        dados.get("arquivo_url", ""),
+        dados.get("obs_interna", ""),
+        now,
+    ])
+    return exec_id if ok else None
+
+
+def complete_maintenance_task(task_id: str, exec_dados: dict, executed_by: str = "") -> dict:
+    """Conclui tarefa: registra execução, atualiza próxima execução, cria evento na timeline.
+
+    SEGURANÇA:
+    - Obs_Interna nunca é enviada ao cliente.
+    - Não conclui automaticamente tarefas por Condição sem avaliação técnica.
+    - 20.000h não dispara overhaul automático.
+    """
+    from datetime import timedelta as _td, datetime as _dt
+
+    task = get_maintenance_task_by_id(task_id)
+    if not task:
+        return {"ok": False, "erro": "Tarefa não encontrada."}
+
+    tipo        = str(task.get("Tipo_Manutencao", "")).strip()
+    nome        = str(task.get("Nome_Tarefa", "")).strip()
+    cliente_id  = str(task.get("Cliente_Id", "")).strip()
+    ativo_id    = str(task.get("Ativo_Id", "")).strip()
+    period_dias = 0
+    period_h    = 0
+    try:
+        period_dias = int(float(str(task.get("Periodicidade_Dias", 0) or 0)))
+    except Exception:
+        pass
+    try:
+        period_h = int(float(str(task.get("Periodicidade_Horas", 0) or 0)))
+    except Exception:
+        pass
+
+    data_exec = exec_dados.get("executado_em", _dt.now().strftime("%d/%m/%Y"))
+    h_exec    = exec_dados.get("horimetro_execucao", "")
+
+    # 1. Registro de execução
+    exec_id = add_maintenance_execution({
+        "cliente_id":         cliente_id,
+        "ativo_id":           ativo_id,
+        "task_id":            task_id,
+        "executado_em":       data_exec,
+        "horimetro_execucao": h_exec,
+        "responsavel":        executed_by,
+        "descricao_execucao": exec_dados.get("descricao", ""),
+        "evidencias":         exec_dados.get("evidencias", ""),
+        "arquivo_url":        exec_dados.get("arquivo_url", ""),
+        "obs_interna":        exec_dados.get("obs_interna", ""),
+    })
+
+    # 2. Calcula próxima execução e atualiza tarefa
+    upd: dict = {
+        "Ultima_Execucao_Data":      data_exec,
+        "Ultima_Execucao_Horimetro": str(h_exec or ""),
+    }
+
+    if tipo in ("Calendário", "Calendario") and period_dias:
+        try:
+            prox = (_dt.strptime(data_exec, "%d/%m/%Y") + _td(days=period_dias)).strftime("%d/%m/%Y")
+            upd["Proxima_Execucao_Data"] = prox
+        except Exception:
+            pass
+
+    elif tipo in ("Horímetro", "Horimetro") and period_h and h_exec:
+        try:
+            prox_h = int(float(str(h_exec))) + period_h
+            upd["Proxima_Execucao_Horimetro"] = str(prox_h)
+        except Exception:
+            pass
+
+    update_maintenance_task(task_id, upd)
+
+    # 3. Evento na timeline
+    descr_tl = (
+        f"Tarefa '{nome}' concluída em {data_exec}"
+        + (f" com horímetro {h_exec}h." if h_exec else ".")
+        + (f" Responsável: {executed_by}." if executed_by else "")
+    )
+    add_report_timeline_event({
+        "ativo_id":        ativo_id or cliente_id,
+        "cliente_id":      cliente_id,
+        "tipo":            "manutencao_concluida",
+        "titulo":          f"Manutenção concluída: {nome}",
+        "descricao":       descr_tl,
+        "data":            data_exec,
+        "origem":          "Plano de Manutenção",
+        "report_id":       "",
+        "visivel_cliente": "true",
+        "obs_interna":     exec_dados.get("obs_interna", ""),
+    })
+
+    return {"ok": True, "exec_id": exec_id}
+
+
+def generate_maintenance_alerts(client_id: str = "", ativo_id: str = "") -> int:
+    """Escaneia tarefas e gera alertas internos para próximas do vencimento / vencidas.
+
+    SEGURANÇA:
+    - Tarefas por Condição nunca geram alerta automático.
+    - 20.000h não gera alerta de overhaul.
+    - Sem WhatsApp / e-mail.
+    """
+    df = get_maintenance_tasks(client_id=client_id, ativo_id=ativo_id, staff=True)
+    if df.empty:
+        return 0
+
+    count = 0
+    for _, row in df.iterrows():
+        task     = row.to_dict()
+        tipo     = str(task.get("Tipo_Manutencao", "")).strip()
+        if tipo in ("Condição", "Condicao"):
+            continue   # condição nunca vira alerta automático
+
+        aid      = str(task.get("Ativo_Id", "")).strip()
+        cid      = str(task.get("Cliente_Id", "")).strip()
+        h_atual  = get_horimetro(aid) or 0
+        status   = calc_task_status(task, h_atual)
+
+        if status not in ("Próxima do vencimento", "Vencida"):
+            continue
+
+        nome    = str(task.get("Nome_Tarefa", "")).strip()
+        prio    = "Urgente" if status == "Vencida" else "Alta"
+        titulo  = f"{'Manutenção vencida' if status == 'Vencida' else 'Manutenção próxima'}: {nome}"
+        msg     = f"Tarefa '{nome}' está com status '{status}'."
+        if aid:
+            msg += f" Ativo: {aid}."
+
+        # Empresa para o alerta
+        empresa = cid
+        try:
+            df_cli = get_all_clientes()
+            cid_col = "Client_Id" if "Client_Id" in df_cli.columns else "Cliente_Id"
+            if cid_col in df_cli.columns:
+                m = df_cli[
+                    df_cli[cid_col].astype(str).str.strip().str.lower() == cid.lower()
+                ]
+                empresa = str(m.iloc[0].get("Empresa", cid)) if not m.empty else cid
+        except Exception:
+            pass
+
+        add_alerta_sv(
+            client_id  = cid,
+            empresa    = empresa,
+            titulo     = titulo,
+            descricao  = msg,
+            prioridade = prio,
+        )
+        count += 1
+
+    return count
+
+
+# ── Chamados V2 — campos estendidos ──────────────────────────────────────────
+
+_HEADERS_CHAMADOS_V2 = [
+    "Id", "Client_Id", "Usuario_Id", "Empresa", "Email",
+    "Ativo_Id", "Componente_Id", "Report_Id", "Maintenance_Task_Id", "Alert_Id",
+    "Titulo", "Descricao", "Categoria", "Prioridade", "Status", "Origem",
+    "Responsavel", "Planta", "Equipamento",
+    "Aberto_Em", "Atualizado_Em", "Concluido_Em",
+    # legado — mantidos para compatibilidade
+    "Data_Abertura", "Data_Atualizacao", "Data_Encerramento",
+]
+
+
+def _ensure_chamados_v2_cols() -> None:
+    """Garante que colunas V2 existam no sheet Chamados sem apagar dados."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Chamados")
+        headers = ws.row_values(1)
+        needed  = ["Ativo_Id", "Componente_Id", "Report_Id",
+                   "Maintenance_Task_Id", "Alert_Id", "Categoria", "Origem"]
+        for col in needed:
+            if col not in headers:
+                ws.update_cell(1, len(headers) + 1, col)
+                headers.append(col)
+    except Exception:
+        pass
+
+
+def abrir_chamado_v2(dados: dict) -> str | None:
+    """
+    Abre chamado técnico com todos os campos da V2.
+    Retorna o chamado_id gerado ou None em caso de erro.
+    SEGURANÇA: client_id deve vir SEMPRE da sessão antes de chamar esta função.
+    """
+    _ensure_chamados_v2_cols()
+    chamado_id = _gerar_id("CH")
+    agora      = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("Chamados", [
+        chamado_id,
+        dados.get("client_id", ""),
+        dados.get("usuario_id", ""),
+        dados.get("empresa", dados.get("client_id", "")),
+        dados.get("email", ""),
+        dados.get("ativo_id", ""),
+        dados.get("componente_id", ""),
+        dados.get("report_id", ""),
+        dados.get("maintenance_task_id", ""),
+        dados.get("alert_id", ""),
+        dados.get("titulo", ""),
+        dados.get("descricao", ""),
+        dados.get("categoria", "Dúvida técnica"),
+        dados.get("prioridade", "Média"),
+        "Aberto",
+        dados.get("origem", "Portal do Cliente"),
+        "",   # responsavel
+        dados.get("planta", ""),
+        dados.get("equipamento", ""),
+        agora, agora, "",   # Aberto_Em, Atualizado_Em, Concluido_Em
+        agora, agora, "",   # legado: Data_Abertura, Data_Atualizacao, Data_Encerramento
+    ])
+    if ok:
+        # Cria evento no histórico técnico do ativo
+        ativo_id  = dados.get("ativo_id", "")
+        client_id = dados.get("client_id", "")
+        titulo    = dados.get("titulo", "")
+        if ativo_id:
+            try:
+                add_report_timeline_event({
+                    "ativo_id":       ativo_id,
+                    "cliente_id":     client_id,
+                    "tipo":           "chamado_aberto",
+                    "titulo":         f"Chamado aberto: {titulo}",
+                    "descricao":      f"Chamado técnico #{chamado_id} aberto para o ativo.",
+                    "data":           agora[:10],
+                    "origem":         "Chamados Técnicos",
+                    "report_id":      dados.get("report_id", ""),
+                    "visivel_cliente": True,
+                })
+            except Exception:
+                pass
+        load_sheet.clear()
+        return chamado_id
+    return None
+
+
+def get_chamados_v2(client_id: str, status: str = "", ativo_id: str = "") -> pd.DataFrame:
+    """
+    Chamados do cliente com colunas V2.
+    SEGURANÇA: client_id vem da sessão — nunca do front-end.
+    """
+    df = load_sheet("Chamados")
+    if df.empty:
+        return df
+    # Garante colunas mínimas
+    for col in ("Client_Id", "Id", "Titulo", "Status", "Prioridade", "Categoria",
+                "Origem", "Ativo_Id", "Descricao", "Aberto_Em", "Atualizado_Em"):
+        if col not in df.columns:
+            df[col] = ""
+    # Filtro por cliente — SEMPRE
+    cid_col = "Client_Id" if "Client_Id" in df.columns else "Empresa"
+    df = df[df[cid_col].str.strip().str.lower() == client_id.strip().lower()]
+    if status:
+        df = df[df["Status"].str.strip().str.lower() == status.lower()]
+    if ativo_id:
+        df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+    df["_dt"] = pd.to_datetime(df.get("Aberto_Em", pd.Series(dtype=str)), dayfirst=True, errors="coerce")
+    return df.sort_values("_dt", ascending=False).drop(columns=["_dt"]).reset_index(drop=True)
+
+
+def get_chamado_v2_by_id(chamado_id: str, client_id: str = "") -> dict | None:
+    """
+    Retorna chamado pelo Id.
+    Se client_id fornecido, valida que o chamado pertence ao cliente.
+    SEGURANÇA: client_id sempre da sessão.
+    """
+    df = load_sheet("Chamados")
+    if df.empty:
+        df = _mock_chamados()
+    if "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == str(chamado_id).strip()]
+    if match.empty:
+        return None
+    row = match.iloc[0].to_dict()
+    # Validação de ownership
+    if client_id:
+        cid_col = "Client_Id" if "Client_Id" in row else "Empresa"
+        if str(row.get(cid_col, "")).strip().lower() != client_id.strip().lower():
+            return None  # cliente não pode ver chamado de outro cliente
+    return row
+
+
+def concluir_chamado(chamado_id: str, concluded_by: str = "") -> bool:
+    """
+    Conclui um chamado: atualiza status, data e cria evento no histórico do ativo.
+    """
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = update_chamado(chamado_id, {
+        "Status":            "Concluído",
+        "Concluido_Em":      agora,
+        "Data_Encerramento": agora,
+    })
+    if ok:
+        # Busca ativo_id do chamado para criar evento
+        chamado = get_chamado_by_id(chamado_id)
+        if chamado:
+            ativo_id  = str(chamado.get("Ativo_Id", "")).strip()
+            client_id = str(chamado.get("Client_Id",
+                           chamado.get("Empresa", ""))).strip()
+            titulo    = str(chamado.get("Titulo", "")).strip()
+            if ativo_id:
+                try:
+                    add_report_timeline_event({
+                        "ativo_id":       ativo_id,
+                        "cliente_id":     client_id,
+                        "tipo":           "chamado_concluido",
+                        "titulo":         f"Chamado concluído: {titulo}",
+                        "descricao":      f"Chamado técnico #{chamado_id} concluído por {concluded_by or 'Pred.IO'}.",
+                        "data":           agora[:10],
+                        "origem":         "Chamados Técnicos",
+                        "visivel_cliente": True,
+                    })
+                except Exception:
+                    pass
+    return ok
+
+
+def responder_chamado(chamado_id: str, mensagem: str, autor: str,
+                      novo_status: str = "") -> bool:
+    """
+    Registra resposta visível ao cliente + atualiza status se informado.
+    Cria evento no histórico do ativo quando há ativo vinculado.
+    """
+    ok = add_mensagem(
+        chamado_id    = chamado_id,
+        autor         = autor,
+        autor_tipo    = "funcionario",
+        mensagem      = mensagem,
+        visivel_cliente = True,
+        tipo_mensagem = "resposta_predio",
+    )
+    if ok and novo_status:
+        chamado    = get_chamado_by_id(chamado_id)
+        status_ant = str(chamado.get("Status", "")) if chamado else ""
+        update_chamado(chamado_id, {"Status": novo_status})
+        if chamado and status_ant and status_ant != novo_status:
+            add_mensagem(
+                chamado_id    = chamado_id,
+                autor         = "sistema",
+                autor_tipo    = "sistema",
+                mensagem      = f"Status alterado: {status_ant} → {novo_status}",
+                visivel_cliente = True,
+                tipo_mensagem = "alteracao_status",
+            )
+        # Evento no histórico do ativo quando respondido
+        if chamado:
+            ativo_id  = str(chamado.get("Ativo_Id", "")).strip()
+            client_id = str(chamado.get("Client_Id",
+                           chamado.get("Empresa", ""))).strip()
+            titulo    = str(chamado.get("Titulo", "")).strip()
+            if ativo_id:
+                try:
+                    add_report_timeline_event({
+                        "ativo_id":       ativo_id,
+                        "cliente_id":     client_id,
+                        "tipo":           "chamado_respondido",
+                        "titulo":         f"Chamado respondido: {titulo}",
+                        "descricao":      f"Pred.IO respondeu o chamado #{chamado_id}.",
+                        "data":           datetime.now().strftime("%d/%m/%Y"),
+                        "origem":         "Chamados Técnicos",
+                        "visivel_cliente": True,
+                    })
+                except Exception:
+                    pass
+    return ok
+
+
+def get_chamados_resumo_assistente(client_id: str, ativo_id: str = "") -> list[dict]:
+    """
+    Resumo de chamados para o Assistente Técnico.
+    Nunca retorna observações internas.
+    SEGURANÇA: client_id sempre da sessão.
+    """
+    df = get_chamados_v2(client_id=client_id, ativo_id=ativo_id)
+    if df.empty:
+        # Fallback para função legada
+        df = get_chamados(client_id)
+    if df.empty:
+        return []
+    result = []
+    for _, r in df.iterrows():
+        result.append({
+            "id":         str(r.get("Id", "")).strip(),
+            "titulo":     str(r.get("Titulo", "")).strip(),
+            "status":     str(r.get("Status", "")).strip(),
+            "prioridade": str(r.get("Prioridade", "")).strip(),
+            "categoria":  str(r.get("Categoria", "")).strip(),
+            "ativo_id":   str(r.get("Ativo_Id", "")).strip(),
+            "aberto_em":  str(r.get("Aberto_Em", r.get("Data_Abertura", ""))).strip(),
+        })
+    return result
 
 
 def delete_session(token: str) -> None:
