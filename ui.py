@@ -37,6 +37,15 @@ def inject_global_css() -> None:
     #MainMenu, footer {{ visibility: hidden; }}
     /* Esconde barra de ferramentas sem remover do DOM (preserva toggle da sidebar) */
     [data-testid="stToolbar"] {{ visibility: hidden !important; }}
+    /* Botoes de navegacao suave do assistente (aria-label comeca com ▸) */
+    button[aria-label^="▸"],
+    [data-testid="stButton"]:has(button[aria-label^="▸"]) {{
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }}
     header[data-testid="stHeader"] {{ background: transparent !important; }}
     /* Garante que o botão de abrir/fechar sidebar seja sempre visível
        (visibility:hidden no pai pode ser sobrescrito pelo filho; display:none não) */
@@ -824,19 +833,31 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   if (!p.predNavTo) {{
     var _ns=pd.createElement('script');
     _ns.textContent=(
+      // Esconde botoes de nav suave pelo texto (fallback para :has() nao suportado)
+      '(function(){{'+
+        'function _hideNavBtns(){{'+
+          'var bs=document.querySelectorAll("button");'+
+          'for(var i=0;i<bs.length;i++){{'+
+            'if(bs[i].textContent.trim().charAt(0)==="▸"){{'+
+              'var el=bs[i];'+
+              'while(el&&el.getAttribute&&el.getAttribute("data-testid")!=="stButton")el=el.parentElement;'+
+              'if(el)el.style.display="none"; else bs[i].style.display="none";'+
+            '}}'+
+          '}}'+
+        '}}'+
+        '_hideNavBtns();'+
+        'var _mo=new MutationObserver(_hideNavBtns);'+
+        '_mo.observe(document.body,{{childList:true,subtree:true}});'+
+      '}})();'+
+      // Funcao de navegacao: clica no botao oculto ou cai em URL
       'window.predNavTo=function(page){{'+
         'var btns=document.querySelectorAll("button");'+
         'for(var i=0;i<btns.length;i++){{'+
-          'if(btns[i].getAttribute("aria-label")==="\\u25b8"+page){{btns[i].click();return;}}'+
+          'if(btns[i].textContent.trim()==="▸"+page){{btns[i].click();return;}}'+
         '}}'+
-        // fallback: URL navigation se botao nao encontrado
         'var s=new URLSearchParams(window.location.search).get("sid")||"";'+
         'window.location.href="?portal_page="+page+(s?"&sid="+s:"");'+
-      '}};'+
-      // CSS: esconde botoes de navegacao suave
-      '(function(){{var st=document.createElement("style");'+
-      'st.textContent="button[aria-label^=\\\"\\u25b8\\\"]{{display:none!important}}";'+
-      'document.head.appendChild(st);}})();'
+      '}};'
     );
     (pd.head||pd.body).appendChild(_ns);
   }}
