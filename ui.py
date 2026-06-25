@@ -424,8 +424,6 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str,
         f"</div></div>"
         f"<div style='display:flex;align-items:center;gap:10px;'>"
         f"<div style='text-align:right;'>"
-        f"<p style='margin:0 0 2px;font-size:0.5rem;letter-spacing:.14em;"
-        f"text-transform:uppercase;color:rgba(255,255,255,0.30);line-height:1;'>Empresa</p>"
         f"<p style='margin:0;font-size:0.85rem;font-weight:700;color:#E2E8F0;line-height:1;'>"
         f"{empresa}</p>"
         f"</div>"
