@@ -407,11 +407,25 @@ def _bottom_nav_html(portal_page: str) -> str:
   var p  = window.parent;
   if (!p || p === window) return;
   var pd = p.document;
-  if (pd.getElementById('pred-bottom-nav')) return;   // evita duplicata
 
   var active   = "{portal_page}";
   var navItems = {nav_json};
   var moreItems= {more_json};
+
+  // Se o nav já existe, apenas atualiza o item ativo e sai (sem recriar)
+  var existingNav = pd.getElementById('pred-bottom-nav');
+  if (existingNav) {{
+    var btns = existingNav.querySelectorAll('.pred-bn-item');
+    btns.forEach(function(btn, i) {{
+      var key = navItems[i] ? navItems[i][0] : '';
+      if (key === active) {{
+        btn.classList.add('pred-active');
+      }} else {{
+        btn.classList.remove('pred-active');
+      }}
+    }});
+    return;
+  }}
 
   // ── Estilos ──
   var sty = pd.createElement('style');
