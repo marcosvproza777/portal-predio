@@ -5,7 +5,7 @@ from auth import require_staff
 from sheets import (get_all_ativos_sv, cadastrar_ativo_sv,
                     get_componentes_sv, cadastrar_componente_sv,
                     get_all_clientes, get_all_chamados,
-                    delete_ativo_sv)
+                    delete_ativo_sv, update_ativo)
 from ui import (sv_page_header, sv_metric_card,
                 COLOR_NAVY, COLOR_BLUE, COLOR_BG, COLOR_CARD, COLOR_BORDER, COLOR_MUTED)
 
@@ -446,6 +446,10 @@ def _render_detalhe() -> None:
             unsafe_allow_html=True,
         )
 
+    # ── Editar ativo ──────────────────────────────────────────────────────────
+    with st.expander("✏️ Editar dados do ativo", expanded=False):
+        _render_edit_ativo(ativo_id, row)
+
     # ── Componentes ───────────────────────────────────────────────────────────
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>"
@@ -519,6 +523,107 @@ def _render_detalhe() -> None:
             _render_chamado_mini(crow)
 
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
+
+
+def _render_edit_ativo(ativo_id: str, row) -> None:
+    """Formulário de edição de um ativo existente (pre-preenche com dados atuais)."""
+    # Valores atuais
+    nome_atual   = str(row.get("Tag",    "")).strip() or str(row.get("Nome", "")).strip()
+    planta_atual = str(row.get("Planta", "")).strip()
+    tipo_atual   = str(row.get("Tipo",   "")).strip()
+    modelo_atual = str(row.get("Modelo", "")).strip()
+    ns_atual     = str(row.get("Ns",     "") or row.get("Numero_Serie", "")).strip()
+    mb_atual     = str(row.get("Mb",     "")).strip()
+    inv_opts     = ["Sim", "Não", "Não aplicável", "Não informado"]
+    inv_atual    = str(row.get("Inversor", "Não informado")).strip()
+    oil_opts     = ["Sim", "Não"]
+    oil_atual    = str(row.get("Analise_Oleo", "Não")).strip()
+    st_opts      = ["Bom", "Atenção", "Crítico", "Em acompanhamento"]
+    status_atual = str(row.get("Status",      "Bom")).strip()
+    cr_opts      = ["Baixa", "Média", "Alta", "Crítica"]
+    crit_atual   = str(row.get("Criticidade", "Média")).strip()
+    try:
+        score_atual = int(float(str(row.get("Score", 80))))
+    except (ValueError, TypeError):
+        score_atual = 80
+    det_atual  = str(row.get("Detalhes",             "")).strip()
+    obs_atual  = str(row.get("Observacoes_Internas",  "")).strip()
+    data_atual = str(row.get("Data",                  "")).strip()
+
+    _safe_idx = lambda opts, val: opts.index(val) if val in opts else 0
+
+    with st.form(f"form_edit_ativo_{ativo_id}"):
+        col_n, col_p = st.columns(2)
+        with col_n:
+            novo_nome   = st.text_input("Nome do ativo *", value=nome_atual)
+        with col_p:
+            nova_planta = st.text_input("Planta *", value=planta_atual)
+
+        col_t, col_m = st.columns(2)
+        with col_t:
+            novo_tipo   = st.text_input("Tipo", value=tipo_atual)
+        with col_m:
+            novo_modelo = st.text_input("Modelo", value=modelo_atual)
+
+        col_ns, col_mb = st.columns(2)
+        with col_ns:
+            novo_ns = st.text_input("Número de série", value=ns_atual)
+        with col_mb:
+            novo_mb = st.text_input("MB", value=mb_atual)
+
+        col_i, col_o = st.columns(2)
+        with col_i:
+            novo_inv = st.selectbox("Inversor de frequência", inv_opts,
+                                    index=_safe_idx(inv_opts, inv_atual))
+        with col_o:
+            novo_oil = st.selectbox("Análise de óleo", oil_opts,
+                                    index=_safe_idx(oil_opts, oil_atual))
+
+        col_s, col_c, col_d = st.columns(3)
+        with col_s:
+            novo_status = st.selectbox("Status", st_opts,
+                                       index=_safe_idx(st_opts, status_atual))
+        with col_c:
+            nova_crit   = st.selectbox("Criticidade", cr_opts,
+                                       index=_safe_idx(cr_opts, crit_atual))
+        with col_d:
+            nova_data   = st.text_input("Última atualização", value=data_atual,
+                                        placeholder="DD/MM/AAAA")
+
+        novo_score = st.slider("Score de saúde (0-100)", 0, 100, score_atual)
+
+        novo_det = st.text_area("Recomendação técnica", value=det_atual, height=100)
+        novo_obs = st.text_area("Observações internas (staff only)", value=obs_atual, height=70)
+
+        salvar = st.form_submit_button("💾 Salvar alterações", type="primary",
+                                       use_container_width=True)
+
+    if salvar:
+        if not novo_nome.strip() or not nova_planta.strip():
+            st.warning("Nome do ativo e Planta são obrigatórios.")
+            return
+        campos = {
+            "Tag":                  novo_nome.strip(),
+            "Planta":               nova_planta.strip(),
+            "Tipo":                 novo_tipo.strip(),
+            "Modelo":               novo_modelo.strip(),
+            "Ns":                   novo_ns.strip(),
+            "Mb":                   novo_mb.strip(),
+            "Inversor":             novo_inv,
+            "Analise_Oleo":         novo_oil,
+            "Status":               novo_status,
+            "Criticidade":          nova_crit,
+            "Score":                str(novo_score),
+            "Detalhes":             novo_det.strip(),
+            "Observacoes_Internas": novo_obs.strip(),
+            "Data":                 nova_data.strip() or __import__("datetime").datetime.now().strftime("%d/%m/%Y"),
+        }
+        ok = update_ativo(ativo_id, campos)
+        if ok:
+            st.success("✅ Ativo atualizado com sucesso!")
+            st.rerun()
+        else:
+            st.error("❌ Erro ao salvar. Verifique se a aba Ativos existe e tem permissão de escrita.")
 
 
 def _render_componente_card(comp) -> None:

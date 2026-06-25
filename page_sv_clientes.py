@@ -2,7 +2,7 @@
 import streamlit as st
 from auth import require_staff
 from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
-                    cadastrar_usuario, delete_usuario,
+                    cadastrar_usuario, delete_usuario, update_usuario,
                     get_client_logo, save_client_logo)
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
@@ -113,9 +113,10 @@ def _render_lista() -> None:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
             if st.button("Histórico →", key=f"sv_cli_{client_id}",
                          use_container_width=True):
-                st.session_state["sv_view"]         = "cliente_historico"
-                st.session_state["sv_cliente_id"]   = client_id
-                st.session_state["sv_cliente_nome"] = empresa
+                st.session_state["sv_view"]          = "cliente_historico"
+                st.session_state["sv_cliente_id"]    = client_id
+                st.session_state["sv_cliente_nome"]  = empresa
+                st.session_state["sv_cliente_email"] = email
                 st.rerun()
         with col_del:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
@@ -220,8 +221,11 @@ def render_historico() -> None:
                     else:
                         st.error("Erro ao salvar a logo.")
 
-    # ── Tabs: Chamados / Relatórios ───────────────────────────────────────────
-    tab_cham, tab_rel = st.tabs(["🔧 Chamados", "📁 Relatórios"])
+    # ── Tabs: Editar / Chamados / Relatórios ─────────────────────────────────
+    tab_edit, tab_cham, tab_rel = st.tabs(["✏️ Editar dados", "🔧 Chamados", "📁 Relatórios"])
+
+    with tab_edit:
+        _render_edit_cliente(client_id, empresa)
 
     with tab_cham:
         if chamados.empty:
@@ -236,6 +240,71 @@ def render_historico() -> None:
         else:
             for _, row in relatorios.iterrows():
                 _render_relatorio_mini(row)
+
+
+def _render_edit_cliente(client_id: str, empresa: str) -> None:
+    """Formulário de edição dos dados cadastrais do cliente."""
+    # Carregar dados atuais
+    df_cli = get_all_clientes()
+    dados_atuais = {}
+    if not df_cli.empty:
+        match = df_cli[df_cli.get("Client_Id", df_cli.get("Empresa", df_cli.iloc[:, 0]))
+                       .str.strip().str.lower() == client_id.lower()]
+        if not match.empty:
+            dados_atuais = match.iloc[0].to_dict()
+
+    email_atual   = str(dados_atuais.get("Email",    st.session_state.get("sv_cliente_email", ""))).strip()
+    nome_atual    = str(dados_atuais.get("Nome",     "")).strip()
+    telefone_atual= str(dados_atuais.get("Telefone", "")).strip()
+    perfil_atual  = str(dados_atuais.get("Perfil",   "cliente")).strip().lower()
+
+    perfis = ["cliente", "funcionario", "admin"]
+    perfil_idx = perfis.index(perfil_atual) if perfil_atual in perfis else 0
+
+    with st.form("form_edit_cliente"):
+        st.markdown(
+            f"<p style='font-size:0.8rem;color:#64748B;margin:0 0 0.75rem;'>"
+            f"🏢 Empresa: <strong>{empresa}</strong> &nbsp;·&nbsp; "
+            f"Client ID: <code>{client_id}</code></p>",
+            unsafe_allow_html=True,
+        )
+        col_n, col_e = st.columns(2)
+        with col_n:
+            novo_nome = st.text_input("Nome do contato", value=nome_atual)
+        with col_e:
+            novo_email = st.text_input("E-mail", value=email_atual)
+
+        col_t, col_p = st.columns(2)
+        with col_t:
+            novo_tel = st.text_input("Telefone", value=telefone_atual)
+        with col_p:
+            novo_perfil = st.selectbox(
+                "Perfil",
+                perfis,
+                index=perfil_idx,
+                format_func=lambda x: {"cliente": "Cliente", "funcionario": "Funcionário", "admin": "Admin"}[x],
+            )
+
+        salvar = st.form_submit_button("💾 Salvar alterações", type="primary",
+                                       use_container_width=True)
+
+    if salvar:
+        if not email_atual:
+            st.warning("E-mail atual não encontrado — não foi possível identificar o registro.")
+            return
+        campos = {
+            "Nome":     novo_nome.strip(),
+            "Email":    novo_email.strip().lower(),
+            "Telefone": novo_tel.strip(),
+            "Perfil":   novo_perfil,
+        }
+        ok = update_usuario(email_atual, campos)
+        if ok:
+            st.success("✅ Dados do cliente atualizados com sucesso!")
+            if novo_email.strip().lower() != email_atual:
+                st.session_state["sv_cliente_email"] = novo_email.strip().lower()
+        else:
+            st.error("❌ Erro ao salvar. Verifique se a aba Usuarios existe e tem permissão de escrita.")
 
 
 def _render_chamado_mini(row) -> None:

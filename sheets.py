@@ -3175,3 +3175,56 @@ def save_client_logo(client_id: str, logo_b64: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ── Edição de registros existentes ───────────────────────────────────────────
+
+def update_usuario(email: str, campos: dict) -> bool:
+    """Atualiza campos de um usuário/cliente pelo e-mail (busca em Usuarios e Clientes)."""
+    try:
+        ss = get_spreadsheet()
+        for tab in ("Usuarios", "Clientes"):
+            try:
+                ws = ss.worksheet(tab)
+            except gspread.exceptions.WorksheetNotFound:
+                continue
+            headers = ws.row_values(1)
+            if "Email" not in headers:
+                continue
+            email_col = headers.index("Email") + 1
+            cell = ws.find(email.strip().lower(), in_column=email_col)
+            if not cell:
+                continue
+            row_idx = cell.row
+            for campo, valor in campos.items():
+                if campo in headers:
+                    ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
+            load_sheet.clear()
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def update_ativo(ativo_id: str, campos: dict) -> bool:
+    """Atualiza campos de um ativo existente pelo Id."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Ativos")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell = ws.find(ativo_id, in_column=id_col)
+        if not cell:
+            return False
+        row_idx = cell.row
+        campos = dict(campos)
+        campos["Data"] = datetime.now().strftime("%d/%m/%Y")
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
