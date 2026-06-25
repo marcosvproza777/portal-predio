@@ -1,4 +1,5 @@
 """Portal do Cliente — Pred.IO  |  Entry point."""
+import version  # grava static/version.txt uma vez por inicialização do servidor
 import streamlit as st
 from ui import (inject_global_css, inject_login_bg, render_client_topnav,
                 render_supervisao_sidebar, load_image_b64,

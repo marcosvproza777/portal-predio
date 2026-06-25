@@ -202,6 +202,62 @@ _HTML = """<!DOCTYPE html>
         pd.body.appendChild(ov);
     }
 
+    /* ── Verificação de atualização (polling a cada 3 min) ───────────── */
+    if (!p._predUpdateReady) {
+        p._predUpdateReady = false;
+
+        function _predShowUpdateBanner() {
+            if (pd.getElementById('pred-update-banner')) return;
+            var bar = pd.createElement('div');
+            bar.id = 'pred-update-banner';
+            bar.style.cssText = [
+                'position:fixed;top:0;left:0;right:0;z-index:9999999;',
+                'background:linear-gradient(90deg,#0F1F3D 0%,#1E3A8A 100%);',
+                'color:#fff;display:flex;align-items:center;',
+                'justify-content:space-between;gap:12px;',
+                'padding:11px 16px;font-family:sans-serif;',
+                'box-shadow:0 3px 16px rgba(0,0,0,0.45);'
+            ].join('');
+            bar.innerHTML = [
+                '<span style="font-size:.88rem;font-weight:600;">',
+                '&#128260; Nova versão disponível</span>',
+                '<button onclick="location.reload(true)" style="',
+                'background:#38BDF8;color:#0F1F3D;border:none;',
+                'border-radius:8px;padding:7px 18px;font-weight:700;',
+                'font-size:.85rem;cursor:pointer;white-space:nowrap;',
+                '-webkit-tap-highlight-color:rgba(0,0,0,0);',
+                'touch-action:manipulation;">Atualizar</button>'
+            ].join('');
+            pd.body.appendChild(bar);
+        }
+
+        fetch('/app/static/version.txt?t=' + Date.now())
+            .then(function(r){ return r.text(); })
+            .then(function(v){ p._predVersion = v.trim(); })
+            .catch(function(){});
+
+        setInterval(function() {
+            fetch('/app/static/version.txt?t=' + Date.now())
+                .then(function(r){ return r.text(); })
+                .then(function(v){
+                    v = v.trim();
+                    if (p._predVersion && v && v !== p._predVersion) {
+                        p._predUpdateReady = true;
+                        _predShowUpdateBanner();
+                    }
+                })
+                .catch(function(){});
+        }, 3 * 60 * 1000);
+    } else if (p._predUpdateReady) {
+        /* Mantém o banner visível após reruns do Streamlit */
+        (function() {
+            var pd2 = p.document;
+            if (!pd2.getElementById('pred-update-banner')) {
+                p._predUpdateReady = false; /* permite re-detectar */
+            }
+        })();
+    }
+
     /* ── Re-anexa handlers a cada recarga do iframe ──────────────────── */
     /* Chamam p._ppwaOpen / p._ppwaClose que residem no parent window    */
     var _fab   = pd.getElementById('ppwa-fab');
