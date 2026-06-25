@@ -758,13 +758,6 @@ def render_sv_topnav() -> None:
                 logout()
                 st.rerun()
 
-    # ── Botões ocultos: acionados pelo iframe para navegar via WebSocket ──
-    for _nk, _ni, _nl in SV_NAV_ITEMS:
-        if st.button(f"▸sv_{_nk}", key=f"__svnav_{_nk}__"):
-            st.session_state["sv_view"] = _nk
-            st.session_state.pop("sv_chamado_id", None)
-            st.rerun()
-
     # ── Linha 2: Pill nav horizontal (iframe full-width) ──────────────────
     _active_map = {
         "chamado_detalhe":   "chamados",

@@ -148,8 +148,15 @@ def main() -> None:
 
 def _render_supervisao() -> None:
     """Roteador interno da Supervisão Pred.IO."""
-    from ui import render_sv_topnav
+    from ui import render_sv_topnav, SV_NAV_ITEMS
     render_sv_topnav()
+
+    # Botões ocultos via CSS (aria-label^="▸") — acionados pelo pill nav do topnav
+    for _snk, _sni, _snl in SV_NAV_ITEMS:
+        if st.button(f"▸sv_{_snk}", key=f"__svnav_{_snk}__"):
+            st.session_state["sv_view"] = _snk
+            st.session_state.pop("sv_chamado_id", None)
+            st.rerun()
 
     sv_view = st.session_state.get("sv_view", "dashboard")
 
