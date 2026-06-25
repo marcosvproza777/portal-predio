@@ -791,6 +791,7 @@ body{{background:transparent;overflow:hidden;font-family:system-ui,sans-serif;}}
   display:inline-flex;align-items:center;gap:5px;
   border:1px solid rgba(15,31,61,0.15);cursor:pointer;
   background:rgba(15,31,61,0.06);color:#334155;
+  font-family:inherit;
   transition:background 0.15s,color 0.15s;}}
 .pill.active{{background:linear-gradient(135deg,#1565C0,#2563EB);
   color:#fff;border-color:transparent;cursor:default;}}
@@ -798,15 +799,50 @@ body{{background:transparent;overflow:hidden;font-family:system-ui,sans-serif;}}
 </style></head><body>
 <div id="nav">{_pills}</div>
 <script>
-document.querySelectorAll('.pill:not(.active)').forEach(function(b){{
-  b.addEventListener('click',function(){{
-    var k=this.getAttribute('data-key');
+(function(){{
+  var ARROW = '{_arrow}';
+
+  // Esconde botões ocultos via JS (fallback quando CSS não aplica)
+  function hideSvBtns(pd){{
     try{{
-      var sb=window.parent.document.querySelector('button[aria-label="{_arrow}sv_'+k+'"]');
-      if(sb)sb.click();
+      pd.querySelectorAll('button').forEach(function(b){{
+        var t = b.textContent.trim();
+        if(t.length > 3 && t.charAt(0) === ARROW && t.indexOf('sv_') === 1){{
+          var c = b.closest('[data-testid="stButton"]');
+          if(c && c.style.display !== 'none'){{
+            c.style.cssText = 'display:none!important;height:0!important;'
+              + 'margin:0!important;padding:0!important;overflow:hidden!important;';
+          }}
+        }}
+      }});
     }}catch(e){{}}
+  }}
+
+  // Clica no botão Streamlit oculto correspondente à chave
+  function navTo(k){{
+    try{{
+      var pd = window.parent.document;
+      var btns = pd.querySelectorAll('button');
+      for(var i = 0; i < btns.length; i++){{
+        if(btns[i].textContent.trim() === ARROW + 'sv_' + k){{
+          btns[i].click(); return;
+        }}
+      }}
+    }}catch(e){{}}
+  }}
+
+  document.querySelectorAll('.pill:not(.active)').forEach(function(b){{
+    b.addEventListener('click', function(){{ navTo(this.getAttribute('data-key')); }});
   }});
-}});
+
+  // Esconde imediatamente e observa re-renders do Streamlit
+  try{{
+    var pd = window.parent.document;
+    hideSvBtns(pd);
+    new MutationObserver(function(){{ hideSvBtns(pd); }})
+      .observe(pd.body, {{childList:true, subtree:true}});
+  }}catch(e){{}}
+}})();
 </script>
 </body></html>"""
 
