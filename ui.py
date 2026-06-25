@@ -710,82 +710,117 @@ def render_supervisao_sidebar(logo_b64: str, nome: str, perfil: str) -> None:
 
 def render_sv_topnav() -> None:
     """Barra de navegação horizontal — sempre visível na Supervisão."""
+    import streamlit.components.v1 as components
     from auth import logout, current_nome, current_perfil
-    sv_view = st.session_state.get("sv_view", "dashboard")
 
-    nome   = current_nome()
-    perfil = current_perfil()
-    iniciais = "".join(w[0].upper() for w in nome.split()[:2]) if nome else "?"
+    sv_view      = st.session_state.get("sv_view", "dashboard")
+    nome         = current_nome()
+    perfil       = current_perfil()
+    iniciais     = "".join(w[0].upper() for w in nome.split()[:2]) if nome else "?"
     perfil_label = "Admin" if perfil == "admin" else "Funcionário"
 
-    # ── Layout: logo | nav | usuário ──────────────────────────────────────
-    logo_col, nav_col, user_col = st.columns([0.8, 5.2, 2])
+    # ── Linha 1: Logo + título | Usuário + Sair ───────────────────────────
+    logo_col, user_col = st.columns([2, 2])
 
     with logo_col:
         _logo = load_image_b64("logo.jpg")
         if _logo:
             st.markdown(
-                f"<div style='display:flex;align-items:center;height:100%;padding-top:2px;'>"
+                f"<div style='display:flex;align-items:center;gap:10px;padding-top:4px;'>"
                 f"<img src='data:image/jpeg;base64,{_logo}' "
-                f"style='height:56px;object-fit:contain;max-width:100%;' /></div>",
+                f"style='height:44px;object-fit:contain;' />"
+                f"<span style='font-size:0.68rem;font-weight:700;letter-spacing:0.14em;"
+                f"text-transform:uppercase;color:{COLOR_MUTED};'>Supervisão</span>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
 
-    # ── Itens de navegação ─────────────────────────────────────────────────
-    with nav_col:
-        btn_cols = st.columns(len(SV_NAV_ITEMS))
-        for col, (key, icon, label) in zip(btn_cols, SV_NAV_ITEMS):
-            is_active = (
-                sv_view == key
-                or (key == "chamados" and sv_view == "chamado_detalhe")
-                or (key == "clientes" and sv_view in ("cliente_historico", "cliente_novo"))
-                or (key == "ativos_sv" and sv_view in (
-                    "ativo_detalhe", "ativo_novo", "componente_novo"))
-                or (key == "relatorios_sv" and sv_view in ("relatorio_novo", "relatorio_editar"))
-            )
-            with col:
-                if is_active:
-                    st.markdown(
-                        f"<div style='background:linear-gradient(135deg,{COLOR_BLUE},#1D4ED8);"
-                        f"color:#fff;-webkit-text-fill-color:#fff;"
-                        f"text-align:center;padding:8px 4px;border-radius:8px;"
-                        f"font-weight:700;font-size:0.82rem;'>"
-                        f"{icon}&nbsp; {label}</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    if st.button(
-                        f"{icon}  {label}",
-                        key=f"sv_tnav_{key}",
-                        use_container_width=True,
-                    ):
-                        st.session_state["sv_view"] = key
-                        st.session_state.pop("sv_chamado_id", None)
-                        st.rerun()
-
-    # ── Usuário + logout ───────────────────────────────────────────────────
     with user_col:
-        u1, u2 = st.columns([2, 1])
-        with u1:
+        u_info, u_btn = st.columns([3, 1])
+        with u_info:
             st.markdown(
-                f"<div style='display:flex;align-items:center;gap:8px;'>"
+                f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end;'>"
+                f"<div>"
+                f"<p style='margin:0;font-size:0.78rem;font-weight:700;"
+                f"color:{COLOR_NAVY};text-align:right;'>{nome}</p>"
+                f"<p style='margin:0;font-size:0.68rem;color:{COLOR_MUTED};text-align:right;'>"
+                f"{perfil_label}</p>"
+                f"</div>"
                 f"<div style='width:30px;height:30px;border-radius:50%;flex-shrink:0;"
                 f"background:linear-gradient(135deg,#38BDF8,#2563EB);"
                 f"display:flex;align-items:center;justify-content:center;"
                 f"font-weight:800;font-size:0.78rem;color:#fff;'>{iniciais}</div>"
-                f"<div><p style='margin:0;font-size:0.78rem;font-weight:700;"
-                f"color:#F1F5F9;'>{nome}</p>"
-                f"<p style='margin:0;font-size:0.68rem;color:#94A3B8;'>{perfil_label}</p>"
-                f"</div></div>",
+                f"</div>",
                 unsafe_allow_html=True,
             )
-        with u2:
+        with u_btn:
             if st.button("Sair", key="sv_tnav_logout", use_container_width=True):
                 logout()
                 st.rerun()
 
+    # ── Botões ocultos: acionados pelo iframe para navegar via WebSocket ──
+    for _nk, _ni, _nl in SV_NAV_ITEMS:
+        if st.button(f"▸sv_{_nk}", key=f"__svnav_{_nk}__"):
+            st.session_state["sv_view"] = _nk
+            st.session_state.pop("sv_chamado_id", None)
+            st.rerun()
+
+    # ── Linha 2: Pill nav horizontal (iframe full-width) ──────────────────
+    _active_map = {
+        "chamado_detalhe":   "chamados",
+        "cliente_historico": "clientes",
+        "cliente_novo":      "clientes",
+        "ativo_detalhe":     "ativos_sv",
+        "ativo_novo":        "ativos_sv",
+        "componente_novo":   "ativos_sv",
+        "relatorio_novo":    "relatorios_sv",
+        "relatorio_editar":  "relatorios_sv",
+    }
+    _active = _active_map.get(sv_view, sv_view)
+    _arrow  = "▸"
+
+    _pills = "".join(
+        f'<button class="pill{" active" if _active == k else ""}" data-key="{k}">'
+        f'{ic} {lb}</button>'
+        for k, ic, lb in SV_NAV_ITEMS
+    )
+
+    _iframe = f"""<!DOCTYPE html>
+<html><head><style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:transparent;overflow:hidden;font-family:system-ui,sans-serif;}}
+#nav{{display:flex;gap:6px;padding:4px 0;overflow-x:auto;overflow-y:hidden;}}
+#nav::-webkit-scrollbar{{height:3px}}
+#nav::-webkit-scrollbar-track{{background:transparent}}
+#nav::-webkit-scrollbar-thumb{{background:rgba(15,31,61,0.22);border-radius:3px}}
+.pill{{font-size:0.8rem;font-weight:600;white-space:nowrap;
+  padding:6px 13px;border-radius:20px;
+  display:inline-flex;align-items:center;gap:5px;
+  border:1px solid rgba(15,31,61,0.15);cursor:pointer;
+  background:rgba(15,31,61,0.06);color:#334155;
+  transition:background 0.15s,color 0.15s;}}
+.pill.active{{background:linear-gradient(135deg,#1565C0,#2563EB);
+  color:#fff;border-color:transparent;cursor:default;}}
+.pill:not(.active):hover{{background:rgba(21,101,192,0.13);color:#1E3A8A;}}
+</style></head><body>
+<div id="nav">{_pills}</div>
+<script>
+document.querySelectorAll('.pill:not(.active)').forEach(function(b){{
+  b.addEventListener('click',function(){{
+    var k=this.getAttribute('data-key');
+    try{{
+      var sb=window.parent.document.querySelector('button[aria-label="{_arrow}sv_'+k+'"]');
+      if(sb)sb.click();
+    }}catch(e){{}}
+  }});
+}});
+</script>
+</body></html>"""
+
+    components.html(_iframe, height=46, scrolling=False)
+
     st.markdown(
-        f"<hr style='border-color:{COLOR_BORDER};margin:0 0 1rem;'/>",
+        f"<hr style='border-color:{COLOR_BORDER};margin:4px 0 1rem;'/>",
         unsafe_allow_html=True,
     )
 
