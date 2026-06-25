@@ -3120,3 +3120,58 @@ def delete_session(token: str) -> None:
         load_sheet.clear()
     except Exception:
         pass
+
+
+# ── Logos de clientes ─────────────────────────────────────────────────────────
+
+_HEADERS_CLIENTE_LOGOS = ["Client_Id", "Logo_B64", "Updated_At"]
+
+
+def _ensure_logos_tab() -> None:
+    try:
+        ss = get_spreadsheet()
+        try:
+            ss.worksheet("ClienteLogos")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(title="ClienteLogos", rows=500, cols=3)
+            ws.append_row(_HEADERS_CLIENTE_LOGOS, value_input_option="USER_ENTERED")
+            load_sheet.clear()
+    except Exception:
+        pass
+
+
+def get_client_logo(client_id: str) -> str:
+    """Retorna o Logo_B64 do cliente ou string vazia."""
+    df = load_sheet("ClienteLogos")
+    if df.empty or "Client_Id" not in df.columns:
+        return ""
+    match = df[df["Client_Id"].str.strip().str.lower() == client_id.lower()]
+    if match.empty:
+        return ""
+    return str(match.iloc[0].get("Logo_B64", "")).strip()
+
+
+def save_client_logo(client_id: str, logo_b64: str) -> bool:
+    """Salva ou atualiza a logo de um cliente (upsert por Client_Id)."""
+    try:
+        _ensure_logos_tab()
+        ss = get_spreadsheet()
+        ws = ss.worksheet("ClienteLogos")
+        all_values = ws.get_all_values()
+        if len(all_values) > 1:
+            headers = [h.strip().title() for h in all_values[0]]
+            cid_col  = headers.index("Client_Id") if "Client_Id" in headers else 0
+            logo_col = (headers.index("Logo_B64") + 1) if "Logo_B64" in headers else 2
+            upd_col  = (headers.index("Updated_At") + 1) if "Updated_At" in headers else 3
+            for i, row in enumerate(all_values[1:], start=2):
+                if len(row) > cid_col and row[cid_col].strip().lower() == client_id.lower():
+                    ws.update_cell(i, logo_col, logo_b64)
+                    ws.update_cell(i, upd_col, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+                    load_sheet.clear()
+                    return True
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        ws.append_row([client_id, logo_b64, now], value_input_option="USER_ENTERED")
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False

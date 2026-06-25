@@ -1,9 +1,25 @@
 """Supervisão Pred.IO — Clientes e Histórico."""
 import streamlit as st
 from auth import require_staff
-from sheets import get_all_clientes, get_historico_cliente, get_all_chamados, cadastrar_usuario, delete_usuario
+from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
+                    cadastrar_usuario, delete_usuario,
+                    get_client_logo, save_client_logo)
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
+
+
+def _compress_logo(file_obj) -> str:
+    """Redimensiona para 160×160 e converte para base64 JPEG (mantém tamanho < 50 KB)."""
+    try:
+        import io, base64
+        from PIL import Image
+        img = Image.open(file_obj).convert("RGB")
+        img.thumbnail((160, 160), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=75)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ""
 
 
 def render() -> None:
@@ -173,6 +189,37 @@ def render_historico() -> None:
 
     st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
+    # ── Logo do cliente ───────────────────────────────────────────────────────
+    with st.expander("🖼️ Logo do cliente no portal", expanded=False):
+        logo_atual = get_client_logo(client_id)
+        if logo_atual:
+            col_img, col_msg = st.columns([1, 5])
+            with col_img:
+                st.image(f"data:image/jpeg;base64,{logo_atual}", width=72)
+            with col_msg:
+                st.caption("Logo atual exibida no portal do cliente.")
+        else:
+            st.caption("Nenhuma logo cadastrada para este cliente.")
+
+        logo_nova = st.file_uploader(
+            "Enviar nova logo",
+            type=["jpg", "jpeg", "png"],
+            key=f"logo_historico_{client_id}",
+            help="PNG ou JPEG — será redimensionada para 160×160 px.",
+        )
+        if logo_nova:
+            nova_b64 = _compress_logo(logo_nova)
+            if nova_b64:
+                col_prev2, _ = st.columns([1, 6])
+                with col_prev2:
+                    st.image(f"data:image/jpeg;base64,{nova_b64}", width=64)
+                if st.button("💾 Salvar logo", key=f"btn_logo_{client_id}"):
+                    if save_client_logo(client_id, nova_b64):
+                        st.success("Logo salva com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao salvar a logo.")
+
     # ── Tabs: Chamados / Relatórios ───────────────────────────────────────────
     tab_cham, tab_rel = st.tabs(["🔧 Chamados", "📁 Relatórios"])
 
@@ -325,6 +372,26 @@ def _form_novo_cliente_content(inline: bool = False) -> None:
             unsafe_allow_html=True,
         )
 
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+            f"margin:0.75rem 0 0.5rem;'>3. Logo do cliente (opcional)</p>",
+            unsafe_allow_html=True,
+        )
+        logo_file = st.file_uploader(
+            "Selecione a logo",
+            type=["jpg", "jpeg", "png"],
+            label_visibility="collapsed",
+            key=f"logo_upload_{form_key}",
+            help="Aparece no portal do cliente. PNG ou JPEG, qualquer tamanho — será redimensionada.",
+        )
+        logo_b64 = ""
+        if logo_file:
+            logo_b64 = _compress_logo(logo_file)
+            if logo_b64:
+                col_prev, _ = st.columns([1, 6])
+                with col_prev:
+                    st.image(f"data:image/jpeg;base64,{logo_b64}", width=64)
+
         submitted = st.form_submit_button("💾 Cadastrar cliente", type="primary",
                                           use_container_width=True)
 
@@ -353,6 +420,8 @@ def _form_novo_cliente_content(inline: bool = False) -> None:
         )
 
         if ok:
+            if logo_b64:
+                save_client_logo(empresa.strip().lower(), logo_b64)
             st.success(
                 f"✅ Cliente **{empresa.strip()}** cadastrado com sucesso! "
                 + ("O usuário deverá definir a senha no primeiro acesso."

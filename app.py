@@ -51,6 +51,8 @@ def main() -> None:
     if not st.session_state.get("logged_in"):
         remove_floating_assistant()
         remove_bottom_nav()
+        st.session_state.pop("_clogo_loaded", None)
+        st.session_state.pop("client_logo_b64", None)
         inject_login_bg(bg_b64)
         import page_login
         page_login.render(logo_b64)
@@ -69,7 +71,17 @@ def main() -> None:
         return
 
     # ── PORTAL DO CLIENTE ─────────────────────────────────────────────────────
-    render_client_topnav(logo_b64, empresa, telefone)
+    # Carrega logo do cliente uma vez por sessão
+    if not st.session_state.get("_clogo_loaded"):
+        try:
+            from sheets import get_client_logo as _gcl
+            st.session_state["client_logo_b64"] = _gcl(st.session_state.get("client_id", ""))
+        except Exception:
+            st.session_state["client_logo_b64"] = ""
+        st.session_state["_clogo_loaded"] = True
+
+    render_client_topnav(logo_b64, empresa, telefone,
+                         client_logo_b64=st.session_state.get("client_logo_b64", ""))
 
     # Navegação via link do assistente flutuante (?portal_page=X na URL)
     # Sanitiza para aceitar apenas páginas do cliente — impede injeção de rotas

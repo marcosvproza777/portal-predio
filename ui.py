@@ -367,7 +367,8 @@ def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
     render_sidebar(logo_b64, empresa, telefone)
 
 
-def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
+def render_client_topnav(logo_b64: str, empresa: str, telefone: str,
+                         client_logo_b64: str = "") -> None:
     """Barra de navegação horizontal premium — substitui a sidebar no portal do cliente."""
     from auth import logout
     portal_page = st.session_state.get("portal_page", "farois")
@@ -497,6 +498,25 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str) -> None:
         if st.button("⬅️ Sair", key="portal_tnav_logout", use_container_width=True):
             logout()
             st.rerun()
+
+    if client_logo_b64:
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:14px;"
+            f"background:rgba(15,31,61,0.55);border:1px solid rgba(30,58,138,0.28);"
+            f"border-radius:10px;padding:10px 16px;margin:6px 0 8px;'>"
+            f"<img src='data:image/jpeg;base64,{client_logo_b64}' "
+            f"style='height:50px;width:50px;object-fit:contain;border-radius:8px;"
+            f"background:#fff;padding:4px;box-shadow:0 2px 10px rgba(0,0,0,0.35);flex-shrink:0;'/>"
+            f"<div style='min-width:0;'>"
+            f"<p style='margin:0 0 2px;font-size:0.45rem;letter-spacing:.2em;"
+            f"text-transform:uppercase;color:rgba(255,255,255,0.35);line-height:1;'>"
+            f"Portal personalizado para</p>"
+            f"<p style='margin:0;font-size:0.9rem;font-weight:700;color:#E2E8F0;"
+            f"line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
+            f"{empresa}</p>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown(
         f"<hr style='border:none;border-top:1.5px solid {COLOR_BORDER};"
