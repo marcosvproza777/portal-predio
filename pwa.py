@@ -548,6 +548,21 @@ def inject_bottom_nav(portal_page: str = "dashboard") -> None:
     components.html(_bottom_nav_html(portal_page), height=0, scrolling=False)
 
 
+def remove_bottom_nav() -> None:
+    """Remove o menu inferior do DOM (chamado na tela de login / logout)."""
+    components.html("""<!DOCTYPE html><html><head></head><body style="margin:0">
+<script>
+(function(){
+  var p=window.parent; if(!p||p===window)return;
+  var pd=p.document;
+  ['pred-bottom-nav','pred-more-menu','pred-bn-css'].forEach(function(id){
+    var el=pd.getElementById(id); if(el)el.remove();
+  });
+})();
+</script>
+</body></html>""", height=0)
+
+
 def inject_all(portal_page: str = "dashboard") -> None:
     """
     Injeta tudo de uma vez: manifest/ícones, CSS mobile e bottom nav.

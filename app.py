@@ -4,7 +4,7 @@ from ui import (inject_global_css, inject_login_bg, render_client_topnav,
                 render_supervisao_sidebar, load_image_b64,
                 inject_floating_assistant, remove_floating_assistant)
 from auth import is_staff, current_nome, current_perfil
-from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav
+from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav, remove_bottom_nav
 
 
 def main() -> None:
@@ -49,7 +49,8 @@ def main() -> None:
 
     # ── Não autenticado → tela de login ───────────────────────────────────────
     if not st.session_state.get("logged_in"):
-        remove_floating_assistant()   # garante que o assistente sai do DOM no logout
+        remove_floating_assistant()
+        remove_bottom_nav()
         inject_login_bg(bg_b64)
         import page_login
         page_login.render(logo_b64)
