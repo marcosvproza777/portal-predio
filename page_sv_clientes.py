@@ -4,7 +4,7 @@ from auth import require_staff
 from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     cadastrar_usuario, delete_usuario, update_usuario,
                     get_client_logo, save_client_logo,
-                    get_contagem_usuarios_global)
+                    get_contagem_usuarios_global, get_usuarios_staff)
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
 
@@ -49,6 +49,7 @@ def _render_lista() -> None:
     clientes = get_all_clientes()
     df_todos = get_all_chamados()
     contagem_global = get_contagem_usuarios_global()
+    staff = get_usuarios_staff()
 
     if clientes.empty and df_todos.empty:
         st.info("Nenhum cliente encontrado.")
@@ -76,10 +77,40 @@ def _render_lista() -> None:
     if n_func: partes.append(f"👷 <strong>{n_func}</strong> funcionário(s)")
     if n_adm:  partes.append(f"🔑 <strong>{n_adm}</strong> admin(s)")
     st.markdown(
-        f"<p style='color:#64748B;font-size:0.85rem;margin:0 0 1rem;'>"
+        f"<p style='color:#64748B;font-size:0.85rem;margin:0 0 0.5rem;'>"
         f"{'  ·  '.join(partes)} cadastrado(s)</p>",
         unsafe_allow_html=True,
     )
+
+    if staff:
+        with st.expander("👤 Ver funcionários e admins cadastrados", expanded=False):
+            _PERFIL_BADGE = {
+                "admin":       ("#EFF6FF", "#1D4ED8"),
+                "funcionario": ("#F0FDF4", "#15803D"),
+            }
+            linhas = ""
+            for u in staff:
+                bg, tc = _PERFIL_BADGE.get(u["perfil"], ("#F1F5F9", "#475569"))
+                label = "Admin" if u["perfil"] == "admin" else "Funcionário"
+                nome  = u["nome"]  or "—"
+                email = u["email"] or "—"
+                emp   = u["empresa"] or "—"
+                linhas += (
+                    f"<div style='display:flex;align-items:center;gap:10px;"
+                    f"padding:7px 0;border-bottom:1px solid {COLOR_BORDER};'>"
+                    f"<span style='background:{bg};color:{tc};-webkit-text-fill-color:{tc};"
+                    f"font-size:0.68rem;font-weight:700;padding:2px 8px;"
+                    f"border-radius:8px;white-space:nowrap;'>{label}</span>"
+                    f"<div>"
+                    f"<p style='margin:0;font-size:0.82rem;font-weight:600;color:{COLOR_NAVY};'>{nome}</p>"
+                    f"<p style='margin:0;font-size:0.75rem;color:#64748B;'>{email}  ·  {emp}</p>"
+                    f"</div></div>"
+                )
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-radius:10px;padding:0.5rem 1rem;'>{linhas}</div>",
+                unsafe_allow_html=True,
+            )
 
     for _, row in empresas.iterrows():
         empresa    = str(row.get("Empresa",   "")).strip()

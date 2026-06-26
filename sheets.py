@@ -1225,6 +1225,25 @@ def get_all_clientes() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=30)
+def get_usuarios_staff() -> list:
+    """Retorna lista de dicts com nome, email, perfil e empresa dos usuários não-cliente."""
+    df = load_sheet("Usuarios")
+    if df.empty or "Perfil" not in df.columns:
+        return []
+    mask = df["Perfil"].str.strip().str.lower().isin(["funcionario", "admin"])
+    df_staff = df[mask].copy()
+    resultado = []
+    for _, row in df_staff.iterrows():
+        resultado.append({
+            "nome":    str(row.get("Nome",    "")).strip(),
+            "email":   str(row.get("Email",   "")).strip(),
+            "perfil":  str(row.get("Perfil",  "")).strip().lower(),
+            "empresa": str(row.get("Empresa", "")).strip(),
+        })
+    return resultado
+
+
+@st.cache_data(ttl=30)
 def get_contagem_usuarios_global() -> dict:
     """Retorna {"cliente": N, "funcionario": M, "admin": K} com totais globais do sistema."""
     df = load_sheet("Usuarios")
