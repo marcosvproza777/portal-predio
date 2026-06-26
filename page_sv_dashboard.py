@@ -285,8 +285,8 @@ def _render_metrics_grid(d: dict) -> None:
     )
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        sv_metric_card("👥", "Clientes Ativos", d["clientes_ativos"], "#6366F1",
-                       f"Total cadastrados: {d['total_clientes']}")
+        sv_metric_card("👥", "Clientes Cadastrados", d["total_clientes"], "#6366F1",
+                       f"Com chamados abertos: {d['clientes_ativos']}")
     with c2:
         sv_metric_card("⚙️", "Ativos Monitorados", d["ativos_total"], "#0F1F3D",
                        "Total geral")
