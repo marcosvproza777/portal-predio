@@ -196,6 +196,9 @@ def _render_supervisao() -> None:
     elif sv_view == "homologacao":
         import page_sv_homologacao
         page_sv_homologacao.render()
+    elif sv_view == "relatorio_executivo":
+        import page_sv_relatorio_executivo
+        page_sv_relatorio_executivo.render()
     else:
         import page_sv_dashboard
         page_sv_dashboard.render()

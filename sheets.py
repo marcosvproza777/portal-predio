@@ -3260,3 +3260,134 @@ def update_ativo(ativo_id: str, campos: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RELATÓRIOS EXECUTIVOS — aba RelatoriosExecutivos
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HEADERS_RELATORIOS_EXEC = [
+    "Id", "Client_Id", "Ativo_Id", "Titulo", "Status",
+    "Gerado_Em", "Atualizado_Em", "Gerado_Por",
+    "Periodo_Inicio", "Periodo_Fim",
+    "Versao", "Obs_Interna",
+]
+
+
+@st.cache_data(ttl=30)
+def get_relatorios_executivos(client_id: str, ativo_id: str = "") -> pd.DataFrame:
+    """
+    Retorna relatórios executivos do cliente.
+    SEGURANÇA: client_id vem sempre da sessão.
+    """
+    try:
+        df = load_sheet("RelatoriosExecutivos")
+    except Exception:
+        return pd.DataFrame(columns=_HEADERS_RELATORIOS_EXEC)
+
+    if df.empty:
+        return df
+
+    for col in _HEADERS_RELATORIOS_EXEC:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
+
+    if ativo_id:
+        df = df[df["Ativo_Id"].str.strip() == ativo_id.strip()]
+
+    df["_dt"] = pd.to_datetime(df.get("Gerado_Em", pd.Series(dtype=str)), dayfirst=True, errors="coerce")
+    return df.sort_values("_dt", ascending=False).drop(columns=["_dt"]).reset_index(drop=True)
+
+
+def add_relatorio_executivo(
+    client_id: str,
+    ativo_id: str,
+    titulo: str,
+    gerado_por: str = "",
+    periodo_inicio: str = "",
+    periodo_fim: str = "",
+    obs_interna: str = "",
+) -> str | None:
+    """
+    Registra um novo relatório executivo (status inicial: Rascunho gerado).
+    Retorna o Id gerado ou None em caso de erro.
+    SEGURANÇA: client_id sempre da sessão.
+    """
+    relatorio_id = str(uuid.uuid4())[:8].upper()
+    agora        = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    row = {
+        "Id":             relatorio_id,
+        "Client_Id":      client_id,
+        "Ativo_Id":       ativo_id,
+        "Titulo":         titulo,
+        "Status":         "Rascunho gerado",
+        "Gerado_Em":      agora,
+        "Atualizado_Em":  agora,
+        "Gerado_Por":     gerado_por,
+        "Periodo_Inicio": periodo_inicio,
+        "Periodo_Fim":    periodo_fim,
+        "Versao":         "1",
+        "Obs_Interna":    obs_interna,
+    }
+
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("RelatoriosExecutivos")
+        except Exception:
+            ws = ss.add_worksheet("RelatoriosExecutivos", rows=1000, cols=len(_HEADERS_RELATORIOS_EXEC))
+            ws.append_row(_HEADERS_RELATORIOS_EXEC)
+
+        headers = ws.row_values(1)
+        if not headers:
+            ws.append_row(_HEADERS_RELATORIOS_EXEC)
+            headers = _HEADERS_RELATORIOS_EXEC
+
+        new_row = [str(row.get(h, "")) for h in headers]
+        ws.append_row(new_row)
+        load_sheet.clear()
+        return relatorio_id
+    except Exception:
+        return None
+
+
+def update_relatorio_executivo(relatorio_id: str, client_id: str, **campos) -> bool:
+    """
+    Atualiza campos de um relatório executivo.
+    client_id é validado para garantir que o supervisor só edita relatórios do cliente correto.
+    SEGURANÇA: client_id sempre da sessão.
+    """
+    try:
+        ss      = get_spreadsheet()
+        ws      = ss.worksheet("RelatoriosExecutivos")
+        headers = ws.row_values(1)
+
+        if "Id" not in headers:
+            return False
+
+        id_col  = headers.index("Id") + 1
+        cell    = ws.find(relatorio_id, in_column=id_col)
+        if not cell:
+            return False
+
+        row_idx = cell.row
+
+        # Valida client_id antes de gravar
+        if "Client_Id" in headers:
+            cid_col_idx = headers.index("Client_Id") + 1
+            existing_cid = ws.cell(row_idx, cid_col_idx).value or ""
+            if existing_cid.strip().lower() != client_id.strip().lower():
+                return False
+
+        campos["Atualizado_Em"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
+
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False

@@ -522,6 +522,21 @@ def _render_detalhe() -> None:
         for _, crow in recentes.iterrows():
             _render_chamado_mini(crow)
 
+    # ── Relatório Executivo Word ──────────────────────────────────────────────
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.3rem;'>"
+        f"📄 Relatório Executivo Word</p>"
+        f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:0 0 0.75rem;'>"
+        f"Gera documento .docx editável com histórico completo do ativo para revisão e envio ao cliente.</p>",
+        unsafe_allow_html=True,
+    )
+    if st.button("📄 Gerar Relatório Executivo Word", use_container_width=False, key="btn_gerar_relatorio_exec"):
+        st.session_state["sv_view"]                = "relatorio_executivo"
+        st.session_state[_SV_ATIVO_ID]             = ativo_id
+        st.session_state["sv_ativo_cliente_id_rel"] = client_id
+        st.rerun()
+
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
 
 
