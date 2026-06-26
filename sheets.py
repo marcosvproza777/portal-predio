@@ -1225,21 +1225,16 @@ def get_all_clientes() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=30)
-def get_contagem_usuarios_por_empresa() -> dict:
-    """Retorna {empresa_lower: {"funcionario": N, "admin": M}} para a listagem de clientes."""
+def get_contagem_usuarios_global() -> dict:
+    """Retorna {"cliente": N, "funcionario": M, "admin": K} com totais globais do sistema."""
     df = load_sheet("Usuarios")
-    if df.empty or "Empresa" not in df.columns or "Perfil" not in df.columns:
-        return {}
-    resultado: dict = {}
-    for _, row in df.iterrows():
-        empresa = str(row.get("Empresa", "")).strip().lower()
-        perfil  = str(row.get("Perfil",  "")).strip().lower()
-        if not empresa or perfil not in ("funcionario", "admin"):
-            continue
-        if empresa not in resultado:
-            resultado[empresa] = {"funcionario": 0, "admin": 0}
-        resultado[empresa][perfil] += 1
-    return resultado
+    if df.empty or "Perfil" not in df.columns:
+        return {"cliente": 0, "funcionario": 0, "admin": 0}
+    contagem: dict = {"cliente": 0, "funcionario": 0, "admin": 0}
+    for perfil in df["Perfil"].str.strip().str.lower():
+        if perfil in contagem:
+            contagem[perfil] += 1
+    return contagem
 
 
 def cadastrar_usuario(empresa: str, email: str, telefone: str,
