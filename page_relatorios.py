@@ -1,7 +1,7 @@
 """Meus Relatórios — listagem com filtros, download de PDF."""
 import streamlit as st
 from auth import current_client_id
-from sheets import get_relatorios, get_technical_reports
+from sheets import get_relatorios, get_technical_reports, get_relatorios_executivos_publicados
 from ui import (page_header, COLOR_NAVY, COLOR_BLUE,
                 COLOR_CARD, COLOR_BORDER, COLOR_MUTED, TIPOS_LAUDOS)
 
@@ -57,6 +57,8 @@ def render() -> None:
     except Exception:
         pass
 
+    import pandas as pd
+
     # Carrega relatórios da aba legacy "Relatorios"
     df_legacy = get_relatorios(client_id, {k: v for k, v in filtros.items() if v})
 
@@ -64,21 +66,45 @@ def render() -> None:
     try:
         df_tech = get_technical_reports(client_id=client_id, staff=False)
     except Exception:
-        import pandas as pd
         df_tech = pd.DataFrame()
 
-    total = len(df_legacy) + (len(df_tech) if not df_tech.empty else 0)
+    # Carrega relatórios executivos publicados — SOMENTE status=Publicado, sem obs_interna
+    try:
+        df_exec = get_relatorios_executivos_publicados(client_id)
+    except Exception:
+        df_exec = pd.DataFrame()
+
+    # Audit log — acesso permitido
+    try:
+        from security import log_acesso_permitido
+        log_acesso_permitido("visualizar_relatorios_executivos", "relatorio_executivo", "lista", client_id)
+    except Exception:
+        pass
+
+    total = len(df_legacy) + (len(df_tech) if not df_tech.empty else 0) + (len(df_exec) if not df_exec.empty else 0)
     st.markdown(
         f"<p style='color:{COLOR_MUTED};font-size:0.85rem;margin-bottom:0.5rem;'>"
         f"{total} relatório(s) encontrado(s)</p>",
         unsafe_allow_html=True,
     )
 
-    if df_legacy.empty and (df_tech is None or df_tech.empty):
+    if df_legacy.empty and (df_tech is None or df_tech.empty) and (df_exec is None or df_exec.empty):
         st.info("Nenhum relatório disponível no momento. Entre em contato com a equipe Pred.IO.")
         return
 
-    # Relatórios novos (TechnicalReports) — aparecem primeiro
+    # ── Relatórios Executivos do Ativo — aparecem em destaque no topo ────────
+    if df_exec is not None and not df_exec.empty:
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;"
+            f"margin:0.5rem 0 0.3rem;'>📄 Relatórios Executivos de Confiabilidade</p>",
+            unsafe_allow_html=True,
+        )
+        for _, row in df_exec.iterrows():
+            _render_card_executivo(row)
+        st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.75rem 0;'/>",
+                    unsafe_allow_html=True)
+
+    # Relatórios técnicos publicados — aparecem antes dos legados
     if df_tech is not None and not df_tech.empty:
         for _, row in df_tech.iterrows():
             _render_card_tech(row)
@@ -165,6 +191,64 @@ def _render_card_tech(row) -> None:
         else:
             st.markdown(
                 "<p style='color:#94a3b8;font-size:0.75rem;text-align:center;'>Indisponível</p>",
+                unsafe_allow_html=True,
+            )
+
+
+def _render_card_executivo(row) -> None:
+    """Card de relatório executivo publicado no Portal do Cliente.
+    Nunca exibe obs_interna (já removida por get_relatorios_executivos_publicados).
+    """
+    titulo    = str(row.get("Titulo",               "Relatório Executivo")).strip()
+    periodo_i = str(row.get("Periodo_Inicio",        "")).strip()
+    periodo_f = str(row.get("Periodo_Fim",           "")).strip()
+    publicado = str(row.get("Publicado_Em",          "")).strip()
+    resumo_ex = str(row.get("Resumo_Executivo",      "")).strip()
+    url_rev   = str(row.get("Arquivo_Revisado_Url",  "")).strip()
+    versao    = str(row.get("Versao",                "1")).strip()
+
+    periodo_str = f"{periodo_i} a {periodo_f}" if periodo_i and periodo_f else "—"
+    pub_str = (f"  ·  <span style='color:{COLOR_MUTED};font-size:0.8rem;'>Publicado em: {publicado}</span>"
+               if publicado else "")
+    resumo_html = (
+        f"<p style='color:#065F46;font-size:0.83rem;margin:4px 0 0;"
+        f"background:#DCFCE7;border-radius:6px;padding:5px 10px;'>"
+        f"📝 {resumo_ex[:300]}{'…' if len(resumo_ex)>300 else ''}</p>"
+        if resumo_ex and resumo_ex.lower() not in ("", "nan") else ""
+    )
+
+    col_info, col_btn = st.columns([5, 1])
+    with col_info:
+        st.markdown(
+            f"<div style='background:#F0FDF4;border:1px solid #86EFAC;"
+            f"border-left:5px solid #10B981;border-radius:10px;"
+            f"padding:14px 18px;margin-bottom:8px;'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:flex-start;"
+            f"flex-wrap:wrap;gap:6px;margin-bottom:5px;'>"
+            f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:1rem;'>{titulo}</span>"
+            f"<span style='background:#10B98122;color:#065F46;-webkit-text-fill-color:#065F46;"
+            f"border:1px solid #86EFAC;font-size:0.68rem;font-weight:700;"
+            f"padding:2px 10px;border-radius:12px;'>Publicado</span>"
+            f"</div>"
+            f"<div style='margin-bottom:6px;'>"
+            f"<span style='color:{COLOR_MUTED};font-size:0.8rem;'>📋 Relatório Executivo de Confiabilidade</span>"
+            f"  ·  <span style='color:{COLOR_MUTED};font-size:0.8rem;'>📅 Período: {periodo_str}</span>"
+            f"{pub_str}"
+            f"  ·  <span style='color:{COLOR_MUTED};font-size:0.8rem;'>Versão: {versao}</span>"
+            f"</div>"
+            f"{resumo_html}"
+            f"<p style='color:{COLOR_MUTED};font-size:0.75rem;margin:6px 0 0;'>Fonte: Pred.IO</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_btn:
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        if url_rev and url_rev.lower() not in ("", "nan", "none"):
+            st.link_button("⬇️ Baixar", url_rev, use_container_width=True)
+        else:
+            st.markdown(
+                "<p style='color:#94a3b8;font-size:0.75rem;text-align:center;margin-top:8px;'>"
+                "Disponível<br>em breve</p>",
                 unsafe_allow_html=True,
             )
 

@@ -124,6 +124,19 @@ _INTENTS: dict[str, list[str]] = {
         "como reduzir risco", "reduzir risco de falha",
         "o que fazer antes de intervencao", "antes de intervencao",
     ],
+    "relatorio_executivo": [
+        "relatório executivo", "relatorio executivo", "resumo executivo",
+        "relatório de confiabilidade", "relatorio de confiabilidade",
+        "histórico do ativo", "historico do ativo",
+        "principais pontos", "principais achados",
+        "manutenções realizadas", "manutencoes realizadas",
+        "manutenções pendentes", "manutencoes pendentes",
+        "indicação de overhaul", "indicacao de overhaul",
+        "indicação de rolamento", "indicacao de rolamento",
+        "recomendação por condição", "recomendacao por condicao",
+        "existe relatório executivo", "existe relatorio executivo",
+        "qual resumo do ativo", "qual resumo executivo",
+    ],
     "relatorios": [
         "relatório", "relatorio", "laudo", "análise preditiva", "analise preditiva",
         "análise de vibração", "analise de vibracao", "resultado", "publicado",
@@ -240,6 +253,7 @@ def detect_intent(pergunta: str) -> str:
         "comunicacao_monitoramento", # Modbus / Ethernet / monitoramento remoto
         "mycom_manual",              # Manual MYCOM / Sistema Chiller
         "meta_assistente",           # Perguntas meta sobre o Assistente
+        "relatorio_executivo",       # Relatório Executivo de Confiabilidade publicado
         "oleo",                      # Óleo genérico
         "manutencao",                # Plano de manutenção
         "relatorios",
@@ -355,6 +369,37 @@ def get_client_context(client_id: str) -> dict:
         chamados_res = get_chamados_resumo_assistente(client_id=client_id)
         if chamados_res:
             ctx["chamados_reais"] = chamados_res
+    except Exception:
+        pass
+
+    # Carrega relatórios executivos PUBLICADOS para o assistente.
+    # SEGURANÇA: get_relatorios_executivos_publicados() filtra somente status=Publicado,
+    # remove obs_interna, e filtra por client_id da sessão.
+    try:
+        from sheets import get_relatorios_executivos_publicados
+        df_exec = get_relatorios_executivos_publicados(client_id)
+        if not df_exec.empty:
+            exec_reps = []
+            for _, r in df_exec.iterrows():
+                titulo    = str(r.get("Titulo",          "")).strip()
+                periodo_i = str(r.get("Periodo_Inicio",  "")).strip()
+                periodo_f = str(r.get("Periodo_Fim",     "")).strip()
+                resumo_ex = str(r.get("Resumo_Executivo","")).strip()
+                ativo_id  = str(r.get("Ativo_Id",        "")).strip()
+                versao    = str(r.get("Versao",           "1")).strip()
+                pub_em    = str(r.get("Publicado_Em",     "")).strip()
+                if titulo:
+                    exec_reps.append({
+                        "titulo":           titulo,
+                        "periodo":          f"{periodo_i} a {periodo_f}" if periodo_i else "",
+                        "resumo_executivo": resumo_ex,
+                        "ativo_id":         ativo_id,
+                        "versao":           versao,
+                        "publicado_em":     pub_em,
+                        "fonte":            "Pred.IO",
+                    })
+            if exec_reps:
+                ctx["relatorios_executivos"] = exec_reps
     except Exception:
         pass
 
@@ -592,6 +637,68 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
                 {"label": "📚 Ver Tabela de Óleos Homologados", "page": "biblioteca"},
                 {"label": "🔧 Abrir Chamado", "page": "chamados"},
             ],
+        )
+
+    # ── Relatório Executivo de Confiabilidade ────────────────────────────────
+    if intent == "relatorio_executivo":
+        exec_reps = ctx.get("relatorios_executivos", [])
+        q = pergunta.lower()
+
+        # Perguntas sobre overhaul/rolamento — resposta padrão obrigatória
+        if any(kw in q for kw in ["overhaul", "rolamento", "troca de rolamento",
+                                   "indicação de overhaul", "indicacao de overhaul"]):
+            return _resp(
+                "Não há indicação automática de overhaul por horímetro. O overhaul é uma "
+                "recomendação por condição e depende da saúde real do ativo, relatórios "
+                "preditivos, histórico operacional e avaliação técnica Pred.IO. "
+                "<strong>20.000 horas é referência técnica, não gatilho automático de overhaul.</strong> "
+                "Fonte: Pred.IO.",
+                links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
+                confidence="media",
+            )
+
+        if any(kw in q for kw in ["ruído", "ruido", "barulho", "rolamento", "troca de rolamento"]):
+            return _resp(
+                "Troca de rolamento não deve ser automática apenas por ruído, temperatura ou "
+                "horímetro. A decisão deve considerar análise de vibração, termografia, "
+                "lubrificação, tendência e avaliação técnica Pred.IO. Fonte: Pred.IO.",
+                links=[{"label": "🔧 Abrir Chamado Técnico", "page": "chamados"}],
+                confidence="media",
+            )
+
+        if not exec_reps:
+            return _resp(
+                "Não encontrei relatório executivo publicado para o seu ativo no Portal Pred.IO. "
+                "Quando a equipe Pred.IO publicar um relatório executivo, ele aparecerá aqui e em "
+                "📁 Meus Relatórios. Fonte: Pred.IO.",
+                links=[{"label": "📁 Ver Relatórios", "page": "relatorios"}],
+                confidence="media",
+            )
+
+        # Resumo dos relatórios executivos disponíveis
+        rep = exec_reps[0]
+        titulo    = rep.get("titulo",           "Relatório Executivo")
+        periodo   = rep.get("periodo",          "—")
+        resumo_ex = rep.get("resumo_executivo", "")
+        pub_em    = rep.get("publicado_em",      "")
+        total_ex  = len(exec_reps)
+
+        base_msg = (
+            f"Encontrei <strong>{total_ex}</strong> relatório(s) executivo(s) publicado(s) "
+            f"para o seu ativo.<br><br>"
+            f"<strong>{titulo}</strong><br>"
+            f"Período: {periodo}"
+            + (f" | Publicado em: {pub_em}" if pub_em else "")
+        )
+        if resumo_ex:
+            base_msg += f"<br><br><em>Resumo:</em> {resumo_ex[:500]}"
+        base_msg += "<br><br>Fonte: Pred.IO."
+
+        return _resp(
+            base_msg,
+            links=[{"label": "📁 Ver Relatório Executivo", "page": "relatorios"}],
+            documents=[{"titulo": titulo, "id": "relatorio-executivo"}],
+            confidence="alta",
         )
 
     # ── 20.000 horas / Overhaul / Kit revisão / Desmontagem ──────────────────

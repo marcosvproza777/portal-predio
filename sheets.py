@@ -3268,9 +3268,10 @@ def update_ativo(ativo_id: str, campos: dict) -> bool:
 
 _HEADERS_RELATORIOS_EXEC = [
     "Id", "Client_Id", "Ativo_Id", "Titulo", "Status",
-    "Gerado_Em", "Atualizado_Em", "Gerado_Por",
+    "Gerado_Em", "Atualizado_Em", "Publicado_Em", "Gerado_Por",
     "Periodo_Inicio", "Periodo_Fim",
-    "Versao", "Obs_Interna",
+    "Versao", "Resumo_Executivo", "Obs_Interna",
+    "Arquivo_Revisado_Url", "Arquivo_Revisado_Nome",
 ]
 
 
@@ -3386,8 +3387,47 @@ def update_relatorio_executivo(relatorio_id: str, client_id: str, **campos) -> b
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
+            else:
+                # Coluna nova — adiciona ao cabeçalho e grava na linha
+                try:
+                    next_col = len(headers) + 1
+                    ws.update_cell(1, next_col, campo)
+                    ws.update_cell(row_idx, next_col, str(valor))
+                    headers.append(campo)
+                except Exception:
+                    pass
 
         load_sheet.clear()
         return True
     except Exception:
         return False
+
+
+@st.cache_data(ttl=60)
+def get_relatorios_executivos_publicados(client_id: str, ativo_id: str = "") -> pd.DataFrame:
+    """
+    Retorna SOMENTE relatórios executivos publicados do cliente.
+    Usado pelo Portal do Cliente — NUNCA retorna rascunhos ou obs_interna.
+    SEGURANÇA: client_id vem sempre da sessão.
+    """
+    df = get_relatorios_executivos(client_id, ativo_id=ativo_id)
+    if df.empty:
+        return df
+
+    # Filtra apenas publicados
+    df = df[df["Status"].str.strip().str.lower() == "publicado"].copy()
+
+    if df.empty:
+        return df
+
+    # Garante campos extras
+    for col in ("Resumo_Executivo", "Arquivo_Revisado_Url", "Arquivo_Revisado_Nome", "Publicado_Em"):
+        if col not in df.columns:
+            df[col] = ""
+
+    # Remove campos internos — nunca expõe ao cliente
+    for col_int in ("Obs_Interna", "Gerado_Por"):
+        if col_int in df.columns:
+            df = df.drop(columns=[col_int])
+
+    return df.reset_index(drop=True)

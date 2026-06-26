@@ -18,6 +18,23 @@ from sheets import (
 )
 from ui import sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
 
+
+def _audit(acao: str, rel_id: str, client_id: str, resultado: str = "permitido", detalhe: str = "") -> None:
+    """Registra ação sensível no log de auditoria. Nunca quebra o fluxo."""
+    try:
+        from security import log_acesso
+        log_acesso(
+            acao=acao,
+            recurso_tipo="relatorio_executivo",
+            recurso_id=rel_id,
+            resultado=resultado,
+            client_id=client_id,
+            rota="supervisao/relatorio_executivo",
+            detalhe=detalhe,
+        )
+    except Exception:
+        pass
+
 _SV_ATIVO_ID  = "sv_ativo_id"
 _SV_CLIE_ID   = "sv_ativo_cliente_id"   # definido em page_sv_ativos.py
 _SV_CLIE_REL  = "sv_ativo_cliente_id_rel"  # chave usada para navegação aqui
@@ -192,6 +209,7 @@ def _render_form_gerar(ativo_id: str, client_id: str, cliente_nome: str, row) ->
 
         # Registra na aba RelatoriosExecutivos
         nome_autor = current_nome() or "Supervisor"
+        resumo_auto = dados.get("ativo", {}).get("Tag", "") or ""
         rel_id     = add_relatorio_executivo(
             client_id      = client_id,
             ativo_id       = ativo_id,
@@ -215,14 +233,16 @@ def _render_form_gerar(ativo_id: str, client_id: str, cliente_nome: str, row) ->
     )
 
     if rel_id:
+        _audit("gerar_relatorio_executivo", rel_id, client_id)
         st.caption(f"Relatório registrado — ID: {rel_id}  ·  Status: Rascunho gerado")
-        _render_acoes_status(rel_id, client_id, "Rascunho gerado")
+        _render_acoes_status(rel_id, client_id, "Rascunho gerado", ativo_id=ativo_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AÇÕES DE STATUS
 # ═══════════════════════════════════════════════════════════════════════════════
-def _render_acoes_status(rel_id: str, client_id: str, status_atual: str) -> None:
+def _render_acoes_status(rel_id: str, client_id: str, status_atual: str,
+                         ativo_id: str = "") -> None:
     """Botões para mover o relatório no fluxo: Rascunho → Em revisão → Publicado → Arquivado."""
     st.markdown(
         f"<div style='background:#F8FAFC;border:1px solid {COLOR_BORDER};"
@@ -239,20 +259,56 @@ def _render_acoes_status(rel_id: str, client_id: str, status_atual: str) -> None
         if idx < 1:
             if st.button("📋 Enviar para revisão", key=f"btn_revisao_{rel_id}", use_container_width=True):
                 if update_relatorio_executivo(rel_id, client_id, Status="Em revisão"):
+                    _audit("enviar_para_revisao_relatorio_executivo", rel_id, client_id)
                     st.success("Status atualizado para 'Em revisão'.")
                     st.rerun()
     with col2:
         if idx < 2:
             if st.button("✅ Publicar para cliente", key=f"btn_pub_{rel_id}", use_container_width=True):
-                if update_relatorio_executivo(rel_id, client_id, Status="Publicado"):
+                agora_pub = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                if update_relatorio_executivo(rel_id, client_id,
+                                              Status="Publicado", Publicado_Em=agora_pub):
+                    _audit("publicar_relatorio_executivo", rel_id, client_id)
+                    _criar_evento_historico(rel_id, client_id, ativo_id)
                     st.success("Relatório publicado — agora visível para o cliente.")
                     st.rerun()
     with col3:
         if idx < 3:
             if st.button("📦 Arquivar", key=f"btn_arq_{rel_id}", use_container_width=True):
                 if update_relatorio_executivo(rel_id, client_id, Status="Arquivado"):
+                    _audit("arquivar_relatorio_executivo", rel_id, client_id)
                     st.success("Relatório arquivado.")
                     st.rerun()
+
+    # ── Enviar versão revisada (URL do Google Drive) ──────────────────────────
+    if idx >= 0:  # disponível em qualquer status até arquivado
+        with st.expander("📤 Enviar versão revisada (URL Google Drive)"):
+            with st.form(f"form_rev_{rel_id}"):
+                url_rev  = st.text_input("URL do arquivo revisado *",
+                                         placeholder="https://drive.google.com/file/d/...",
+                                         key=f"url_rev_{rel_id}")
+                nome_rev = st.text_input("Nome do arquivo revisado",
+                                         placeholder="Relatorio_Executivo_ATIVO_vRevisado.docx",
+                                         key=f"nome_rev_{rel_id}")
+                sub_rev  = st.form_submit_button("💾 Salvar versão revisada", use_container_width=True)
+            if sub_rev:
+                if not url_rev.strip():
+                    st.error("Informe a URL do arquivo revisado.")
+                elif not (url_rev.startswith("http://") or url_rev.startswith("https://")):
+                    st.error("URL inválida.")
+                else:
+                    ok = update_relatorio_executivo(
+                        rel_id, client_id,
+                        Arquivo_Revisado_Url  = url_rev.strip(),
+                        Arquivo_Revisado_Nome = nome_rev.strip() or "versao_revisada.docx",
+                        Versao                = "2",
+                    )
+                    if ok:
+                        _audit("enviar_versao_revisada_relatorio_executivo", rel_id, client_id,
+                               detalhe=f"URL: {url_rev.strip()[:100]}")
+                        st.success("Versão revisada salva. O cliente poderá baixar quando publicado.")
+                    else:
+                        st.error("Erro ao salvar versão revisada.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -294,7 +350,7 @@ def _render_historico(ativo_id: str, client_id: str) -> None:
         )
 
         # Ações de status inline
-        _render_acoes_status(rel_id, client_id, status)
+        _render_acoes_status(rel_id, client_id, status, ativo_id=ativo_id)
         st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
 
 
@@ -465,3 +521,37 @@ def _slug_filename(titulo: str) -> str:
     s = re.sub(r"[^\w\s-]", "", s).strip()
     s = re.sub(r"[\s-]+", "_", s)
     return s[:60] or "relatorio_executivo"
+
+
+def _criar_evento_historico(rel_id: str, client_id: str, ativo_id: str) -> None:
+    """
+    Cria evento no histórico técnico do ativo quando o relatório executivo é publicado.
+    Falhas são silenciosas — não interrompem o fluxo principal.
+    """
+    if not ativo_id:
+        return
+    try:
+        from sheets import get_all_ativos_sv, append_row, _ensure_tab_headers
+        import uuid as _uuid
+
+        # Tenta usar aba ReportTimeline se existir
+        headers_tl = [
+            "Id", "Client_Id", "Ativo_Id", "Tipo_Evento", "Titulo",
+            "Descricao", "Data", "Fonte", "Ref_Id",
+        ]
+        _ensure_tab_headers("ReportTimeline", headers_tl)
+        evento_id = f"EV-{str(_uuid.uuid4())[:8].upper()}"
+        agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        append_row("ReportTimeline", [
+            evento_id,
+            client_id,
+            ativo_id,
+            "Relatório executivo publicado",
+            "Relatório Executivo de Confiabilidade publicado",
+            f"Relatório executivo publicado pela equipe Pred.IO. ID: {rel_id}.",
+            agora_str,
+            "Pred.IO",
+            rel_id,
+        ])
+    except Exception:
+        pass
