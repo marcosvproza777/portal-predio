@@ -171,10 +171,25 @@ def _render_form_cadastro() -> None:
             unsafe_allow_html=True,
         )
 
+        arquivo_upload = st.file_uploader(
+            "Enviar PDF do PC",
+            type=["pdf"],
+            key="bib_arquivo_upload",
+            help="Envie o arquivo PDF diretamente. Ele será indexado automaticamente após o cadastro.",
+        )
+        _file_bytes = arquivo_upload.read() if arquivo_upload else None
+        _file_name  = arquivo_upload.name   if arquivo_upload else ""
+
+        st.markdown(
+            f"<p style='color:#64748B;font-size:0.78rem;margin:4px 0 8px;'>"
+            f"OU informe a URL do arquivo (Google Drive, site, etc.)</p>",
+            unsafe_allow_html=True,
+        )
+
         c9, c10 = st.columns(2)
         with c9:
             arquivo_url = st.text_input(
-                "URL do arquivo *",
+                "URL do arquivo",
                 placeholder="https://drive.google.com/… ou /docs/manual.pdf",
             )
         with c10:
@@ -208,8 +223,8 @@ def _render_form_cadastro() -> None:
         if not titulo.strip():
             st.warning("O título do documento é obrigatório.")
             return
-        if not arquivo_url.strip():
-            st.warning("A URL do arquivo é obrigatória.")
+        if not _file_bytes and not arquivo_url.strip():
+            st.warning("Envie um arquivo PDF ou informe a URL do arquivo.")
             return
 
         # Deriva client_id da empresa selecionada (nunca do front-end direto)
@@ -219,6 +234,11 @@ def _render_form_cadastro() -> None:
             client_id = str(m.iloc[0]["Cliente_Id"]).strip().lower() if not m.empty else empresa_sel.strip().lower()
         elif empresa_sel != "— nenhum —":
             client_id = empresa_sel.strip().lower()
+
+        # Arquivo enviado do PC tem prioridade sobre URL
+        _usar_upload = bool(_file_bytes)
+        _nome_final  = (arquivo_nome.strip()
+                        or (_file_name if _usar_upload else arquivo_url.strip().split("/")[-1]))
 
         doc_id = add_documento_tecnico({
             "titulo":              titulo.strip(),
@@ -230,17 +250,39 @@ def _render_form_cadastro() -> None:
             "fabricante":          fabricante.strip(),
             "modelo":              modelo.strip(),
             "numero_serie":        numero_serie.strip(),
-            "arquivo_url":         arquivo_url.strip(),
-            "arquivo_nome":        arquivo_nome.strip() or arquivo_url.split("/")[-1],
+            "arquivo_url":         "" if _usar_upload else arquivo_url.strip(),
+            "arquivo_nome":        _nome_final,
             "resumo":              resumo.strip(),
             "palavras_chave":      palavras_chave.strip(),
             "visibilidade":        visibilidade,
             "status":              status,
             "observacoes_internas": obs_internas.strip(),
+            "origem_arquivo":      "upload" if _usar_upload else "url",
         })
 
         if doc_id:
-            st.success(f"✅ Documento cadastrado com ID {doc_id}.")
+            if _usar_upload:
+                with st.spinner("Indexando documento…"):
+                    from document_processor import processar_documento_from_bytes
+                    result = processar_documento_from_bytes(
+                        doc_id=doc_id,
+                        cliente_id=client_id,
+                        ativo_id=ativo_id.strip(),
+                        componente_id=componente_id.strip(),
+                        file_bytes=_file_bytes,
+                        arquivo_nome=_nome_final,
+                    )
+                if result["ok"]:
+                    st.success(
+                        f"✅ Documento cadastrado e indexado — "
+                        f"{result['n_chunks']} chunks, {result['n_paginas']} página(s)."
+                    )
+                else:
+                    st.warning(
+                        f"⚠️ Documento cadastrado (ID {doc_id}), mas a indexação falhou: {result['erro']}"
+                    )
+            else:
+                st.success(f"✅ Documento cadastrado com ID {doc_id}.")
             st.rerun()
         else:
             st.error("Erro ao cadastrar. Verifique as credenciais do Google Sheets.")

@@ -3,7 +3,8 @@ import streamlit as st
 from auth import require_staff
 from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     cadastrar_usuario, delete_usuario, update_usuario,
-                    get_client_logo, save_client_logo)
+                    get_client_logo, save_client_logo,
+                    get_contagem_usuarios_por_empresa)
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
 
@@ -47,6 +48,7 @@ def _render_lista() -> None:
 
     clientes = get_all_clientes()
     df_todos = get_all_chamados()
+    contagem_usuarios = get_contagem_usuarios_por_empresa()
 
     if clientes.empty and df_todos.empty:
         st.info("Nenhum cliente encontrado.")
@@ -88,10 +90,16 @@ def _render_lista() -> None:
         else:
             total = abertos = criticos = 0
 
+        contagem = contagem_usuarios.get(empresa.lower(), {})
+        n_func  = contagem.get("funcionario", 0)
+        n_admin = contagem.get("admin", 0)
+
         resumo = []
         if total:     resumo.append(f"<strong>{total}</strong> chamado(s)")
         if abertos:   resumo.append(f"<strong style='color:#3B82F6;'>{abertos}</strong> aberto(s)")
         if criticos:  resumo.append(f"<strong style='color:#EF4444;'>{criticos}</strong> crítico(s)")
+        if n_func:    resumo.append(f"👷 <strong>{n_func}</strong> funcionário(s)")
+        if n_admin:   resumo.append(f"🔑 <strong>{n_admin}</strong> admin(s)")
         if email:     resumo.append(f"✉️ {email}")
         resumo_html = "  ·  ".join(
             f"<span style='font-size:0.8rem;color:#475569;'>{r}</span>" for r in resumo

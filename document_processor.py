@@ -635,6 +635,72 @@ def _extrair_titulo(texto: str) -> str:
     return primeira[:80] if len(primeira) <= 80 else primeira[:77] + "..."
 
 
+def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[str, int]:
+    """Extrai texto de bytes de um PDF. Retorna (texto, num_paginas)."""
+    import io
+    buf = io.BytesIO(file_bytes)
+    texto = ""
+    n_pags = 0
+    try:
+        import pdfplumber
+        with pdfplumber.open(buf) as pdf:
+            n_pags = len(pdf.pages)
+            texto = "\n\n".join(p.extract_text() or "" for p in pdf.pages)
+    except ImportError:
+        try:
+            import PyPDF2
+            buf.seek(0)
+            reader = PyPDF2.PdfReader(buf)
+            n_pags = len(reader.pages)
+            texto = "\n\n".join(
+                reader.pages[i].extract_text() or "" for i in range(n_pags)
+            )
+        except ImportError:
+            pass
+    return texto, n_pags
+
+
+def processar_documento_from_bytes(
+    doc_id: str,
+    cliente_id: str,
+    ativo_id: str,
+    componente_id: str,
+    file_bytes: bytes,
+    arquivo_nome: str = "",
+) -> dict:
+    """
+    Processa um PDF enviado diretamente do PC (sem URL).
+    Retorna {"ok": bool, "status": str, "n_chunks": int, "n_paginas": int, "erro": str}.
+    """
+    from sheets import update_status_indexacao, delete_chunks_documento, add_chunks_lote
+
+    update_status_indexacao(doc_id, STATUS_PROCESSANDO)
+    try:
+        texto, n_paginas = extrair_texto_pdf_bytes(file_bytes, arquivo_nome)
+        if not texto.strip():
+            update_status_indexacao(doc_id, STATUS_FALHOU, erro="Texto não extraído — PDF vazio ou protegido.")
+            return {"ok": False, "status": STATUS_FALHOU, "n_chunks": 0, "n_paginas": 0, "erro": "Texto não extraído"}
+
+        chunks = criar_chunks(doc_id, cliente_id, ativo_id, componente_id, "", arquivo_nome, texto)
+        if not chunks:
+            update_status_indexacao(doc_id, STATUS_FALHOU, erro="Nenhum chunk gerado a partir do texto.")
+            return {"ok": False, "status": STATUS_FALHOU, "n_chunks": 0, "n_paginas": n_paginas, "erro": "Sem chunks"}
+
+        delete_chunks_documento(doc_id)
+        ok = add_chunks_lote(chunks)
+        if not ok:
+            update_status_indexacao(doc_id, STATUS_FALHOU, erro="Erro ao salvar chunks no Sheets.")
+            return {"ok": False, "status": STATUS_FALHOU, "n_chunks": len(chunks), "n_paginas": n_paginas, "erro": "Erro ao salvar"}
+
+        update_status_indexacao(doc_id, STATUS_INDEXADO, texto_extraido=texto[:5000], quantidade_paginas=n_paginas)
+        return {"ok": True, "status": STATUS_INDEXADO, "n_chunks": len(chunks), "n_paginas": n_paginas, "erro": ""}
+
+    except Exception as exc:
+        erro = str(exc)[:200]
+        update_status_indexacao(doc_id, STATUS_FALHOU, erro=erro)
+        return {"ok": False, "status": STATUS_FALHOU, "n_chunks": 0, "n_paginas": 0, "erro": erro}
+
+
 def processar_documento(
     doc_id: str,
     cliente_id: str,

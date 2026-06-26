@@ -1224,6 +1224,24 @@ def get_all_clientes() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+@st.cache_data(ttl=30)
+def get_contagem_usuarios_por_empresa() -> dict:
+    """Retorna {empresa_lower: {"funcionario": N, "admin": M}} para a listagem de clientes."""
+    df = load_sheet("Usuarios")
+    if df.empty or "Empresa" not in df.columns or "Perfil" not in df.columns:
+        return {}
+    resultado: dict = {}
+    for _, row in df.iterrows():
+        empresa = str(row.get("Empresa", "")).strip().lower()
+        perfil  = str(row.get("Perfil",  "")).strip().lower()
+        if not empresa or perfil not in ("funcionario", "admin"):
+            continue
+        if empresa not in resultado:
+            resultado[empresa] = {"funcionario": 0, "admin": 0}
+        resultado[empresa][perfil] += 1
+    return resultado
+
+
 def cadastrar_usuario(empresa: str, email: str, telefone: str,
                       perfil: str, nome: str, senha_hash: str = "") -> bool:
     """Adiciona um novo usuário na aba Usuarios."""
