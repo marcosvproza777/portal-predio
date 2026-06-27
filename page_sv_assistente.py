@@ -1027,26 +1027,26 @@ Para essas perguntas o Assistente sempre sugere: _abrir chamado técnico_.
         key="_wstest_query",
     )
     if st.button("🔍 Executar busca", key="_wstest_btn"):
-        from web_search_service import search as _ws, sanitize_query
-        with st.spinner("Buscando…"):
+        from web_search_service import search as _ws
+        from assistant_engine import _sintetizar_com_ia
+        with st.spinner("Buscando e sintetizando…"):
             try:
                 resultado = _ws(q_teste, client_id="teste", force=True)
             except Exception as exc:
                 resultado = {"ok": False, "motivo_skip": str(exc), "resultados": []}
         if resultado.get("ok") and resultado.get("resultados"):
-            st.success(f"✅ {len(resultado['resultados'])} resultado(s) encontrado(s)")
-            for r in resultado["resultados"]:
-                st.markdown(
-                    f"**{r.get('titulo','')}**  \n"
-                    f"{r.get('resumo','')[:300]}  \n"
-                    f"🔗 {r.get('url','')}  \n"
-                    f"Domínio: `{r.get('dominio','')}` | Confiança: `{r.get('confianca','')}`"
-                )
-                st.markdown("---")
+            refs = resultado["resultados"]
+            contexto = "\n\n".join(
+                f"[{i+1}] {r.get('titulo','')} ({r.get('dominio','')})\n{r.get('resumo','')[:400]}"
+                for i, r in enumerate(refs[:4])
+            )
+            resposta = _sintetizar_com_ia(q_teste, contexto)
+            st.success("✅ Resposta sintetizada:")
+            st.markdown(resposta)
+            st.caption(f"🌐 {len(refs)} fonte(s) consultada(s): {', '.join(r.get('dominio','') for r in refs[:3])}")
         else:
             motivo = resultado.get("motivo_skip") or "Sem resultado"
-            st.error(f"❌ Busca não retornou resultados: {motivo}")
-            st.json(resultado)
+            st.error(f"❌ {motivo}")
 
     st.markdown(
         f"<hr style='border-color:#E2E8F0;margin:1rem 0;'/>"
