@@ -2241,6 +2241,14 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
 
     try:
         import anthropic
+    except ImportError:
+        return (
+            "Encontrei referências técnicas públicas sobre o assunto, "
+            "mas a biblioteca de IA não está disponível no servidor. "
+            "Consulte a equipe Pred.IO ou abra um chamado técnico."
+        )
+
+    try:
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -2263,7 +2271,12 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
             }],
         )
         return msg.content[0].text.strip()
-    except Exception:
+    except Exception as exc:
+        try:
+            import streamlit as st
+            st.session_state["_sintetizar_erro"] = f"{type(exc).__name__}: {exc}"
+        except Exception:
+            pass
         return (
             "Encontrei referências técnicas públicas sobre o assunto, "
             "mas não consegui sintetizar a resposta automaticamente. "
