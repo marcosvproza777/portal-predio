@@ -210,10 +210,10 @@ def search(
         base["motivo_skip"] = f"Erro ao consultar provedor ({type(exc).__name__})."
         return base
 
-    # Filtra por allowlist
+    # Classifica por allowlist (alta/baixa confiança) mas não descarta nenhum resultado
     resultados = _filter_by_allowlist(resultados)
     if not resultados:
-        base["motivo_skip"] = "Nenhum resultado de domínio confiável encontrado."
+        base["motivo_skip"] = "Provedor não retornou resultados para esta query."
         _log(pergunta, query_limpa, [], client_id)
         return base
 
@@ -237,7 +237,6 @@ def _search_tavily(query: str, max_n: int) -> list[dict]:
         query=query,
         search_depth="basic",
         max_results=max_n,
-        include_domains=list(ALLOWED_DOMAINS.keys()),
     )
     return [
         {"titulo": r.get("title", ""), "resumo": r.get("content", "")[:500], "url": r.get("url", "")}
