@@ -668,6 +668,7 @@ def inject_mobile_notif_bell(unread_count: int = 0) -> None:
     }}
     existingBell.onclick    = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
     existingBell.ontouchend = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
+    _scrollToNotif();
     return;
   }}
 
@@ -722,7 +723,18 @@ def inject_mobile_notif_bell(unread_count: int = 0) -> None:
   pd.body.appendChild(btn);
 
   // ── Navegação ─────────────────────────────────────────────────────────────
+  function _scrollToNotif() {{
+    if (p.sessionStorage.getItem('pred_bell_scroll') !== '1') return;
+    p.sessionStorage.removeItem('pred_bell_scroll');
+    setTimeout(function() {{
+      var h2 = pd.querySelector('h2');
+      if (h2) {{ h2.scrollIntoView({{behavior:'smooth', block:'start'}}); }}
+      else {{ p.scrollTo({{top:0, behavior:'smooth'}}); }}
+    }}, 350);
+  }}
+
   function _navTo(page) {{
+    p.sessionStorage.setItem('pred_bell_scroll', '1');
     if (p.predNavTo) {{ p.predNavTo(page); return; }}
     var allBtns = pd.querySelectorAll('button');
     for (var i = 0; i < allBtns.length; i++) {{
@@ -732,6 +744,7 @@ def inject_mobile_notif_bell(unread_count: int = 0) -> None:
     }}
   }}
 
+  _scrollToNotif();
   btn.onclick    = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
   btn.ontouchend = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
 }})();
