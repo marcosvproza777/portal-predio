@@ -1040,6 +1040,40 @@ Para essas perguntas o Assistente sempre sugere: _abrir chamado técnico_.
                     unsafe_allow_html=True,
                 )
 
+    # ── Painel de diagnóstico ────────────────────────────────────────────────
+    st.markdown(
+        f"<hr style='border-color:#E2E8F0;margin:1rem 0;'/>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+        f"margin:0 0 0.75rem;'>🔬 Diagnóstico — Testar busca agora</p>",
+        unsafe_allow_html=True,
+    )
+    q_teste = st.text_input(
+        "Pergunta de teste",
+        placeholder="Ex: viscosidade óleo Mobil SHC Gargoyle 220",
+        key="_wstest_query",
+    )
+    if st.button("🔍 Executar busca", key="_wstest_btn"):
+        from web_search_service import search as _ws, sanitize_query
+        with st.spinner("Buscando…"):
+            try:
+                resultado = _ws(q_teste, client_id="teste", force=True)
+            except Exception as exc:
+                resultado = {"ok": False, "motivo_skip": str(exc), "resultados": []}
+        if resultado.get("ok") and resultado.get("resultados"):
+            st.success(f"✅ {len(resultado['resultados'])} resultado(s) encontrado(s)")
+            for r in resultado["resultados"]:
+                st.markdown(
+                    f"**{r.get('titulo','')}**  \n"
+                    f"{r.get('resumo','')[:300]}  \n"
+                    f"🔗 {r.get('url','')}  \n"
+                    f"Domínio: `{r.get('dominio','')}` | Confiança: `{r.get('confianca','')}`"
+                )
+                st.markdown("---")
+        else:
+            motivo = resultado.get("motivo_skip") or "Sem resultado"
+            st.error(f"❌ Busca não retornou resultados: {motivo}")
+            st.json(resultado)
+
     st.markdown(
         f"<hr style='border-color:#E2E8F0;margin:1rem 0;'/>"
         f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
