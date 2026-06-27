@@ -265,35 +265,26 @@ def _search_brave(query: str, max_n: int) -> list[dict]:
 
 
 def _search_duckduckgo(query: str, max_n: int) -> list[dict]:
-    """DuckDuckGo Instant Answers — gratuito, sem API key, resultado limitado."""
-    import requests
+    """DuckDuckGo web search via duckduckgo_search — gratuito, sem API key."""
     try:
-        resp = requests.get(
-            "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-            timeout=6,
-        )
-        data = resp.json()
-    except Exception:
-        return []
-
-    results: list[dict] = []
-    if data.get("Abstract"):
-        results.append({
-            "titulo": data.get("Heading", query[:60]),
-            "resumo": data["Abstract"][:500],
-            "url":    data.get("AbstractURL", ""),
-        })
-    for topic in data.get("RelatedTopics", [])[:max_n]:
-        if isinstance(topic, dict) and topic.get("Text"):
-            results.append({
-                "titulo": topic["Text"][:60],
-                "resumo": topic["Text"][:400],
-                "url":    topic.get("FirstURL", ""),
-            })
-        if len(results) >= max_n:
-            break
-    return results
+        from duckduckgo_search import DDGS
+    except ImportError as exc:
+        raise RuntimeError(
+            "duckduckgo-search não instalado. Adicione 'duckduckgo-search>=6.0.0' ao requirements.txt."
+        ) from exc
+    try:
+        with DDGS() as ddgs:
+            raw = list(ddgs.text(query, max_results=max_n))
+    except Exception as exc:
+        raise RuntimeError(f"Erro ao buscar no DuckDuckGo: {exc}") from exc
+    return [
+        {
+            "titulo": r.get("title", ""),
+            "resumo": r.get("body",  "")[:500],
+            "url":    r.get("href",  ""),
+        }
+        for r in raw
+    ]
 
 
 # ── Allowlist ──────────────────────────────────────────────────────────────────
