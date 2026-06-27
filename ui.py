@@ -1194,7 +1194,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       if(p.predNavTo){{ p.predNavTo(page); return; }}
     }}catch(e){{}}
     // Fallback: navegacao por URL
-    var params=new URLSearchParams((p.location.search||'').replace(/^\?/,''));
+    var params=new URLSearchParams((p.location.search||'').replace(/^\\?/,''));
     params.set('portal_page',page);
     if(_sid) params.set('sid',_sid);
     try{{ p.location.href='?'+params.toString(); }}catch(_){{}}
@@ -1277,7 +1277,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     }}
 
     /* REVISAO CONDICAO — 20.000 horas, overhaul, desmontagem, kit revisao */
-    if (/20\.?000.*hora|20000.*hora|bienal|desmontagem|desmontar|kit revis|revis.o geral|revisao geral|overhaul|preciso revisar/.test(ql)) {{
+    if (/20\\.?000.*hora|20000.*hora|bienal|desmontagem|desmontar|kit revis|revis.o geral|revisao geral|overhaul|preciso revisar/.test(ql)) {{
       return {{ text: 'No Portal Pred.IO, 20.000 horas e referencia tecnica, nao gatilho automatico de desmontagem ou overhaul. A decisao deve considerar a saude real da maquina: analise de vibracao, analise de oleo, termografia, historico operacional, tendencia de score, falhas recorrentes e avaliacao tecnica Pred.IO.<br><br><strong>20.000 horas e referencia tecnica, nao gatilho automatico de overhaul. A decisao depende da saude real da maquina.</strong><br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'📚 Ver Manual', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
     }}
 
@@ -1361,7 +1361,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     }}
 
     /* MYCOM MANUAL — temperatura de descarga por tipo, pressoes, compressor types */
-    if (/mycom|chiller|sistema chiller|fluxostato|soft.starter|compressor parafuso|compressor alternativo|temperatura.*descarga|descarga.*normal|pressao.*descarga|pressao de descarga|pressao.*succao|pressao de succao|pressao.*oleo|oleo.*baix|maquina.*pressao|filtro coalescente|alinhamento|inspec.o di.ria|inspec.o semanal|inspec.o mensal|inspec.o trimestral|inspec.o semestral|inspec.o anual|5\.?000 hora|10\.?000 hora|quando trocar filtro|quando conferir|quando fazer analise|analise de oleo|amostra.*oleo|o que.*unidade compressora|diferenca.*parafuso|dados.*importantes/.test(ql)) {{
+    if (/mycom|chiller|sistema chiller|fluxostato|soft.starter|compressor parafuso|compressor alternativo|temperatura.*descarga|descarga.*normal|pressao.*descarga|pressao de descarga|pressao.*succao|pressao de succao|pressao.*oleo|oleo.*baix|maquina.*pressao|filtro coalescente|alinhamento|inspec.o di.ria|inspec.o semanal|inspec.o mensal|inspec.o trimestral|inspec.o semestral|inspec.o anual|5\\.?000 hora|10\\.?000 hora|quando trocar filtro|quando conferir|quando fazer analise|analise de oleo|amostra.*oleo|o que.*unidade compressora|diferenca.*parafuso|dados.*importantes/.test(ql)) {{
       if (/parafuso.*descarga|descarga.*parafuso|temperatura.*parafuso/.test(ql)) {{
         if (/120/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 120 °C exige avaliacao tecnica imediata: verificar arrefecimento, pressao, oleo, filtros e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}
         if (/95/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 95 °C deve ser tratada como atencao e avaliada com pressao, oleo e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}

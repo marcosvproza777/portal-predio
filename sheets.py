@@ -2407,6 +2407,8 @@ def get_report_timeline_events(
         df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id.strip().lower()]
     if not staff:
         df = df[df["Visivel_Cliente"].astype(str).str.strip().str.lower() != "false"]
+        if "Obs_Interna" in df.columns:
+            df = df.drop(columns=["Obs_Interna"])
     df = df.copy()
 
     def _dtkey(d: str) -> tuple:

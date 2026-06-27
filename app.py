@@ -5,7 +5,7 @@ from ui import (inject_global_css, inject_login_bg, render_client_topnav,
                 render_supervisao_sidebar, load_image_b64,
                 inject_floating_assistant, remove_floating_assistant)
 from auth import is_staff, current_nome, current_perfil
-from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav, remove_bottom_nav
+from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav, remove_bottom_nav, inject_mobile_notif_bell
 
 
 def main() -> None:
@@ -99,6 +99,14 @@ def main() -> None:
     # Assistente flutuante — visível em todas as páginas do portal do cliente
     # client_id vem da sessão do servidor — NUNCA do front-end
     inject_floating_assistant(_sid, st.session_state.get("client_id", ""))
+
+    # Sininho de notificações mobile (canto superior esquerdo, apenas mobile)
+    try:
+        from notifications import get_unread_count as _get_unread
+        _unread = _get_unread(st.session_state.get("client_id", ""))
+    except Exception:
+        _unread = 0
+    inject_mobile_notif_bell(_unread)
 
     # Botões de navegação suave (ocultos via CSS, acionados pelo JS do assistente flutuante)
     # Quando o JS clica neles, Streamlit dispara rerun via WebSocket (sem reload de página)

@@ -633,6 +633,113 @@ def remove_bottom_nav() -> None:
 </body></html>""", height=0)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sininho de notificações mobile
+# ─────────────────────────────────────────────────────────────────────────────
+
+def inject_mobile_notif_bell(unread_count: int = 0) -> None:
+    """Injeta sininho flutuante de notificações no canto superior esquerdo.
+
+    Visível apenas em mobile (oculto em desktop via media query).
+    Exibe badge vermelho com a contagem de avisos não lidos.
+    Ao tocar, navega para a página de notificações.
+    """
+    count      = max(0, int(unread_count))
+    badge_text = str(count) if count <= 9 else "9+"
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;overflow:hidden;background:transparent;">
+<script>
+(function() {{
+  var p  = window.parent;
+  if (!p || p === window) return;
+  var pd = p.document;
+  var COUNT = {count};
+  var BADGE = "{badge_text}";
+
+  // A cada rerun: apenas atualiza o badge e re-anexa o handler
+  var existingBell = pd.getElementById('pred-bell');
+  if (existingBell) {{
+    var existingBadge = pd.getElementById('pred-bell-badge');
+    if (existingBadge) {{
+      existingBadge.textContent = BADGE;
+      existingBadge.style.display = COUNT > 0 ? 'flex' : 'none';
+    }}
+    existingBell.onclick    = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
+    existingBell.ontouchend = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
+    return;
+  }}
+
+  // ── Estilos ──────────────────────────────────────────────────────────────
+  var sty = pd.createElement('style');
+  sty.id = 'pred-bell-css';
+  sty.textContent = [
+    '@media(min-width:769px){{#pred-bell{{display:none!important;}}}}',
+    '#pred-bell{{',
+      'position:fixed;top:68px;left:14px;z-index:999989;',
+      'width:44px;height:44px;border-radius:50%;border:none;',
+      'background:linear-gradient(135deg,#0F1F3D 0%,#1E3A8A 100%);',
+      'display:flex;align-items:center;justify-content:center;',
+      'cursor:pointer;',
+      'box-shadow:0 4px 16px rgba(15,31,61,0.5);',
+      '-webkit-tap-highlight-color:rgba(0,0,0,0);',
+      'touch-action:manipulation;user-select:none;',
+      'transition:transform .1s;',
+    '}}',
+    '#pred-bell:active{{transform:scale(.9);}}',
+    '#pred-bell-icon{{font-size:1.25rem;line-height:1;pointer-events:none;}}',
+    '#pred-bell-badge{{',
+      'position:absolute;top:-4px;right:-4px;',
+      'min-width:18px;height:18px;border-radius:9px;',
+      'background:#EF4444;color:#fff;',
+      'font-size:.62rem;font-weight:700;font-family:sans-serif;',
+      'align-items:center;justify-content:center;',
+      'padding:0 4px;border:2px solid #fff;',
+      'box-shadow:0 1px 6px rgba(0,0,0,0.3);',
+      'pointer-events:none;line-height:1;',
+    '}}',
+  ].join('');
+  pd.head.appendChild(sty);
+
+  // ── Botão ─────────────────────────────────────────────────────────────────
+  var btn = pd.createElement('button');
+  btn.id   = 'pred-bell';
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Notificações');
+
+  var icon = pd.createElement('span');
+  icon.id = 'pred-bell-icon';
+  icon.textContent = '🔔';
+  btn.appendChild(icon);
+
+  var badge = pd.createElement('span');
+  badge.id = 'pred-bell-badge';
+  badge.textContent = BADGE;
+  badge.style.display = COUNT > 0 ? 'flex' : 'none';
+  btn.appendChild(badge);
+
+  pd.body.appendChild(btn);
+
+  // ── Navegação ─────────────────────────────────────────────────────────────
+  function _navTo(page) {{
+    if (p.predNavTo) {{ p.predNavTo(page); return; }}
+    var allBtns = pd.querySelectorAll('button');
+    for (var i = 0; i < allBtns.length; i++) {{
+      if (allBtns[i].textContent.trim() === '▸' + page) {{
+        allBtns[i].click(); return;
+      }}
+    }}
+  }}
+
+  btn.onclick    = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
+  btn.ontouchend = function(e) {{ e.preventDefault(); _navTo('notificacoes'); }};
+}})();
+</script>
+</body></html>"""
+    components.html(html, height=0, scrolling=False)
+
+
 def inject_all(portal_page: str = "dashboard") -> None:
     """
     Injeta tudo de uma vez: manifest/ícones, CSS mobile e bottom nav.
