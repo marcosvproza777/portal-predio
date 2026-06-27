@@ -1159,9 +1159,29 @@ def get_chamado_by_id(chamado_id: str) -> dict | None:
     return match.iloc[0].to_dict()
 
 
-def delete_chamado(chamado_id: str) -> bool:
-    """Remove um chamado da planilha pelo Id."""
-    return delete_row_by_id("Chamados", "Id", chamado_id)
+def delete_chamado(chamado_id: str) -> tuple[bool, str]:
+    """
+    Remove um chamado da planilha pelo Id.
+    Retorna (True, "") em caso de sucesso ou (False, mensagem_erro).
+    """
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("Chamados")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False, "Coluna 'Id' não encontrada na aba Chamados."
+        col_idx = headers.index("Id") + 1
+        all_vals = ws.col_values(col_idx)
+        for row_num, v in enumerate(all_vals, start=1):
+            if row_num == 1:
+                continue
+            if str(v).strip() == str(chamado_id).strip():
+                ws.delete_rows(row_num)
+                load_sheet.clear()
+                return True, ""
+        return False, f"Chamado '{chamado_id}' não encontrado na planilha."
+    except Exception as exc:
+        return False, str(exc)
 
 
 def update_chamado(chamado_id: str, campos: dict) -> bool:

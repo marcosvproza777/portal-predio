@@ -217,12 +217,13 @@ def _render_card(row, idx: int) -> None:
             else:
                 if st.button("✅ Confirmar", key=f"sv_del2_{idx}",
                              use_container_width=True, type="primary"):
-                    if delete_chamado(chamado_id):
+                    ok, erro = delete_chamado(chamado_id)
+                    if ok:
                         st.session_state.pop(f"_del_ch_{chamado_id}", None)
                         st.toast("🗑️ Chamado excluído.")
                         st.rerun()
                     else:
-                        st.toast("⚠️ Não foi possível excluir.")
+                        st.error(f"❌ Não foi possível excluir: {erro}")
                 if st.button("✖ Cancelar", key=f"sv_del3_{idx}",
                              use_container_width=True):
                     st.session_state.pop(f"_del_ch_{chamado_id}", None)
