@@ -2235,19 +2235,25 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
             system=(
                 "Você é o Assistente Técnico Pred.IO especializado em manutenção industrial. "
                 "Use as referências fornecidas para responder à pergunta de forma direta e objetiva. "
-                "Foque no que foi perguntado. Não mencione URLs. Não diga 'segundo o site X'. "
-                "Se as referências não contiverem a resposta exata, diga o que foi encontrado "
-                "e sugira abrir um chamado técnico Pred.IO."
+                "Foque exatamente no que foi perguntado. Não cite URLs, títulos de documentos "
+                "nem nomes de sites. Não diga 'segundo o site X' ou 'conforme o PDF Y'. "
+                "Se as referências não contiverem a resposta exata, diga brevemente o que foi "
+                "encontrado e sugira abrir um chamado técnico Pred.IO."
             ),
             messages=[{
                 "role": "user",
                 "content": (
                     f"Pergunta: {pergunta}\n\n"
                     f"Referências públicas encontradas:\n{contexto_web}\n\n"
-                    f"Responda diretamente à pergunta com base nessas referências."
+                    f"Responda diretamente à pergunta com base nessas referências. "
+                    f"Seja conciso e direto."
                 ),
             }],
         )
         return msg.content[0].text.strip()
     except Exception:
-        return f"Com base em referências públicas:\n\n{contexto_web}"
+        return (
+            "Encontrei referências técnicas públicas sobre o assunto, "
+            "mas não consegui sintetizar uma resposta automática. "
+            "Consulte a equipe Pred.IO ou abra um chamado técnico para uma resposta precisa."
+        )

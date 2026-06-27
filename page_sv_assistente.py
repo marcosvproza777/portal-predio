@@ -414,35 +414,27 @@ def _render_result(result: dict) -> None:
     # Referências web (se busca web foi usada)
     web_refs = result.get("web_refs", [])
     if web_refs:
-        with st.expander(f"🌐 Referências públicas consultadas ({len(web_refs)})", expanded=True):
+        with st.expander(f"🌐 {len(web_refs)} fonte(s) pública(s) consultada(s)", expanded=False):
             st.markdown(
                 "<p style='font-size:0.75rem;color:#64748B;margin:0 0 8px;'>"
-                "A base Pred.IO não tinha informação suficiente — consulta pública usada como complemento. "
                 "Valide com a equipe Pred.IO antes de qualquer decisão crítica.</p>",
                 unsafe_allow_html=True,
             )
             for ref in web_refs:
-                dom    = ref.get("dominio", "")
-                cat    = ref.get("categoria", "")
-                conf   = ref.get("confianca", "")
-                c_col  = "#15803D" if conf == "alta" else "#B45309"
-                c_bg   = "#DCFCE7" if conf == "alta" else "#FEF9C3"
-                url    = ref.get("url", "")
-                titulo = ref.get("titulo", dom)
-                resumo = ref.get("resumo", "")
+                dom   = ref.get("dominio", "")
+                cat   = ref.get("categoria", "")
+                conf  = ref.get("confianca", "")
+                c_col = "#15803D" if conf == "alta" else "#B45309"
+                c_bg  = "#DCFCE7" if conf == "alta" else "#FEF9C3"
+                url   = ref.get("url", "")
                 st.markdown(
                     f"<div style='background:#F8FAFF;border:1px solid #BFDBFE;"
-                    f"border-radius:8px;padding:10px 12px;margin-bottom:6px;'>"
-                    f"<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;'>"
-                    f"<span style='font-weight:700;font-size:0.82rem;color:#0F1F3D;'>{titulo}</span>"
+                    f"border-radius:8px;padding:8px 12px;margin-bottom:5px;"
+                    f"display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>"
                     f"<span style='background:{c_bg};color:{c_col};font-size:0.68rem;"
-                    f"font-weight:700;padding:1px 7px;border-radius:8px;'>Confiança {conf}</span>"
-                    f"<span style='background:#E2E8F0;color:#64748B;font-size:0.68rem;"
-                    f"padding:1px 7px;border-radius:8px;'>{cat}</span>"
-                    f"</div>"
-                    f"<p style='font-size:0.76rem;color:#475569;margin:0 0 4px;'>{resumo[:300]}</p>"
-                    + (f"<a href='{url}' target='_blank' style='font-size:0.72rem;color:#2563EB;'>"
-                       f"🔗 {dom}</a>" if url else "")
+                    f"font-weight:700;padding:1px 7px;border-radius:8px;'>{cat or dom}</span>"
+                    + (f"<a href='{url}' target='_blank' style='font-size:0.75rem;"
+                       f"color:#2563EB;'>🔗 {dom}</a>" if url else f"<span>{dom}</span>")
                     + "</div>",
                     unsafe_allow_html=True,
                 )
