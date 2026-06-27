@@ -1159,6 +1159,11 @@ def get_chamado_by_id(chamado_id: str) -> dict | None:
     return match.iloc[0].to_dict()
 
 
+def delete_chamado(chamado_id: str) -> bool:
+    """Remove um chamado da planilha pelo Id."""
+    return delete_row_by_id("Chamados", "Id", chamado_id)
+
+
 def update_chamado(chamado_id: str, campos: dict) -> bool:
     """Atualiza campos de um chamado existente."""
     try:

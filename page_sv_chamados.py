@@ -1,7 +1,7 @@
 """Supervisão Pred.IO — Lista de Chamados Técnicos."""
 import streamlit as st
 from auth import require_staff
-from sheets import get_all_chamados
+from sheets import get_all_chamados, delete_chamado
 from ui import (sv_page_header, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
                 COLOR_MUTED, STATUS_CFG, PRIORIDADE_CFG)
 
@@ -200,12 +200,32 @@ def _render_card(row, idx: int) -> None:
             unsafe_allow_html=True,
         )
 
-        col_esp, col_btn = st.columns([3, 1])
+        col_esp, col_btn, col_del = st.columns([3, 1, 0.4])
         with col_btn:
             if st.button("👁️ Ver chamado", key=f"sv_ver_{idx}",
                          use_container_width=True, type="primary"):
                 st.session_state["sv_view"]       = "chamado_detalhe"
                 st.session_state["sv_chamado_id"] = chamado_id
                 st.rerun()
+        with col_del:
+            confirmar = st.session_state.get(f"_del_ch_{chamado_id}", False)
+            if not confirmar:
+                if st.button("🗑️", key=f"sv_del1_{idx}", help="Excluir chamado",
+                             use_container_width=True):
+                    st.session_state[f"_del_ch_{chamado_id}"] = True
+                    st.rerun()
+            else:
+                if st.button("✅ Confirmar", key=f"sv_del2_{idx}",
+                             use_container_width=True, type="primary"):
+                    if delete_chamado(chamado_id):
+                        st.session_state.pop(f"_del_ch_{chamado_id}", None)
+                        st.toast("🗑️ Chamado excluído.")
+                        st.rerun()
+                    else:
+                        st.toast("⚠️ Não foi possível excluir.")
+                if st.button("✖ Cancelar", key=f"sv_del3_{idx}",
+                             use_container_width=True):
+                    st.session_state.pop(f"_del_ch_{chamado_id}", None)
+                    st.rerun()
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
