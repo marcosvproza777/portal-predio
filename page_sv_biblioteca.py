@@ -226,6 +226,10 @@ def _render_form_cadastro() -> None:
         if not _file_bytes and not arquivo_url.strip():
             st.warning("Envie um arquivo PDF ou informe a URL do arquivo.")
             return
+        _MAX_PDF_MB = 15
+        if _file_bytes and len(_file_bytes) > _MAX_PDF_MB * 1024 * 1024:
+            st.warning(f"Arquivo muito grande ({len(_file_bytes)//1024//1024} MB). Limite: {_MAX_PDF_MB} MB.")
+            return
 
         # Deriva client_id da empresa selecionada (nunca do front-end direto)
         client_id = ""

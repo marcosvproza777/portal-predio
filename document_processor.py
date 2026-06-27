@@ -651,28 +651,52 @@ def _extrair_titulo(texto: str) -> str:
 
 
 def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[str, int]:
-    """Extrai texto de bytes de um PDF. Retorna (texto, num_paginas)."""
-    import io
-    buf = io.BytesIO(file_bytes)
-    texto = ""
+    """
+    Extrai texto de bytes de um PDF. Retorna (texto, num_paginas).
+    Usa PyPDF2 primeiro (leve, página a página) e pdfplumber só como fallback,
+    para manter uso de memória baixo no Render free tier.
+    """
+    import io, gc
+
+    paginas: list[str] = []
     n_pags = 0
+
+    # ── Tentativa 1: PyPDF2 (muito mais leve que pdfplumber) ─────────────────
+    try:
+        import PyPDF2
+        buf = io.BytesIO(file_bytes)
+        reader = PyPDF2.PdfReader(buf)
+        n_pags = len(reader.pages)
+        for i in range(n_pags):
+            paginas.append(reader.pages[i].extract_text() or "")
+            del reader.pages[i]   # libera a página da memória imediatamente
+        del reader, buf
+        gc.collect()
+        if any(p.strip() for p in paginas):
+            return "\n\n".join(paginas), n_pags
+        paginas = []
+    except ImportError:
+        pass
+    except Exception:
+        paginas = []
+
+    # ── Tentativa 2: pdfplumber (fallback — PDFs com layout complexo) ────────
     try:
         import pdfplumber
+        buf = io.BytesIO(file_bytes)
         with pdfplumber.open(buf) as pdf:
             n_pags = len(pdf.pages)
-            texto = "\n\n".join(p.extract_text() or "" for p in pdf.pages)
+            for page in pdf.pages:
+                paginas.append(page.extract_text() or "")
+                page.flush_cache()   # libera cache de layout da página
+        del buf
+        gc.collect()
     except ImportError:
-        try:
-            import PyPDF2
-            buf.seek(0)
-            reader = PyPDF2.PdfReader(buf)
-            n_pags = len(reader.pages)
-            texto = "\n\n".join(
-                reader.pages[i].extract_text() or "" for i in range(n_pags)
-            )
-        except ImportError:
-            pass
-    return texto, n_pags
+        pass
+    except Exception:
+        pass
+
+    return "\n\n".join(paginas), n_pags
 
 
 def processar_documento_from_bytes(
