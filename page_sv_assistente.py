@@ -1044,9 +1044,7 @@ Para essas perguntas o Assistente sempre sugere: _abrir chamado técnico_.
             st.success("✅ Resposta sintetizada:")
             st.markdown(resposta)
             st.caption(f"🌐 {len(refs)} fonte(s) consultada(s): {', '.join(r.get('dominio','') for r in refs[:3])}")
-            erro_sint = st.session_state.pop("_sintetizar_erro", None)
-            if erro_sint:
-                st.error(f"⚠️ Erro interno na síntese: {erro_sint}")
+            st.session_state.pop("_sintetizar_erro", None)
         else:
             motivo = resultado.get("motivo_skip") or "Sem resultado"
             st.error(f"❌ {motivo}")
