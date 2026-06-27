@@ -277,6 +277,18 @@ def _render_card(row) -> None:
                         msg += f" Score do ativo ajustado em {result['score_delta']:+d} pts."
                     if result.get("alerta"):
                         msg += " Alerta interno gerado."
+                    try:
+                        from sheets import get_technical_report_by_id, index_relatorio_tecnico
+                        _rep = get_technical_report_by_id(rep_id)
+                        if _rep:
+                            index_relatorio_tecnico(
+                                rep_id,
+                                _rep.get("Cliente_Id", ""),
+                                _rep.get("Ativo_Id",   ""),
+                                _rep,
+                            )
+                    except Exception:
+                        pass
                     st.success(msg)
                     from sheets import load_sheet as _ls
                     _ls.clear()
@@ -515,16 +527,27 @@ def _render_form(report: dict | None) -> None:
                     update_technical_report(
                         st.session_state.get(_KEY_REP_ID, ""), _dados()
                     )
+                    _pub_rep_id = st.session_state.get(_KEY_REP_ID, "")
                     with st.spinner("Publicando..."):
-                        result = publish_technical_report(
-                            st.session_state.get(_KEY_REP_ID, ""), current_nome()
-                        )
+                        result = publish_technical_report(_pub_rep_id, current_nome())
                     if result.get("ok"):
                         msg = "✅ Relatório publicado!"
                         if result.get("score_atualizado"):
                             msg += f" Score do ativo: {result['score_delta']:+d} pts."
                         if result.get("alerta"):
                             msg += " Alerta interno gerado."
+                        try:
+                            from sheets import get_technical_report_by_id, index_relatorio_tecnico
+                            _rep = get_technical_report_by_id(_pub_rep_id)
+                            if _rep:
+                                index_relatorio_tecnico(
+                                    _pub_rep_id,
+                                    _rep.get("Cliente_Id", ""),
+                                    _rep.get("Ativo_Id",   ""),
+                                    _rep,
+                                )
+                        except Exception:
+                            pass
                         st.success(msg)
                         from sheets import load_sheet as _ls
                         _ls.clear()

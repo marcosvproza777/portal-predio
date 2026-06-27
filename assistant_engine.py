@@ -403,6 +403,77 @@ def get_client_context(client_id: str) -> dict:
     except Exception:
         pass
 
+    # Carrega alertas reais da supervisão para o assistente.
+    # SEGURANÇA: client_id da sessão; filtra pelo cliente antes de retornar.
+    try:
+        from sheets import get_alertas_sv
+        df_al = get_alertas_sv(client_id=client_id)
+        if not df_al.empty:
+            alertas_reais = []
+            for _, r in df_al.iterrows():
+                titulo    = str(r.get("Titulo",     "")).strip()
+                descricao = str(r.get("Descricao",  "")).strip()
+                prioridade= str(r.get("Prioridade", "")).strip()
+                criado_em = str(r.get("Criado_Em",  "")).strip()
+                if titulo:
+                    alertas_reais.append({
+                        "titulo":     titulo,
+                        "descricao":  descricao,
+                        "prioridade": prioridade,
+                        "criado_em":  criado_em,
+                    })
+            if alertas_reais:
+                ctx["alertas_reais"] = alertas_reais
+    except Exception:
+        pass
+
+    # Carrega chunks de relatórios técnicos publicados.
+    # Usa get_chunks_relatorio() por relatório já carregado em ctx["relatorios"].
+    try:
+        from sheets import get_chunks_relatorio, get_technical_reports
+        df_rep_ids = get_technical_reports(client_id=client_id, staff=False)
+        if not df_rep_ids.empty and "Id" in df_rep_ids.columns:
+            reps_com_chunks = []
+            for _, r in df_rep_ids.iterrows():
+                rep_id  = str(r.get("Id",     "")).strip()
+                titulo  = str(r.get("Titulo",  "")).strip()
+                resumo  = str(r.get("Resumo",  "")).strip()
+                recom   = str(r.get("Recomendacoes","")).strip()
+                sev     = str(r.get("Severidade","")).strip()
+                data    = str(r.get("Data_Relatorio","")).strip()
+                ativo   = str(r.get("Ativo_Id", r.get("Equipamento",""))).strip()
+                if not titulo:
+                    continue
+                entry = {
+                    "id":            rep_id,
+                    "titulo":        titulo,
+                    "resumo":        resumo,
+                    "recomendacoes": recom,
+                    "severidade":    sev,
+                    "data":          data,
+                    "ativo":         ativo,
+                    "chunks":        [],
+                }
+                if rep_id:
+                    try:
+                        df_chk = get_chunks_relatorio(rep_id, client_id=client_id)
+                        if not df_chk.empty:
+                            entry["chunks"] = [
+                                {
+                                    "chunk_index":  str(c.get("Chunk_Index", "")),
+                                    "titulo_secao": str(c.get("Titulo_Secao", "")).strip(),
+                                    "conteudo":     str(c.get("Conteudo",     "")).strip(),
+                                }
+                                for _, c in df_chk.iterrows()
+                            ]
+                    except Exception:
+                        pass
+                reps_com_chunks.append(entry)
+            if reps_com_chunks:
+                ctx["relatorios_tecnicos_indexados"] = reps_com_chunks
+    except Exception:
+        pass
+
     try:
         from sheets import get_documentos_tecnicos, get_chunks_documento
         df_docs = get_documentos_tecnicos(client_id=client_id, staff=False)
@@ -526,9 +597,22 @@ def query_assistant_audit(
     else:
         confidence = "Média"
 
+    # Estatísticas de fontes usadas no contexto
+    docs       = context.get("documentos", [])
+    reps_idx   = context.get("relatorios_tecnicos_indexados", [])
+    exec_reps  = context.get("relatorios_executivos", [])
+    chams      = context.get("chamados_reais", []) or context.get("chamados", [])
+    alertas    = context.get("alertas_reais", []) or context.get("alertas", [])
+
     result["_intent"]          = intent
     result["_confidence"]      = confidence
     result["_origem_resposta"] = origem
+    result["_document_ids"]    = [d.get("id", "") for d in docs if d.get("id")]
+    result["_report_ids"]      = [r.get("id", "") for r in reps_idx if r.get("id")]
+    result["_chunks_count"]    = sum(len(d.get("chunks", [])) for d in docs) + sum(len(r.get("chunks", [])) for r in reps_idx)
+    result["_exec_reports"]    = len(exec_reps)
+    result["_chamados_count"]  = len(chams)
+    result["_alertas_count"]   = len(alertas)
     return result
 
 
@@ -1789,15 +1873,20 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
 
     # ── Alertas ───────────────────────────────────────────────────────────────
     if intent == "alertas":
-        alertas = ctx.get("alertas", [])
+        alertas_reais = ctx.get("alertas_reais", [])
+        alertas_mock  = ctx.get("alertas", [])
+        alertas = alertas_reais or alertas_mock
         if not alertas:
             return _resp(
                 "Nenhum alerta ativo no momento para sua operação.",
                 links=[{"label": "🔔 Ver Alertas", "page": "alertas"}],
             )
-        itens = "; ".join(f"{a['titulo']} ({a['prioridade']})" for a in alertas)
+        itens = "; ".join(
+            f"{a.get('titulo', a.get('Titulo', ''))} ({a.get('prioridade', a.get('Prioridade', ''))})"
+            for a in alertas
+        )
         return _resp(
-            f"Há {len(alertas)} alerta(s) ativo(s): {itens}.",
+            f"Há {len(alertas)} alerta(s) ativo(s): {itens}.\n\nFonte: Pred.IO",
             links=[{"label": "🔔 Ver Alertas", "page": "alertas"}],
         )
 

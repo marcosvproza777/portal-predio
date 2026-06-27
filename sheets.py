@@ -3431,3 +3431,115 @@ def get_relatorios_executivos_publicados(client_id: str, ativo_id: str = "") -> 
             df = df.drop(columns=[col_int])
 
     return df.reset_index(drop=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CHUNKS DE RELATÓRIOS TÉCNICOS — aba TechnicalReportChunks
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HEADERS_REPORT_CHUNKS = [
+    "Id", "Report_Id", "Client_Id", "Ativo_Id",
+    "Chunk_Index", "Titulo_Secao", "Conteudo", "Palavras_Chave", "Indexado_Em",
+]
+
+
+def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados: dict) -> bool:
+    """
+    Cria/atualiza chunks do relatório técnico na aba TechnicalReportChunks.
+    Extrai Resumo e Recomendacoes como chunks para uso pelo assistente.
+
+    SEGURANÇA: Obs_Interna nunca é indexada.
+    """
+    if not report_id or not client_id:
+        return False
+
+    _ensure_tab_headers("TechnicalReportChunks", _HEADERS_REPORT_CHUNKS)
+
+    agora     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    titulo    = str(dados.get("Titulo",         "")).strip()
+    tipo      = str(dados.get("Tipo_Servico",   "")).strip()
+    sev       = str(dados.get("Severidade",     "")).strip()
+    data_rel  = str(dados.get("Data_Relatorio", "")).strip()
+    equip     = str(dados.get("Equipamento",    "")).strip() or ativo_id
+    resumo    = str(dados.get("Resumo",         "")).strip()
+    recomend  = str(dados.get("Recomendacoes",  "")).strip()
+
+    chunks_to_insert: list[list] = []
+
+    # Chunk 0 — ficha técnica
+    meta_conteudo = (
+        f"Relatório: {titulo}. "
+        f"Tipo: {tipo}. Severidade: {sev}. Data: {data_rel}. Equipamento/Ativo: {equip}."
+    )
+    chunks_to_insert.append([
+        _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
+        "0", "Ficha técnica", meta_conteudo, f"{titulo},{tipo},{sev}", agora,
+    ])
+
+    if resumo:
+        chunks_to_insert.append([
+            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
+            "1", "Resumo", resumo, f"resumo,{sev},{tipo}", agora,
+        ])
+
+    if recomend:
+        chunks_to_insert.append([
+            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
+            "2", "Recomendações", recomend, f"recomendacoes,acao,{tipo}", agora,
+        ])
+
+    try:
+        ss = get_spreadsheet()
+        try:
+            ws = ss.worksheet("TechnicalReportChunks")
+        except Exception:
+            ws = ss.add_worksheet("TechnicalReportChunks", rows=2000, cols=len(_HEADERS_REPORT_CHUNKS))
+            ws.append_row(_HEADERS_REPORT_CHUNKS)
+
+        headers = ws.row_values(1)
+        if not headers:
+            ws.append_row(_HEADERS_REPORT_CHUNKS)
+
+        # Remove chunks antigos para este report_id
+        all_values = ws.get_all_values()
+        if len(all_values) > 1:
+            hdrs = all_values[0]
+            if "Report_Id" in hdrs:
+                rid_col = hdrs.index("Report_Id")
+                rows_to_delete = [
+                    i + 2  # 1-based, +1 for header
+                    for i, row in enumerate(all_values[1:])
+                    if len(row) > rid_col and row[rid_col].strip() == report_id
+                ]
+                for row_num in reversed(rows_to_delete):
+                    ws.delete_rows(row_num)
+
+        for chunk_row in chunks_to_insert:
+            ws.append_row(chunk_row)
+
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=60)
+def get_chunks_relatorio(report_id: str, client_id: str = "") -> pd.DataFrame:
+    """
+    Retorna chunks do relatório técnico indexado.
+    SEGURANÇA: filtra por client_id se fornecido.
+    """
+    df = load_sheet("TechnicalReportChunks")
+    if df.empty:
+        return pd.DataFrame()
+
+    for col in _HEADERS_REPORT_CHUNKS:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df[df["Report_Id"].str.strip() == report_id.strip()]
+
+    if client_id:
+        df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
+
+    return df.reset_index(drop=True)

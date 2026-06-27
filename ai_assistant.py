@@ -144,19 +144,82 @@ def _build_context_str(ctx: dict) -> str:
         for r in rels:
             parts.append(f"• {r['titulo']} — {r.get('data','')}")
 
-    # Chamados
-    chams = ctx.get("chamados", [])
-    if chams:
-        parts.append("\n=== CHAMADOS ABERTOS ===")
-        for c in chams:
-            parts.append(f"• {c['titulo']} — Status: {c['status']} ({c.get('prioridade','')})")
+    # Tarefas de manutenção reais
+    tarefas = ctx.get("tarefas_manutencao", [])
+    if tarefas:
+        parts.append("\n=== PLANO DE MANUTENÇÃO — TAREFAS ===")
+        for t in tarefas:
+            linha = f"• {t.get('nome','')} [{t.get('tipo','')}] — Status: {t.get('status','')} — Ativo: {t.get('ativo_id','')}"
+            if t.get("prox_data"):
+                linha += f" — Próx. data: {t['prox_data']}"
+            if t.get("recomendacao"):
+                linha += f"\n  Recomendação: {t['recomendacao']}"
+            parts.append(linha)
 
-    # Alertas
-    als = ctx.get("alertas", [])
+    # Relatórios técnicos indexados com chunks
+    reps_idx = ctx.get("relatorios_tecnicos_indexados", [])
+    if reps_idx:
+        parts.append("\n=== RELATÓRIOS TÉCNICOS — CONTEÚDO INDEXADO ===")
+        for rep in reps_idx:
+            parts.append(
+                f"• {rep.get('titulo','')} — Sev: {rep.get('severidade','')} — Data: {rep.get('data','')} — Ativo: {rep.get('ativo','')}"
+            )
+            chunks = rep.get("chunks", [])
+            if chunks:
+                for ch in chunks:
+                    secao    = ch.get("titulo_secao", "")
+                    conteudo = ch.get("conteudo", "")
+                    if conteudo:
+                        parts.append(f"  [{secao}]: {conteudo}")
+            else:
+                if rep.get("resumo"):
+                    parts.append(f"  [Resumo]: {rep['resumo']}")
+                if rep.get("recomendacoes"):
+                    parts.append(f"  [Recomendações]: {rep['recomendacoes']}")
+
+    # Relatórios executivos publicados
+    exec_reps = ctx.get("relatorios_executivos", [])
+    if exec_reps:
+        parts.append("\n=== RELATÓRIOS EXECUTIVOS PUBLICADOS ===")
+        for er in exec_reps:
+            parts.append(
+                f"• {er.get('titulo','')} — Período: {er.get('periodo','')} — Ativo: {er.get('ativo_id','')} — Versão: {er.get('versao','')}"
+            )
+            if er.get("resumo_executivo"):
+                parts.append(f"  Resumo executivo: {er['resumo_executivo']}")
+
+    # Chamados reais (prioridade sobre mock)
+    chams_reais = ctx.get("chamados_reais", [])
+    chams_mock  = ctx.get("chamados", [])
+    chams = chams_reais or chams_mock
+    if chams:
+        parts.append("\n=== CHAMADOS TÉCNICOS ===")
+        for c in chams:
+            titulo   = c.get("titulo",    c.get("Titulo",    ""))
+            status   = c.get("status",    c.get("Status",    ""))
+            prior    = c.get("prioridade",c.get("Prioridade",""))
+            ativo    = c.get("ativo_id",  c.get("Ativo_Id",  ""))
+            linha    = f"• {titulo} — Status: {status}"
+            if prior:
+                linha += f" ({prior})"
+            if ativo:
+                linha += f" — Ativo: {ativo}"
+            parts.append(linha)
+
+    # Alertas reais (prioridade sobre mock)
+    alertas_reais = ctx.get("alertas_reais", [])
+    alertas_mock  = ctx.get("alertas", [])
+    als = alertas_reais or alertas_mock
     if als:
         parts.append("\n=== ALERTAS ATIVOS ===")
         for a in als:
-            parts.append(f"• {a['titulo']} — Prioridade: {a['prioridade']}")
+            titulo    = a.get("titulo",     a.get("Titulo",     ""))
+            prioridade= a.get("prioridade", a.get("Prioridade", ""))
+            descricao = a.get("descricao",  "")
+            linha     = f"• {titulo} — Prioridade: {prioridade}"
+            if descricao:
+                linha += f"\n  {descricao}"
+            parts.append(linha)
 
     # Especificações
     spec = ctx.get("especificacoes", {})
