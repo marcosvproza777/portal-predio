@@ -1,33 +1,33 @@
-"""Upload de PDF para Google Drive usando a conta de serviço existente — Pred.IO.
+"""
+Storage de PDFs para Pred.IO — Google Cloud Storage (GCS).
 
-SEGURANÇA:
-  - Credenciais do serviço nunca expostas ao front-end.
-  - Arquivos organizados por cliente_id em pastas isoladas.
-  - Chaves lidas do mesmo conjunto de fontes que sheets.py.
+MOTIVO: Service accounts não têm cota de armazenamento no Google Drive.
+GCS usa as mesmas credenciais e não tem essa restrição.
 
-CONFIGURAÇÃO OBRIGATÓRIA:
-  Service accounts não possuem cota de armazenamento própria no Google Drive.
-  É necessário:
-    1. Criar uma pasta no Google Drive de uma conta real (ex: conta Google do portal).
-    2. Compartilhar essa pasta com o e-mail da service account como "Editor".
-    3. Copiar o ID da pasta (último segmento da URL no Drive).
-    4. Definir a variável de ambiente DRIVE_ROOT_FOLDER_ID=<id_da_pasta> no Render.com.
+CONFIGURAÇÃO (opcional):
+  GCS_BUCKET_NAME=predio-biblioteca   ← padrão usado se não definido
+
+Se o bucket não existir, é criado automaticamente na primeira execução
+(requer que a service account tenha o papel "Storage Admin" no projeto GCP).
 """
 from __future__ import annotations
+
 import io
 import os
+from datetime import timedelta
 
-_MAX_SIZE_BYTES   = 50 * 1024 * 1024   # 50 MB
-_FOLDER_CACHE: dict[str, str] = {}
+_MAX_SIZE_BYTES  = 50 * 1024 * 1024   # 50 MB
+_SIGNED_URL_DAYS = 3650               # ~10 anos
 
+
+# ── Credenciais ───────────────────────────────────────────────────────────────
 
 def _build_creds():
-    """Credenciais com escopo Drive — mesma ordem de fontes que sheets.py."""
+    """Credenciais com escopo cloud-platform — mesma fonte que sheets.py."""
     from google.oauth2.service_account import Credentials
 
-    scopes = ["https://www.googleapis.com/auth/drive"]
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
-    # 1. st.secrets
     try:
         import streamlit as st
         for key in ("GCP_CREDENTIALS_B64", "GCP_CREDENTIALS"):
@@ -42,7 +42,6 @@ def _build_creds():
     except Exception:
         pass
 
-    # 2. Variáveis de ambiente
     import base64 as _b64, json as _json
     for key in ("GCP_CREDENTIALS_B64", "GCP_CREDENTIALS"):
         raw = os.environ.get(key)
@@ -53,65 +52,57 @@ def _build_creds():
                 info = _json.loads(raw)
             return Credentials.from_service_account_info(info, scopes=scopes)
 
-    # 3. Arquivo em disco
     for path in ("/etc/secrets/credentials.json", "credentials.json"):
         if os.path.exists(path):
             return Credentials.from_service_account_file(path, scopes=scopes)
 
-    raise RuntimeError("Credenciais GCP não encontradas para Google Drive.")
+    raise RuntimeError("Credenciais GCP não encontradas.")
 
 
-def _build_service():
-    from googleapiclient.discovery import build
-    return build("drive", "v3", credentials=_build_creds(), cache_discovery=False)
+# ── Bucket ────────────────────────────────────────────────────────────────────
 
-
-def _get_root_folder_id() -> str:
-    """Lê DRIVE_ROOT_FOLDER_ID de st.secrets ou variável de ambiente."""
-    folder_id = ""
+def _get_bucket_name() -> str:
+    bucket = ""
     try:
         import streamlit as st
-        folder_id = (st.secrets.get("DRIVE_ROOT_FOLDER_ID") or "").strip()
+        bucket = (st.secrets.get("GCS_BUCKET_NAME") or "").strip()
     except Exception:
         pass
-    if not folder_id:
-        folder_id = os.environ.get("DRIVE_ROOT_FOLDER_ID", "").strip()
-    if not folder_id:
-        raise RuntimeError(
-            "DRIVE_ROOT_FOLDER_ID não configurado.\n"
-            "Passos:\n"
-            "  1. Crie uma pasta no Google Drive da sua conta pessoal.\n"
-            "  2. Compartilhe-a com o e-mail da service account como Editor.\n"
-            "  3. Copie o ID da pasta (último trecho da URL do Drive).\n"
-            "  4. Defina DRIVE_ROOT_FOLDER_ID=<id> no painel Render → Environment."
-        )
-    return folder_id
+    if not bucket:
+        bucket = os.environ.get("GCS_BUCKET_NAME", "").strip()
+    return bucket or "predio-biblioteca"
 
 
-def _get_or_create_folder(service, name: str, parent_id: str | None = None) -> str:
-    cache_key = f"{parent_id}|{name}"
-    if cache_key in _FOLDER_CACHE:
-        return _FOLDER_CACHE[cache_key]
+def _get_client():
+    from google.cloud import storage
+    creds = _build_creds()
+    project = None
+    try:
+        # Extrai project_id do e-mail da service account: nome@project.iam...
+        project = creds.service_account_email.split("@")[1].split(".iam")[0]
+    except Exception:
+        pass
+    return storage.Client(credentials=creds, project=project)
 
-    safe = name.replace("'", "\\'")
-    q = (
-        f"name='{safe}' and mimeType='application/vnd.google-apps.folder'"
-        f" and trashed=false"
-        + (f" and '{parent_id}' in parents" if parent_id else "")
-    )
-    res   = service.files().list(q=q, fields="files(id)", pageSize=1).execute()
-    files = res.get("files", [])
-    if files:
-        folder_id = files[0]["id"]
-    else:
-        meta = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
-        if parent_id:
-            meta["parents"] = [parent_id]
-        folder_id = service.files().create(body=meta, fields="id").execute()["id"]
 
-    _FOLDER_CACHE[cache_key] = folder_id
-    return folder_id
+def _get_or_create_bucket(client, bucket_name: str):
+    try:
+        return client.get_bucket(bucket_name)
+    except Exception:
+        try:
+            return client.create_bucket(bucket_name)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Bucket GCS '{bucket_name}' não encontrado e não foi possível criar.\n"
+                f"Acesse console.cloud.google.com → Cloud Storage → Criar bucket,\n"
+                f"dê ao bucket o nome '{bucket_name}' e conceda à service account\n"
+                f"o papel 'Storage Object Admin'.\n"
+                f"Depois defina GCS_BUCKET_NAME={bucket_name} no Render → Environment.\n"
+                f"Detalhe: {exc}"
+            ) from exc
 
+
+# ── Upload público ─────────────────────────────────────────────────────────────
 
 def upload_pdf(
     file_bytes: bytes,
@@ -119,13 +110,10 @@ def upload_pdf(
     cliente_id: str,
 ) -> str:
     """
-    Faz upload do PDF para Google Drive.
+    Faz upload do PDF para Google Cloud Storage.
 
-    Retorna a URL de download direto (https://drive.google.com/uc?export=download&id=...).
-    Lança ValueError para arquivo inválido ou RuntimeError para falha de storage.
-
-    SEGURANÇA: arquivo salvo em pasta isolada por cliente_id; credenciais nunca
-    chegam ao front-end.
+    Retorna URL assinada válida por ~10 anos.
+    Lança ValueError para arquivo inválido, RuntimeError para falha de storage.
     """
     # ── Validações ────────────────────────────────────────────────────────────
     if not file_bytes:
@@ -133,55 +121,42 @@ def upload_pdf(
     if len(file_bytes) > _MAX_SIZE_BYTES:
         mb = len(file_bytes) // (1024 * 1024)
         raise ValueError(
-            f"Arquivo muito grande ({mb} MB). Envie um PDF de até 50 MB "
-            "ou compacte o documento."
+            f"Arquivo muito grande ({mb} MB). Envie um PDF de até 50 MB."
         )
     if file_bytes[:5] != b"%PDF-":
-        raise ValueError("Arquivo não é um PDF válido. Envie um arquivo PDF.")
+        raise ValueError("Arquivo não é um PDF válido. Envie um arquivo .pdf.")
 
-    # ── Nome seguro ───────────────────────────────────────────────────────────
+    # ── Nome do objeto: {cliente_id}/{nome}.pdf ───────────────────────────────
     base = os.path.splitext(arquivo_nome)[0] if arquivo_nome else "documento"
-    safe_name = "".join(c for c in base if c.isalnum() or c in "-_ ").strip() or "documento"
-    nome_drive = f"{safe_name}.pdf"
+    safe = "".join(c for c in base if c.isalnum() or c in "-_ ").strip() or "documento"
+    blob_name = f"{(cliente_id or 'sem-cliente').lower()}/{safe}.pdf"
 
-    # ── Drive service ─────────────────────────────────────────────────────────
+    # ── Client GCS ────────────────────────────────────────────────────────────
     try:
-        service = _build_service()
+        client = _get_client()
     except ImportError:
         raise RuntimeError(
-            "Dependência google-api-python-client não instalada. "
+            "Dependência google-cloud-storage não instalada. "
             "Aguarde o próximo deploy e tente novamente."
         )
 
-    # ── Pasta raiz: lida de DRIVE_ROOT_FOLDER_ID ─────────────────────────────
-    root_id = _get_root_folder_id()
-
-    # ── Subpasta por cliente ──────────────────────────────────────────────────
-    try:
-        client_dir = (cliente_id or "sem-cliente").lower().replace("/", "-")
-        folder_id  = _get_or_create_folder(service, client_dir, root_id)
-    except Exception as exc:
-        raise RuntimeError(f"Erro ao criar subpasta do cliente no Drive: {exc}") from exc
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
 
     # ── Upload ────────────────────────────────────────────────────────────────
     try:
-        from googleapiclient.http import MediaIoBaseUpload
-        buf   = io.BytesIO(file_bytes)
-        media = MediaIoBaseUpload(buf, mimetype="application/pdf", resumable=False)
-        meta  = {"name": nome_drive, "parents": [folder_id]}
-        file_id = service.files().create(
-            body=meta, media_body=media, fields="id"
-        ).execute()["id"]
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(io.BytesIO(file_bytes), content_type="application/pdf")
     except Exception as exc:
-        raise RuntimeError(f"Falha ao enviar arquivo para o Drive: {exc}") from exc
+        raise RuntimeError(f"Falha ao enviar arquivo para o GCS: {exc}") from exc
 
-    # ── Permissão: qualquer pessoa com o link pode visualizar ─────────────────
+    # ── URL assinada ~10 anos ─────────────────────────────────────────────────
     try:
-        service.permissions().create(
-            fileId=file_id,
-            body={"role": "reader", "type": "anyone"},
-        ).execute()
-    except Exception:
-        pass  # falha silenciosa — arquivo existe, mas acesso externo pode não funcionar
+        url = blob.generate_signed_url(
+            expiration=timedelta(days=_SIGNED_URL_DAYS),
+            method="GET",
+            version="v2",
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Arquivo enviado, mas falha ao gerar URL: {exc}") from exc
 
-    return f"https://drive.google.com/uc?export=download&id={file_id}"
+    return url
