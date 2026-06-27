@@ -2192,28 +2192,62 @@ def _apply_web_search(result: dict, pergunta: str, client_id: str, force: bool =
         return result
 
     refs = web["resultados"]
-    resumos = "\n\n".join(
-        f"• **{r['titulo']}** ({r.get('dominio', extract_domain(r.get('url','')))}): "
-        f"{r.get('resumo','')[:350]}"
-        for r in refs[:3]
+
+    # Monta contexto dos resultados para síntese
+    contexto_web = "\n\n".join(
+        f"[{i+1}] {r.get('titulo','')} ({r.get('dominio','')})\n{r.get('resumo','')[:400]}"
+        for i, r in enumerate(refs[:4])
     )
 
+    # Tenta sintetizar resposta direta via Claude
+    novo_answer = _sintetizar_com_ia(pergunta, contexto_web)
+
     aviso = (
-        "\n\n⚠️ _Esta informação veio de referência pública externa. "
-        "Valide com a equipe Pred.IO antes de qualquer decisão crítica._"
+        "\n\n⚠️ _Informação complementada com referências públicas. "
+        "Valide com a equipe Pred.IO antes de decisão crítica._"
         if any(r.get("confianca") == "baixa" for r in refs)
         else ""
     )
 
-    novo_answer = (
-        "Consultei a base Pred.IO e complementei com referências públicas disponíveis na internet.\n\n"
-        + resumos
-        + aviso
-        + "\n\nFonte: Pred.IO"
-    )
-
     return {
         **result,
-        "answer":   novo_answer,
+        "answer":   novo_answer + aviso + "\n\n_Fonte: Pred.IO + referências públicas_",
         "web_refs": refs,
     }
+
+
+def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
+    """
+    Usa Claude para sintetizar uma resposta direta a partir de resultados de busca web.
+    Fallback para resumo simples se a API não estiver disponível.
+    """
+    import os
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return f"Com base em referências públicas:\n\n{contexto_web}"
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            system=(
+                "Você é o Assistente Técnico Pred.IO especializado em manutenção industrial. "
+                "Use as referências fornecidas para responder à pergunta de forma direta e objetiva. "
+                "Foque no que foi perguntado. Não mencione URLs. Não diga 'segundo o site X'. "
+                "Se as referências não contiverem a resposta exata, diga o que foi encontrado "
+                "e sugira abrir um chamado técnico Pred.IO."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Pergunta: {pergunta}\n\n"
+                    f"Referências públicas encontradas:\n{contexto_web}\n\n"
+                    f"Responda diretamente à pergunta com base nessas referências."
+                ),
+            }],
+        )
+        return msg.content[0].text.strip()
+    except Exception:
+        return f"Com base em referências públicas:\n\n{contexto_web}"
