@@ -1978,7 +1978,15 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
         )
 
-    # ── Fallback ──────────────────────────────────────────────────────────────
+    # ── Fallback — última tentativa: buscar em chunks da Biblioteca Técnica ──
+    chunk_result = _buscar_chunks_geral(ctx, pergunta)
+    if chunk_result:
+        return _resp(
+            chunk_result["answer"],
+            links=[{"label": "📚 Ver Biblioteca Técnica", "page": "biblioteca"}],
+            documents=chunk_result.get("docs", []),
+        )
+
     return _resp(
         "Não encontrei informação suficiente nos dados disponíveis do portal "
         "para responder com segurança. Recomendo abrir um chamado técnico "

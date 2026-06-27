@@ -373,34 +373,78 @@ def _render_card(row) -> None:
         )
 
         # Botões processar / reprocessar e testar
-        if doc_id and arq_url:
-            btn_label = "🔄 Reprocessar" if st_idx == STATUS_INDEXADO else "⚙️ Processar documento"
+        if doc_id:
             col_proc, col_test, _ = st.columns([3, 3, 4])
             with col_proc:
-                if st.button(btn_label, key=f"proc_{doc_id}", use_container_width=True):
-                    with st.spinner("Processando…"):
-                        from document_processor import processar_documento
-                        result = processar_documento(
-                            doc_id=doc_id,
-                            cliente_id=cliente,
-                            ativo_id=ativo_id,
-                            componente_id=comp_id,
-                            arquivo_url=arq_url,
-                            arquivo_nome=arq_nome,
-                        )
-                    if result["ok"]:
-                        st.success(
-                            f"✅ Indexado: {result['n_chunks']} chunks, "
-                            f"{result['n_paginas']} páginas."
-                        )
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {result['erro']}")
+                if arq_url:
+                    btn_label = "🔄 Reprocessar" if st_idx == STATUS_INDEXADO else "⚙️ Processar documento"
+                    if st.button(btn_label, key=f"proc_{doc_id}", use_container_width=True):
+                        with st.spinner("Processando…"):
+                            from document_processor import processar_documento
+                            result = processar_documento(
+                                doc_id=doc_id,
+                                cliente_id=cliente,
+                                ativo_id=ativo_id,
+                                componente_id=comp_id,
+                                arquivo_url=arq_url,
+                                arquivo_nome=arq_nome,
+                            )
+                        if result["ok"]:
+                            st.success(
+                                f"✅ Indexado: {result['n_chunks']} chunks, "
+                                f"{result['n_paginas']} páginas."
+                            )
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {result['erro']}")
+                elif st_idx != STATUS_INDEXADO:
+                    if st.button("📤 Reindexar arquivo", key=f"reup_{doc_id}", use_container_width=True):
+                        st.session_state[f"_reup_open_{doc_id}"] = not st.session_state.get(f"_reup_open_{doc_id}", False)
 
             with col_test:
                 if st_idx == STATUS_INDEXADO:
                     if st.button("🔍 Testar no Assistente", key=f"test_{doc_id}", use_container_width=True):
                         st.session_state[f"_test_open_{doc_id}"] = not st.session_state.get(f"_test_open_{doc_id}", False)
+
+            # Painel de re-upload (documentos enviados via upload com indexação pendente ou falhou)
+            if not arq_url and st.session_state.get(f"_reup_open_{doc_id}") and st_idx != STATUS_INDEXADO:
+                with st.container():
+                    st.markdown(
+                        "<div style='background:#FFF7ED;border:1px solid #FED7AA;"
+                        "border-radius:10px;padding:12px 16px;margin:6px 0 8px;'>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        "<p style='font-size:0.8rem;color:#92400E;margin:0 0 8px;'>"
+                        "📤 O arquivo original do upload não fica armazenado. "
+                        "Selecione o arquivo novamente para reprocessar.</p>",
+                        unsafe_allow_html=True,
+                    )
+                    reup_file = st.file_uploader(
+                        "Arquivo PDF",
+                        type=["pdf"],
+                        key=f"_reup_file_{doc_id}",
+                        label_visibility="collapsed",
+                    )
+                    if reup_file:
+                        if st.button("⚙️ Processar agora", key=f"_reup_proc_{doc_id}", type="primary"):
+                            with st.spinner("Reprocessando…"):
+                                from document_processor import processar_documento_from_bytes
+                                result = processar_documento_from_bytes(
+                                    doc_id=doc_id,
+                                    cliente_id=cliente,
+                                    ativo_id=ativo_id,
+                                    componente_id=comp_id,
+                                    file_bytes=reup_file.read(),
+                                    arquivo_nome=reup_file.name or arq_nome,
+                                )
+                            if result["ok"]:
+                                st.success(f"✅ Indexado: {result['n_chunks']} chunks, {result['n_paginas']} páginas.")
+                                st.session_state.pop(f"_reup_open_{doc_id}", None)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {result['erro']}")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
             # Painel de teste — busca nos chunks indexados
             if st.session_state.get(f"_test_open_{doc_id}") and st_idx == STATUS_INDEXADO:

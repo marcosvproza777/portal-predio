@@ -517,6 +517,19 @@ def _get_mock_for_url(arquivo_url: str, arquivo_nome: str = "") -> tuple[str, li
     return "", [], 0
 
 
+def _converter_url_download(url: str) -> str:
+    """Converte URLs de compartilhamento do Google Drive para URL de download direto."""
+    # https://drive.google.com/file/d/FILE_ID/view?...
+    m = re.search(r"drive\.google\.com/file/d/([^/?&]+)", url)
+    if m:
+        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    # https://drive.google.com/open?id=FILE_ID
+    m = re.search(r"drive\.google\.com/open\?id=([^&]+)", url)
+    if m:
+        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    return url
+
+
 def extrair_texto_pdf(arquivo_url: str, arquivo_nome: str = "") -> tuple[str, int]:
     """
     Extrai texto de um PDF. Retorna (texto, num_paginas).
@@ -525,6 +538,8 @@ def extrair_texto_pdf(arquivo_url: str, arquivo_nome: str = "") -> tuple[str, in
     if arquivo_url.startswith("/mock/") or not arquivo_url.startswith("http"):
         texto, _, n_pags = _get_mock_for_url(arquivo_url, arquivo_nome)
         return texto, n_pags
+
+    arquivo_url = _converter_url_download(arquivo_url)
 
     try:
         import urllib.request
