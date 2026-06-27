@@ -240,6 +240,27 @@ def _render_form_cadastro() -> None:
         _nome_final  = (arquivo_nome.strip()
                         or (_file_name if _usar_upload else arquivo_url.strip().split("/")[-1]))
 
+        # ── Upload para Google Drive (quando há arquivo do PC) ────────────────
+        _url_final = arquivo_url.strip() if not _usar_upload else ""
+        if _usar_upload:
+            with st.spinner("Enviando arquivo para o storage…"):
+                try:
+                    from drive_storage import upload_pdf as _upload_pdf
+                    _url_final = _upload_pdf(
+                        file_bytes=_file_bytes,
+                        arquivo_nome=_nome_final,
+                        cliente_id=client_id,
+                    )
+                except (ValueError, RuntimeError) as _drive_err:
+                    st.error(f"❌ {_drive_err}")
+                    return
+                except Exception as _drive_err:
+                    st.error(
+                        f"❌ Não foi possível enviar o arquivo para o storage. "
+                        f"Detalhe interno: {type(_drive_err).__name__}."
+                    )
+                    return
+
         doc_id = add_documento_tecnico({
             "titulo":              titulo.strip(),
             "tipo_documento":      tipo_doc,
@@ -250,7 +271,7 @@ def _render_form_cadastro() -> None:
             "fabricante":          fabricante.strip(),
             "modelo":              modelo.strip(),
             "numero_serie":        numero_serie.strip(),
-            "arquivo_url":         "" if _usar_upload else arquivo_url.strip(),
+            "arquivo_url":         _url_final,
             "arquivo_nome":        _nome_final,
             "resumo":              resumo.strip(),
             "palavras_chave":      palavras_chave.strip(),
@@ -273,16 +294,18 @@ def _render_form_cadastro() -> None:
                         arquivo_nome=_nome_final,
                     )
                 if result["ok"]:
-                    st.success(
-                        f"✅ Documento cadastrado e indexado — "
-                        f"{result['n_chunks']} chunks, {result['n_paginas']} página(s)."
+                    st.toast(
+                        f"✅ Arquivo salvo e indexado — "
+                        f"{result['n_chunks']} chunks, {result['n_paginas']} página(s).",
+                        icon="✅",
                     )
                 else:
-                    st.warning(
-                        f"⚠️ Documento cadastrado (ID {doc_id}), mas a indexação falhou: {result['erro']}"
+                    st.toast(
+                        f"⚠️ Arquivo salvo no storage, mas indexação falhou: {result['erro']}",
+                        icon="⚠️",
                     )
             else:
-                st.success(f"✅ Documento cadastrado com ID {doc_id}.")
+                st.toast("✅ Documento cadastrado com sucesso.", icon="✅")
             st.rerun()
         else:
             st.error("Erro ao cadastrar. Verifique as credenciais do Google Sheets.")
