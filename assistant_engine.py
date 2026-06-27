@@ -137,6 +137,19 @@ _INTENTS: dict[str, list[str]] = {
         "existe relatório executivo", "existe relatorio executivo",
         "qual resumo do ativo", "qual resumo executivo",
     ],
+    "notificacoes_externas": [
+        "notificações externas", "notificacoes externas",
+        "notificações já estão ativas", "notificacoes ativas",
+        "whatsapp já está enviando", "whatsapp enviando", "whatsapp ativo",
+        "email já está enviando", "email enviando", "e-mail enviando",
+        "modo teste notificacoes", "modo teste notificações",
+        "envio externo ativo", "envio externo desativado",
+        "notificação real", "notificacao real",
+        "quem receberia alerta", "quem receberia notificacao",
+        "notificacao desativada", "notificação desativada",
+        "sandbox notificacoes", "fila de notificacoes",
+        "template de notificacao", "template de notificação",
+    ],
     "relatorios": [
         "relatório", "relatorio", "laudo", "análise preditiva", "analise preditiva",
         "análise de vibração", "analise de vibracao", "resultado", "publicado",
@@ -253,6 +266,7 @@ def detect_intent(pergunta: str) -> str:
         "comunicacao_monitoramento", # Modbus / Ethernet / monitoramento remoto
         "mycom_manual",              # Manual MYCOM / Sistema Chiller
         "meta_assistente",           # Perguntas meta sobre o Assistente
+        "notificacoes_externas",     # Status de notificações externas / modo teste
         "relatorio_executivo",       # Relatório Executivo de Confiabilidade publicado
         "oleo",                      # Óleo genérico
         "manutencao",                # Plano de manutenção
@@ -1888,6 +1902,61 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
         return _resp(
             f"Há {len(alertas)} alerta(s) ativo(s): {itens}.\n\nFonte: Pred.IO",
             links=[{"label": "🔔 Ver Alertas", "page": "alertas"}],
+        )
+
+    # ── Notificações Externas — status de modo teste ─────────────────────────
+    if intent == "notificacoes_externas":
+        q_lower = pergunta.lower()
+
+        # "O WhatsApp já está enviando?" / "WhatsApp ativo?"
+        if any(kw in q_lower for kw in ["whatsapp", "zap", "zapzap"]):
+            return _resp(
+                "O envio real por <strong>WhatsApp</strong> está <strong>desativado</strong>. "
+                "As notificações estão em modo teste — o sistema gera registros internos "
+                "e previews, mas não envia mensagens externas.\n\n"
+                "Quando a integração for ativada em etapa futura, o envio real será habilitado "
+                "via variável <code>NOTIFICATION_EXTERNAL_SEND_ENABLED</code>.\n\nFonte: Pred.IO",
+                links=[{"label": "⚙️ Notificações", "page": "notificacoes"}],
+            )
+
+        # "As notificações externas já estão ativas?"
+        if any(kw in q_lower for kw in ["externas", "ativas", "ativo", "enviando", "email", "e-mail"]):
+            return _resp(
+                "As notificações externas por <strong>e-mail</strong> e <strong>WhatsApp</strong> "
+                "ainda estão em <strong>modo teste</strong>. "
+                "Nesta fase, o Portal Pred.IO gera previews e registros internos, "
+                "mas <strong>não envia mensagens reais</strong>.\n\n"
+                "A variável de controle é: <code>NOTIFICATION_EXTERNAL_SEND_ENABLED=false</code>.\n\nFonte: Pred.IO",
+                links=[{"label": "⚙️ Notificações", "page": "notificacoes"}],
+            )
+
+        # "Quem receberia alerta crítico?"
+        if any(kw in q_lower for kw in ["quem receberia", "quem recebe", "contatos autorizados"]):
+            client_id = ctx.get("client_id", "")
+            if client_id:
+                try:
+                    from sheets import get_contatos_notificacao
+                    contatos = get_contatos_notificacao(client_id)
+                    if contatos:
+                        nomes = "; ".join(
+                            c.get("nome", c.get("usuario_id", "—")) for c in contatos[:5]
+                        )
+                        return _resp(
+                            f"Os contatos autorizados para notificações na sua operação são: "
+                            f"<strong>{nomes}</strong>.\n\n"
+                            "Cada contato recebe apenas notificações do próprio cliente — "
+                            "nunca de outro cliente.\n\nFonte: Pred.IO",
+                            links=[{"label": "⚙️ Preferências", "page": "preferencias"}],
+                        )
+                except Exception:
+                    pass
+
+        return _resp(
+            "As notificações externas por e-mail e WhatsApp estão em <strong>modo teste</strong>. "
+            "O sistema gera previews, templates e registros na fila, mas "
+            "<strong>não envia mensagens reais</strong>. "
+            "Variável de controle: <code>NOTIFICATION_EXTERNAL_SEND_ENABLED=false</code>.\n\nFonte: Pred.IO",
+            links=[{"label": "⚙️ Notificações", "page": "notificacoes"}],
         )
 
     # ── Meta — sobre o Assistente Técnico Pred.IO ────────────────────────────

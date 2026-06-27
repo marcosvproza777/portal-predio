@@ -1,4 +1,4 @@
-"""Supervisão — Notificações Externas (e-mail / WhatsApp)."""
+"""Supervisão — Notificações: Templates, Fila, Sandbox e Log."""
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -8,6 +8,10 @@ from sheets import (
     get_all_clientes, get_contatos_notificacao,
 )
 from ui import sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
+
+COLOR_GREEN = "#10B981"
+COLOR_WARN  = "#F59E0B"
+COLOR_RED   = "#EF4444"
 
 # ── Eventos ───────────────────────────────────────────────────────────────────
 
@@ -102,11 +106,14 @@ def render() -> None:
         "Gerencie notificações do portal e envios por e-mail / WhatsApp.",
     )
 
-    tab_enviar, tab_log, tab_portal, tab_prefs = st.tabs([
+    tab_enviar, tab_log, tab_portal, tab_prefs, tab_tpl, tab_fila, tab_sandbox = st.tabs([
         "📤 Enviar notificação",
         "📋 Log de envios",
         "📊 Notificações Portal",
         "⚙️ Preferências por Cliente",
+        "📝 Templates",
+        "📋 Fila",
+        "🧪 Sandbox",
     ])
     with tab_enviar:
         _render_tab_enviar()
@@ -116,6 +123,12 @@ def render() -> None:
         _render_tab_portal()
     with tab_prefs:
         _render_tab_prefs_cliente()
+    with tab_tpl:
+        _render_tab_templates()
+    with tab_fila:
+        _render_tab_fila()
+    with tab_sandbox:
+        _render_tab_sandbox()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1080,3 +1093,519 @@ def _render_tab_prefs_cliente() -> None:
             f"<hr style='border-color:{COLOR_BORDER};margin:4px 0;opacity:.5;'/>",
             unsafe_allow_html=True,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB: TEMPLATES — gerenciar templates de notificação
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TIPO_EVENTO_OPCOES = [
+    "relatorio_publicado", "relatorio_critico", "ativo_critico",
+    "manutencao_vencida", "manutencao_proxima", "chamado_respondido",
+    "chamado_aguardando_cliente", "alerta_critico",
+    "recomendacao_por_condicao", "documento_publicado",
+]
+_CANAL_OPCOES = ["E-mail", "WhatsApp", "Portal"]
+_STATUS_TPL   = ["Rascunho", "Ativo", "Arquivado"]
+_VARS_HINT    = "cliente_nome, ativo_nome, tipo_evento, prioridade, resumo, link_portal, data_evento, status, fonte"
+
+
+def _render_tab_templates() -> None:
+    from sheets import (
+        get_notification_templates, add_notification_template,
+        update_notification_template,
+    )
+    from notification_engine import DEFAULT_TEMPLATES, seed_default_templates
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin-bottom:0.5rem;'>"
+        "Gerencie templates de notificação. Variáveis sensíveis são bloqueadas automaticamente."
+        f"<br>Modo atual: <strong style='color:{COLOR_RED};'>NOTIFICATION_EXTERNAL_SEND_ENABLED=false</strong> "
+        "— nenhum envio real ocorre.</p>",
+        unsafe_allow_html=True,
+    )
+
+    df = get_notification_templates()
+
+    # Seed se vazio
+    if df.empty:
+        col_seed, _ = st.columns([2, 6])
+        with col_seed:
+            if st.button("🌱 Criar templates padrão", type="primary", use_container_width=True):
+                n = seed_default_templates()
+                if n > 0:
+                    st.success(f"{n} templates padrão criados.")
+                    st.rerun()
+                else:
+                    st.info("Templates já existem ou não foi possível criar.")
+        st.info("Nenhum template cadastrado. Clique em 'Criar templates padrão' para começar.")
+
+    # Formulário de criação
+    with st.expander("➕ Novo template", expanded=df.empty):
+        _render_form_template(None)
+
+    if df.empty:
+        return
+
+    # Filtros
+    cf1, cf2, cf3 = st.columns(3)
+    with cf1:
+        f_evt = st.selectbox("Tipo de evento", ["Todos"] + _TIPO_EVENTO_OPCOES, key="_tpl_f_evt")
+    with cf2:
+        f_can = st.selectbox("Canal", ["Todos"] + _CANAL_OPCOES, key="_tpl_f_can")
+    with cf3:
+        f_st  = st.selectbox("Status", ["Todos"] + _STATUS_TPL, key="_tpl_f_st")
+
+    df_f = df.copy()
+    if f_evt != "Todos":
+        df_f = df_f[df_f["Tipo_Evento"].str.strip() == f_evt]
+    if f_can != "Todos":
+        df_f = df_f[df_f["Canal"].str.strip() == f_can]
+    if f_st  != "Todos":
+        df_f = df_f[df_f["Status"].str.strip() == f_st]
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total", len(df))
+    m2.metric("Ativos", len(df[df["Status"].str.strip() == "Ativo"]))
+    m3.metric("Rascunhos", len(df[df["Status"].str.strip() == "Rascunho"]))
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>", unsafe_allow_html=True)
+
+    if df_f.empty:
+        st.info("Nenhum template com os filtros selecionados.")
+        return
+
+    for _, row in df_f.iterrows():
+        _render_template_card(row)
+
+
+def _render_template_card(row) -> None:
+    from sheets import update_notification_template
+    tpl_id   = str(row.get("Id",          "")).strip()
+    nome     = str(row.get("Nome",         "Sem nome")).strip()
+    tipo_ev  = str(row.get("Tipo_Evento",  "")).strip()
+    canal    = str(row.get("Canal",        "")).strip()
+    status   = str(row.get("Status",       "Rascunho")).strip()
+    assunto  = str(row.get("Assunto",      "")).strip()
+    corpo    = str(row.get("Corpo",        "")).strip()
+    vars_perm= str(row.get("Variaveis_Permitidas", "")).strip()
+
+    status_colors = {
+        "Ativo":     (COLOR_GREEN, "#F0FDF4", "#86EFAC"),
+        "Rascunho":  ("#94A3B8",   "#F8FAFC", "#CBD5E1"),
+        "Arquivado": ("#64748B",   "#F1F5F9", "#CBD5E1"),
+    }
+    canal_colors = {
+        "E-mail":   (COLOR_BLUE,  "#EFF6FF"),
+        "WhatsApp": (COLOR_GREEN, "#F0FDF4"),
+        "Portal":   (COLOR_NAVY,  "#EFF6FF"),
+    }
+    sc, sb, sbo = status_colors.get(status, ("#94A3B8", "#F8FAFC", "#CBD5E1"))
+    cc, cb = canal_colors.get(canal, ("#64748B", "#F8FAFC"))
+
+    with st.expander(f"📝 {nome}  ·  {canal}  ·  {tipo_ev}  ·  {status}", expanded=False):
+        st.markdown(
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;'>"
+            f"<span style='background:{sb};color:{sc};-webkit-text-fill-color:{sc};"
+            f"border:1px solid {sbo};font-size:0.7rem;font-weight:700;"
+            f"padding:2px 10px;border-radius:12px;'>{status}</span>"
+            f"<span style='background:{cb};color:{cc};-webkit-text-fill-color:{cc};"
+            f"font-size:0.7rem;font-weight:700;padding:2px 10px;border-radius:12px;"
+            f"border:1px solid {cb};'>{canal}</span>"
+            f"<span style='background:#EFF6FF;color:{COLOR_NAVY};-webkit-text-fill-color:{COLOR_NAVY};"
+            f"font-size:0.7rem;font-weight:600;padding:2px 10px;border-radius:12px;"
+            f"border:1px solid #BFDBFE;'>{tipo_ev}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if assunto:
+            st.markdown(f"**Assunto:** `{assunto}`")
+        if corpo:
+            st.text_area("Corpo", corpo, height=120, disabled=True, key=f"_tplbody_{tpl_id}")
+        if vars_perm:
+            st.caption(f"Variáveis permitidas: {vars_perm}")
+
+        col_ed, col_at, col_ar, _ = st.columns([1, 1, 1, 3])
+        with col_ed:
+            if st.button("✏️ Editar", key=f"_tpl_edit_{tpl_id}", use_container_width=True):
+                st.session_state[f"_tpl_editing_{tpl_id}"] = True
+                st.rerun()
+        with col_at:
+            if status != "Ativo":
+                if st.button("✅ Ativar", key=f"_tpl_ativ_{tpl_id}", use_container_width=True):
+                    ok = update_notification_template(tpl_id, {"Status": "Ativo"})
+                    st.toast("Template ativado." if ok else "Erro ao ativar.", icon="✅")
+                    if ok:
+                        st.rerun()
+        with col_ar:
+            if status != "Arquivado":
+                if st.button("📦 Arquivar", key=f"_tpl_arch_{tpl_id}", use_container_width=True):
+                    ok = update_notification_template(tpl_id, {"Status": "Arquivado"})
+                    st.toast("Template arquivado." if ok else "Erro.", icon="📦")
+                    if ok:
+                        st.rerun()
+
+        if st.session_state.get(f"_tpl_editing_{tpl_id}"):
+            st.markdown("---")
+            _render_form_template(row.to_dict())
+            if st.button("❌ Cancelar edição", key=f"_tpl_canceledit_{tpl_id}"):
+                st.session_state.pop(f"_tpl_editing_{tpl_id}", None)
+                st.rerun()
+
+
+def _render_form_template(tpl: dict | None) -> None:
+    from sheets import add_notification_template, update_notification_template
+    editing = tpl is not None
+    tpl_id  = str((tpl or {}).get("Id", "")).strip()
+
+    def _d(k: str, default="") -> str:
+        return str((tpl or {}).get(k, "")).strip() or default
+
+    with st.form(f"_form_tpl_{tpl_id or 'new'}"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            nome = st.text_input("Nome *", value=_d("Nome"), placeholder="Ex: E-mail — Relatório Publicado")
+        with c2:
+            te_idx = _TIPO_EVENTO_OPCOES.index(_d("Tipo_Evento")) if _d("Tipo_Evento") in _TIPO_EVENTO_OPCOES else 0
+            tipo_ev = st.selectbox("Tipo de evento *", _TIPO_EVENTO_OPCOES, index=te_idx)
+        with c3:
+            can_idx = _CANAL_OPCOES.index(_d("Canal")) if _d("Canal") in _CANAL_OPCOES else 0
+            canal   = st.selectbox("Canal *", _CANAL_OPCOES, index=can_idx)
+
+        assunto = st.text_input(
+            "Assunto (somente E-mail)",
+            value=_d("Assunto"),
+            placeholder="[Pred.IO] Novo relatório - {{ativo_nome}}",
+        )
+        corpo = st.text_area(
+            "Corpo da mensagem *",
+            value=_d("Corpo"),
+            height=200,
+            placeholder="Olá.\n\nUm novo relatório foi publicado.\n\nCliente: {{cliente_nome}}\n...\n\nFonte: Pred.IO",
+        )
+        st.caption(f"Variáveis permitidas: {_VARS_HINT}")
+        st.caption("Variáveis sensíveis (ex: {{senha}}, {{token}}) são bloqueadas automaticamente.")
+
+        vars_perm = st.text_input(
+            "Variáveis esperadas neste template",
+            value=_d("Variaveis_Permitidas", "cliente_nome,ativo_nome,resumo,link_portal,fonte"),
+        )
+        st_idx = _STATUS_TPL.index(_d("Status", "Rascunho")) if _d("Status", "Rascunho") in _STATUS_TPL else 0
+        status = st.selectbox("Status", _STATUS_TPL, index=st_idx)
+
+        submitted = st.form_submit_button("💾 Salvar template", type="primary")
+
+    if submitted:
+        if not nome.strip():
+            st.error("Informe o nome do template.")
+            return
+        if not corpo.strip():
+            st.error("O corpo da mensagem é obrigatório.")
+            return
+
+        from notification_engine import render_template, validate_content
+        test_render = render_template(corpo, assunto, {})
+        if test_render["variaveis_bloqueadas"]:
+            st.error(
+                f"Template contém variáveis bloqueadas: "
+                f"{', '.join(test_render['variaveis_bloqueadas'])}. "
+                "Remova-as antes de salvar."
+            )
+            return
+
+        campos = {
+            "Nome": nome.strip(), "Tipo_Evento": tipo_ev, "Canal": canal,
+            "Assunto": assunto.strip(), "Corpo": corpo.strip(),
+            "Variaveis_Permitidas": vars_perm.strip(), "Status": status,
+        }
+        if editing and tpl_id:
+            ok = update_notification_template(tpl_id, campos)
+            st.success("Template atualizado." if ok else "Erro ao atualizar.")
+        else:
+            ok = add_notification_template(campos)
+            st.success("Template criado com sucesso." if ok else "Erro ao criar template.")
+        if ok:
+            st.session_state.pop(f"_tpl_editing_{tpl_id}", None)
+            st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB: FILA — visualizar fila de notificações
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_STATUS_FILA_COR = {
+    "Simulado":               ("#6366F1", "#fff"),
+    "Bloqueado":              ("#EF4444", "#fff"),
+    "Pendente":               ("#F59E0B", "#000"),
+    "Aguardando aprovacao":   ("#0EA5E9", "#fff"),
+    "Aprovado para envio futuro": ("#10B981", "#fff"),
+    "Cancelado":              ("#94A3B8", "#fff"),
+}
+
+
+def _render_tab_fila() -> None:
+    from sheets import get_notification_queue, update_notification_queue_status
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin-bottom:0.5rem;'>"
+        "Notificações enfileiradas em modo Teste. Nenhuma mensagem real foi enviada.</p>",
+        unsafe_allow_html=True,
+    )
+
+    df_cli = get_all_clientes()
+    cli_opts = ["Todos"]
+    cli_map: dict = {}
+    if not df_cli.empty and "Empresa" in df_cli.columns:
+        for _, r in df_cli.iterrows():
+            nome = str(r.get("Empresa", "")).strip()
+            cid  = str(r.get("Client_Id", "")).strip()
+            if nome and cid:
+                cli_map[nome] = cid
+                cli_opts.append(nome)
+
+    cf1, cf2, cf3 = st.columns(3)
+    with cf1:
+        f_cli = st.selectbox("Cliente", cli_opts, key="_fila_f_cli")
+    with cf2:
+        f_st  = st.selectbox("Status", ["Todos", "Simulado", "Bloqueado", "Cancelado"], key="_fila_f_st")
+    with cf3:
+        f_can = st.selectbox("Canal", ["Todos", "E-mail", "WhatsApp", "Portal"], key="_fila_f_can")
+
+    cid_sel = cli_map.get(f_cli, "") if f_cli != "Todos" else ""
+    df = get_notification_queue(client_id=cid_sel, limit=200)
+
+    if df.empty:
+        st.info("Fila vazia. Use o Sandbox para simular notificações.")
+        return
+
+    if f_st != "Todos":
+        df = df[df["Status"].str.strip() == f_st]
+    if f_can != "Todos":
+        df = df[df["Canal"].str.strip() == f_can]
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total", len(df))
+    m2.metric("Simulados", len(df[df["Status"].str.strip() == "Simulado"]))
+    m3.metric("Bloqueados", len(df[df["Status"].str.strip() == "Bloqueado"]))
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>", unsafe_allow_html=True)
+
+    if df.empty:
+        st.info("Nenhum item com os filtros selecionados.")
+        return
+
+    for _, row in df.tail(80).iterrows():
+        _render_fila_card(row)
+
+
+def _render_fila_card(row) -> None:
+    item_id  = str(row.get("Id",               "")).strip()
+    cli_id   = str(row.get("Client_Id",         "")).strip()
+    canal    = str(row.get("Canal",             "")).strip()
+    dest     = str(row.get("Destinatario",      "")).strip()
+    assunto  = str(row.get("Assunto",           "")).strip()
+    corpo    = str(row.get("Corpo_Renderizado", "")).strip()
+    link     = str(row.get("Link_Portal",       "")).strip()
+    tipo_ev  = str(row.get("Tipo_Evento",       "")).strip()
+    prioridade= str(row.get("Prioridade",       "")).strip()
+    status   = str(row.get("Status",            "Simulado")).strip()
+    modo     = str(row.get("Modo",              "Teste")).strip()
+    erro     = str(row.get("Erro_Validacao",    "")).strip()
+    criado   = str(row.get("Created_At",        "")).strip()[:16]
+
+    bg, tc = _STATUS_FILA_COR.get(status, ("#94A3B8", "#fff"))
+    border  = "#EF4444" if status == "Bloqueado" else "#6366F1" if status == "Simulado" else "#F59E0B"
+
+    with st.expander(
+        f"🏢 {cli_id}  ·  {canal}  ·  {tipo_ev}  ·  {status}  ·  {criado}",
+        expanded=False,
+    ):
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border-left:4px solid {border};"
+            f"border-radius:0 8px 8px 0;padding:12px 16px;'>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;'>"
+            f"<span style='background:{bg};color:{tc};-webkit-text-fill-color:{tc};"
+            f"font-size:0.7rem;font-weight:700;padding:2px 10px;border-radius:12px;'>{status}</span>"
+            f"<span style='background:#EFF6FF;color:{COLOR_NAVY};-webkit-text-fill-color:{COLOR_NAVY};"
+            f"font-size:0.7rem;font-weight:600;padding:2px 10px;border-radius:12px;"
+            f"border:1px solid #BFDBFE;'>Modo: {modo}</span>"
+            + (f"<span style='background:#FEF2F2;color:#EF4444;-webkit-text-fill-color:#EF4444;"
+               f"font-size:0.7rem;font-weight:600;padding:2px 10px;border-radius:12px;"
+               f"border:1px solid #FECACA;'>⚠️ Bloqueado: {erro[:60]}</span>"
+               if erro else "")
+            + f"</div>"
+            f"<p style='font-size:0.83rem;color:#334155;margin:0 0 4px;'>"
+            f"<strong>Destinatário:</strong> {dest or '—'}</p>"
+            + (f"<p style='font-size:0.83rem;color:#334155;margin:0 0 4px;'>"
+               f"<strong>Assunto:</strong> {assunto}</p>" if assunto else "")
+            + f"<p style='font-size:0.8rem;color:#475569;margin:0 0 6px;white-space:pre-wrap;'>{corpo[:300]}{'…' if len(corpo)>300 else ''}</p>"
+            f"<p style='font-size:0.72rem;color:{COLOR_MUTED};margin:0;'>🔗 {link or '—'}  ·  Prioridade: {prioridade}  ·  {criado}</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB: SANDBOX — simular notificação sem enviar mensagem real
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _render_tab_sandbox() -> None:
+    from sheets import get_notification_templates, get_all_clientes, get_contatos_notificacao
+    from notification_engine import simulate_notification, check_external_send_blocked
+
+    st.markdown(
+        f"<div style='background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;"
+        f"padding:10px 14px;margin-bottom:1rem;'>"
+        f"<p style='margin:0;font-size:0.82rem;color:#92400E;font-weight:600;'>"
+        f"🔒 Modo Teste Ativo — <code>NOTIFICATION_EXTERNAL_SEND_ENABLED=false</code></p>"
+        f"<p style='margin:4px 0 0;font-size:0.78rem;color:#92400E;'>"
+        f"Nenhuma mensagem real será enviada. Resultados aparecem na aba Fila como 'Simulado'.</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    block_info = check_external_send_blocked()
+    st.info(f"🔒 {block_info['mensagem']}")
+
+    df_tpl = get_notification_templates(status="Ativo")
+    if df_tpl.empty:
+        st.warning("Nenhum template ativo. Crie e ative um template na aba Templates primeiro.")
+        return
+
+    tpl_opts = {
+        f"{row['Nome']} ({row['Canal']})": row.to_dict()
+        for _, row in df_tpl.iterrows()
+        if str(row.get("Nome", "")).strip()
+    }
+    df_cli = get_all_clientes()
+    cli_map: dict = {}
+    if not df_cli.empty and "Empresa" in df_cli.columns:
+        for _, r in df_cli.iterrows():
+            nome = str(r.get("Empresa", "")).strip()
+            cid  = str(r.get("Client_Id", "")).strip()
+            if nome and cid:
+                cli_map[nome] = cid
+
+    if not cli_map:
+        st.warning("Nenhum cliente cadastrado.")
+        return
+
+    with st.form("_sb_form"):
+        _label("1. Template")
+        tpl_sel_label = st.selectbox("Template *", list(tpl_opts.keys()), label_visibility="collapsed")
+
+        _label("2. Cliente")
+        cli_nome = st.selectbox("Cliente *", list(cli_map.keys()), label_visibility="collapsed")
+
+        _label("3. Dados para substituição de variáveis")
+        c1, c2 = st.columns(2)
+        with c1:
+            v_ativo    = st.text_input("Ativo ({{ativo_nome}})", value="Compressor A1")
+            v_prioridade = st.selectbox("Prioridade ({{prioridade}})", ["Média", "Alta", "Baixa", "Crítica"])
+            v_link     = st.text_input("Link portal ({{link_portal}})", value="/portal/relatorios")
+        with c2:
+            v_resumo   = st.text_area("Resumo ({{resumo}})", value="Vibração acima do limite aceitável detectada.", height=80)
+            v_data     = st.text_input("Data do evento ({{data_evento}})", value=datetime.now().strftime("%d/%m/%Y"))
+            v_status   = st.text_input("Status ({{status}})", value="Em análise")
+
+        submitted = st.form_submit_button("🧪 Simular notificação", type="primary")
+
+    if submitted:
+        client_id = cli_map[cli_nome]
+        template  = tpl_opts[tpl_sel_label]
+        canal     = str(template.get("Canal", "")).strip()
+
+        contatos = get_contatos_notificacao(client_id)
+        if not contatos:
+            st.warning(
+                f"Nenhum contato cadastrado para {cli_nome}. "
+                "Configure preferências de notificação para este cliente."
+            )
+            return
+
+        dados = {
+            "cliente_nome": cli_nome,
+            "ativo_nome":   v_ativo.strip() or "—",
+            "prioridade":   v_prioridade,
+            "resumo":       v_resumo.strip() or "—",
+            "link_portal":  v_link.strip() or "/portal",
+            "data_evento":  v_data.strip(),
+            "status":       v_status.strip(),
+            "tipo_evento":  str(template.get("Tipo_Evento", "")),
+            "fonte":        "Pred.IO",
+        }
+
+        resultados: list = []
+        for contato in contatos:
+            result = simulate_notification(
+                template=template,
+                client_id=client_id,
+                contato=contato,
+                canal=canal,
+                dados=dados,
+            )
+            resultados.append({"contato": contato, "result": result})
+
+        # Exibe resultados
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:1rem 0 0.5rem;'>"
+            f"Resultado da simulação — {len(resultados)} contato(s)</p>",
+            unsafe_allow_html=True,
+        )
+
+        for item in resultados:
+            contato = item["contato"]
+            result  = item["result"]
+            pr      = result["preview_result"]
+            ok      = pr["ok"]
+            qid     = result.get("queue_id", "")
+
+            border_col = COLOR_GREEN if ok else COLOR_RED
+            status_txt = "✅ Simulado" if ok else "🚫 Bloqueado"
+
+            with st.expander(
+                f"{status_txt}  ·  {contato.get('nome', '—')}  ·  {canal}",
+                expanded=True,
+            ):
+                if not ok:
+                    st.error("Validação falhou — item enfileirado como Bloqueado.")
+                    for risco in pr.get("riscos", []):
+                        st.warning(f"⚠️ {risco}")
+                else:
+                    st.success(f"Simulação registrada na fila. ID: {qid}")
+
+                st.markdown("**Pré-visualização:**")
+                preview = pr["preview"]
+                if preview.get("assunto"):
+                    st.markdown(f"**Assunto:** `{preview['assunto']}`")
+                st.text_area(
+                    "Corpo renderizado",
+                    preview.get("corpo", ""),
+                    height=180,
+                    disabled=True,
+                    key=f"_sb_preview_{qid}_{contato.get('id','')}",
+                )
+                st.caption(
+                    f"🔗 Link: {preview.get('link','—')}  ·  "
+                    f"Destinatário: {preview.get('destinatario','—')}  ·  "
+                    f"Variáveis usadas: {', '.join(preview.get('vars_usadas',[]))}"
+                )
+
+                # Validações
+                val = pr.get("validacoes", {})
+                col_v1, col_v2, col_v3 = st.columns(3)
+                with col_v1:
+                    v_cont = val.get("conteudo", {})
+                    icon = "✅" if v_cont.get("ok") else "🚫"
+                    st.caption(f"{icon} Conteúdo: {v_cont.get('mensagem','')}")
+                with col_v2:
+                    v_lnk = val.get("link", {})
+                    icon = "✅" if v_lnk.get("ok") else "🚫"
+                    st.caption(f"{icon} Link: {v_lnk.get('motivo','')}")
+                with col_v3:
+                    v_con = val.get("consentimento", {})
+                    icon = "✅" if v_con.get("ok") else "🚫"
+                    st.caption(f"{icon} Consentimento: {v_con.get('motivo','')}")
+
+                st.caption(
+                    f"🔒 Modo: Teste  ·  Envio externo: Não  ·  "
+                    f"NOTIFICATION_EXTERNAL_SEND_ENABLED=false"
+                )

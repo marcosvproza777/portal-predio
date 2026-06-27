@@ -1764,6 +1764,10 @@ _HEADERS_PREFS_NOTIF = [
     "Receber_Email", "Receber_Whatsapp", "Receber_Relatorios",
     "Receber_Alertas_Criticos", "Receber_Manutencao", "Receber_Chamados",
     "Ativo", "Created_At", "Updated_At",
+    # Etapa 6.7 — campos de consentimento
+    "Consentimento_Email", "Consentimento_Whatsapp",
+    "Consentimento_Data", "Consentimento_Origem",
+    "Telefone_Whatsapp",
 ]
 
 # Mapeamento: tipo de evento → campo de preferência que o habilita
@@ -1891,16 +1895,24 @@ def get_contatos_notificacao(client_id: str) -> list:
             if str(r.get("Ativo", "true")).strip().lower() == "false":
                 continue
             email    = str(r.get("Email",    "")).strip()
-            whatsapp = str(r.get("Whatsapp", "")).strip()
+            whatsapp = str(r.get("Whatsapp", r.get("Telefone_Whatsapp", ""))).strip()
             uid      = str(r.get("Id",       "")).strip() or f"pref_{client_id}_{len(contacts)}"
+            consent_email = str(r.get("Consentimento_Email",    "true")).strip().lower()
+            consent_wa    = str(r.get("Consentimento_Whatsapp", "true")).strip().lower()
             contacts.append({
-                "id":           uid,
-                "usuario_id":   str(r.get("Usuario_Id", "")).strip(),
-                "nome":         str(r.get("Nome",       "")).strip() or str(r.get("Usuario_Id", "")).strip(),
-                "email":        email,
-                "whatsapp":     whatsapp,
-                "tem_email":    bool(email    and str(r.get("Receber_Email",    "false")).strip().lower() == "true"),
-                "tem_whatsapp": bool(whatsapp and str(r.get("Receber_Whatsapp", "false")).strip().lower() == "true"),
+                "id":                    uid,
+                "usuario_id":            str(r.get("Usuario_Id", "")).strip(),
+                "nome":                  str(r.get("Nome",       "")).strip() or str(r.get("Usuario_Id", "")).strip(),
+                "email":                 email,
+                "whatsapp":              whatsapp,
+                "telefone_whatsapp":     whatsapp,
+                "tem_email":             bool(email    and str(r.get("Receber_Email",    "false")).strip().lower() == "true"),
+                "tem_whatsapp":          bool(whatsapp and str(r.get("Receber_Whatsapp", "false")).strip().lower() == "true"),
+                "consentimento_email":   consent_email in ("true", "1", "sim", "yes"),
+                "consentimento_whatsapp": consent_wa in ("true", "1", "sim", "yes"),
+                "consentimento_data":    str(r.get("Consentimento_Data",   "")).strip(),
+                "consentimento_origem":  str(r.get("Consentimento_Origem", "")).strip(),
+                "ativo":                 True,
             })
 
     if contacts:
@@ -3543,3 +3555,166 @@ def get_chunks_relatorio(report_id: str, client_id: str = "") -> pd.DataFrame:
         df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
 
     return df.reset_index(drop=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ETAPA 6.7 — TEMPLATES DE NOTIFICAÇÃO  (aba NotificationTemplates)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HEADERS_NOTIF_TEMPLATES = [
+    "Id", "Nome", "Tipo_Evento", "Canal", "Assunto", "Corpo",
+    "Variaveis_Permitidas", "Status", "Created_At", "Updated_At",
+]
+
+
+@st.cache_data(ttl=60)
+def get_notification_templates(status: str = "") -> pd.DataFrame:
+    """Retorna templates de notificação. status='' → todos; status='Ativo' → apenas ativos."""
+    df = load_sheet("NotificationTemplates")
+    if df.empty:
+        return pd.DataFrame(columns=_HEADERS_NOTIF_TEMPLATES)
+    for col in _HEADERS_NOTIF_TEMPLATES:
+        if col not in df.columns:
+            df[col] = ""
+    if status:
+        df = df[df["Status"].str.strip() == status]
+    return df.reset_index(drop=True)
+
+
+def get_notification_template_by_id(template_id: str) -> dict | None:
+    """Retorna template por ID ou None."""
+    df = load_sheet("NotificationTemplates")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == template_id.strip()]
+    if match.empty:
+        return None
+    return {col: str(match.iloc[0].get(col, "")).strip() for col in _HEADERS_NOTIF_TEMPLATES}
+
+
+def add_notification_template(dados: dict) -> bool:
+    """Cria um novo template de notificação."""
+    _ensure_tab_headers("NotificationTemplates", _HEADERS_NOTIF_TEMPLATES)
+    tpl_id = _gerar_id("TPL")
+    now    = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("NotificationTemplates", [
+        tpl_id,
+        dados.get("nome",                 ""),
+        dados.get("tipo_evento",          ""),
+        dados.get("canal",                ""),
+        dados.get("assunto",              ""),
+        dados.get("corpo",                ""),
+        dados.get("variaveis_permitidas", ""),
+        dados.get("status",               "Rascunho"),
+        now, now,
+    ])
+    if ok:
+        get_notification_templates.clear()
+    return ok
+
+
+def update_notification_template(template_id: str, campos: dict) -> bool:
+    """Atualiza campos de um template de notificação."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("NotificationTemplates")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(template_id, in_column=id_col)
+        if not cell:
+            return False
+        campos["Updated_At"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        get_notification_templates.clear()
+        return True
+    except Exception:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ETAPA 6.7 — FILA DE NOTIFICAÇÕES  (aba NotificationQueue)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HEADERS_NOTIF_QUEUE = [
+    "Id", "Client_Id", "Contato_Id", "Notification_Id", "Template_Id",
+    "Tipo_Evento", "Canal", "Destinatario", "Assunto", "Corpo_Renderizado",
+    "Link_Portal", "Prioridade", "Status", "Modo", "Erro_Validacao",
+    "Created_At", "Updated_At",
+]
+
+
+def add_notification_queue_item(dados: dict) -> str:
+    """
+    Enfileira uma notificação em modo=Teste.
+    SEGURANÇA: modo sempre 'Teste' nesta etapa. Nunca envia mensagem real.
+    """
+    _ensure_tab_headers("NotificationQueue", _HEADERS_NOTIF_QUEUE)
+    item_id = _gerar_id("NQ")
+    now     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("NotificationQueue", [
+        item_id,
+        dados.get("client_id",          ""),
+        dados.get("contato_id",         ""),
+        dados.get("notification_id",    ""),
+        dados.get("template_id",        ""),
+        dados.get("tipo_evento",        ""),
+        dados.get("canal",              ""),
+        dados.get("destinatario",       ""),
+        dados.get("assunto",            ""),
+        dados.get("corpo_renderizado",  ""),
+        dados.get("link_portal",        ""),
+        dados.get("prioridade",         "Média"),
+        dados.get("status",             "Simulado"),
+        "Teste",  # modo sempre Teste nesta etapa
+        dados.get("erro_validacao",     ""),
+        now, now,
+    ])
+    return item_id if ok else ""
+
+
+@st.cache_data(ttl=30)
+def get_notification_queue(client_id: str = "", status: str = "", limit: int = 100) -> pd.DataFrame:
+    """
+    Retorna fila de notificações.
+    SEGURANÇA: staff chama sem client_id; por cliente, filtra pelo client_id.
+    """
+    df = load_sheet("NotificationQueue")
+    if df.empty:
+        return pd.DataFrame(columns=_HEADERS_NOTIF_QUEUE)
+    for col in _HEADERS_NOTIF_QUEUE:
+        if col not in df.columns:
+            df[col] = ""
+    if client_id:
+        df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    if status:
+        df = df[df["Status"].str.strip() == status]
+    return df.tail(limit).reset_index(drop=True)
+
+
+def update_notification_queue_status(item_id: str, new_status: str) -> bool:
+    """Atualiza status de item da fila."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("NotificationQueue")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(item_id, in_column=id_col)
+        if not cell:
+            return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        if "Status" in headers:
+            ws.update_cell(cell.row, headers.index("Status") + 1, new_status)
+        if "Updated_At" in headers:
+            ws.update_cell(cell.row, headers.index("Updated_At") + 1, now)
+        load_sheet.clear()
+        get_notification_queue.clear()
+        return True
+    except Exception:
+        return False
