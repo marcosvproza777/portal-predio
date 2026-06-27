@@ -2218,12 +2218,10 @@ def _apply_web_search(result: dict, pergunta: str, client_id: str, force: bool =
 
 def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
     """
-    Usa Claude para sintetizar uma resposta direta a partir de resultados de busca web.
-    Fallback limpo se a API não estiver disponível.
+    Tenta síntese com Claude Haiku; se indisponível, usa extração direta do melhor trecho.
     """
     import os
 
-    # Tenta os.environ primeiro, depois st.secrets
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         try:
@@ -2232,53 +2230,81 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
         except Exception:
             pass
 
-    if not api_key:
-        return (
-            "Encontrei referências técnicas públicas sobre o assunto, "
-            "mas não há chave de IA configurada para sintetizar a resposta. "
-            "Consulte a equipe Pred.IO ou abra um chamado técnico."
-        )
-
-    try:
-        import anthropic
-    except ImportError:
-        return (
-            "Encontrei referências técnicas públicas sobre o assunto, "
-            "mas a biblioteca de IA não está disponível no servidor. "
-            "Consulte a equipe Pred.IO ou abra um chamado técnico."
-        )
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
-            system=(
-                "Você é o Assistente Técnico Pred.IO. Responda SEMPRE em português do Brasil. "
-                "Dê UMA resposta direta e objetiva. Máximo 3 frases. "
-                "Se souber a resposta exata, dê ela diretamente (ex: 'O rolamento é o 6314'). "
-                "Nunca mencione URLs, PDFs, nomes de sites ou fontes. "
-                "Se não tiver a resposta exata, diga: 'Não encontrei a informação específica. "
-                "Recomendo abrir um chamado técnico Pred.IO.'"
-            ),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Pergunta: {pergunta}\n\n"
-                    f"Informações técnicas de referência:\n{contexto_web}\n\n"
-                    f"Responda em UMA frase direta em português."
-                ),
-            }],
-        )
-        return msg.content[0].text.strip()
-    except Exception as exc:
+    # Tenta síntese com IA se a chave existir
+    if api_key:
         try:
-            import streamlit as st
-            st.session_state["_sintetizar_erro"] = f"{type(exc).__name__}: {exc}"
-        except Exception:
-            pass
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=600,
+                system=(
+                    "Você é o Assistente Técnico Pred.IO. Responda SEMPRE em português do Brasil. "
+                    "Dê UMA resposta direta e objetiva. Máximo 3 frases. "
+                    "Se souber a resposta exata, dê ela diretamente (ex: 'O rolamento é o 6314'). "
+                    "Nunca mencione URLs, PDFs, nomes de sites ou fontes. "
+                    "Se não tiver a resposta exata, diga: 'Não encontrei a informação específica. "
+                    "Recomendo abrir um chamado técnico Pred.IO.'"
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Pergunta: {pergunta}\n\n"
+                        f"Informações técnicas de referência:\n{contexto_web}\n\n"
+                        f"Responda em UMA frase direta em português."
+                    ),
+                }],
+            )
+            return msg.content[0].text.strip()
+        except Exception as exc:
+            try:
+                import streamlit as st
+                st.session_state["_sintetizar_erro"] = f"{type(exc).__name__}: {exc}"
+            except Exception:
+                pass
+            # Cai para extração direta abaixo
+
+    # Fallback sem IA: extrai o melhor trecho dos resultados
+    return _extrair_melhor_trecho(contexto_web)
+
+
+def _extrair_melhor_trecho(contexto_web: str) -> str:
+    """
+    Extrai o trecho mais relevante do contexto web sem usar IA.
+    Remove linhas de título/domínio e retorna o primeiro conteúdo limpo.
+    """
+    import re
+    linhas_conteudo: list[str] = []
+    for linha in contexto_web.split("\n"):
+        linha = linha.strip()
+        if not linha:
+            continue
+        # Pula linhas de índice "[1] Título (domínio)"
+        if re.match(r"^\[\d+\]", linha):
+            continue
+        linhas_conteudo.append(linha)
+
+    if not linhas_conteudo:
         return (
-            "Encontrei referências técnicas públicas sobre o assunto, "
-            "mas não consegui sintetizar a resposta automaticamente. "
-            "Consulte a equipe Pred.IO ou abra um chamado técnico para uma resposta precisa."
+            "Não encontrei informação específica. "
+            "Recomendo abrir um chamado técnico Pred.IO."
         )
+
+    # Junta as primeiras linhas até ~300 caracteres
+    trecho = ""
+    for l in linhas_conteudo:
+        if len(trecho) + len(l) > 350:
+            break
+        trecho = (trecho + " " + l).strip()
+
+    # Remove artefatos comuns de scrapers
+    trecho = re.sub(r"\s{2,}", " ", trecho)
+    trecho = re.sub(r"https?://\S+", "", trecho).strip()
+
+    if len(trecho) < 20:
+        return (
+            "Não encontrei informação específica. "
+            "Recomendo abrir um chamado técnico Pred.IO."
+        )
+
+    return trecho
