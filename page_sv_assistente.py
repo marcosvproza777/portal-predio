@@ -411,33 +411,15 @@ def _render_result(result: dict) -> None:
                 unsafe_allow_html=True,
             )
 
-    # Referências web (se busca web foi usada)
+    # Indicador discreto de busca web (sem mostrar as refs brutas)
     web_refs = result.get("web_refs", [])
     if web_refs:
-        with st.expander(f"🌐 {len(web_refs)} fonte(s) pública(s) consultada(s)", expanded=False):
-            st.markdown(
-                "<p style='font-size:0.75rem;color:#64748B;margin:0 0 8px;'>"
-                "Valide com a equipe Pred.IO antes de qualquer decisão crítica.</p>",
-                unsafe_allow_html=True,
-            )
-            for ref in web_refs:
-                dom   = ref.get("dominio", "")
-                cat   = ref.get("categoria", "")
-                conf  = ref.get("confianca", "")
-                c_col = "#15803D" if conf == "alta" else "#B45309"
-                c_bg  = "#DCFCE7" if conf == "alta" else "#FEF9C3"
-                url   = ref.get("url", "")
-                st.markdown(
-                    f"<div style='background:#F8FAFF;border:1px solid #BFDBFE;"
-                    f"border-radius:8px;padding:8px 12px;margin-bottom:5px;"
-                    f"display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>"
-                    f"<span style='background:{c_bg};color:{c_col};font-size:0.68rem;"
-                    f"font-weight:700;padding:1px 7px;border-radius:8px;'>{cat or dom}</span>"
-                    + (f"<a href='{url}' target='_blank' style='font-size:0.75rem;"
-                       f"color:#2563EB;'>🔗 {dom}</a>" if url else f"<span>{dom}</span>")
-                    + "</div>",
-                    unsafe_allow_html=True,
-                )
+        st.markdown(
+            f"<p style='font-size:0.72rem;color:#94A3B8;margin:4px 0 0;'>"
+            f"🌐 Complementado com {len(web_refs)} referência(s) pública(s) — "
+            f"valide decisões críticas com a equipe Pred.IO.</p>",
+            unsafe_allow_html=True,
+        )
 
     # Ações sugeridas
     links = result.get("related_links", [])
