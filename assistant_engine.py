@@ -2219,12 +2219,25 @@ def _apply_web_search(result: dict, pergunta: str, client_id: str, force: bool =
 def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
     """
     Usa Claude para sintetizar uma resposta direta a partir de resultados de busca web.
-    Fallback para resumo simples se a API não estiver disponível.
+    Fallback limpo se a API não estiver disponível.
     """
     import os
+
+    # Tenta os.environ primeiro, depois st.secrets
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        return f"Com base em referências públicas:\n\n{contexto_web}"
+        try:
+            import streamlit as st
+            api_key = (st.secrets.get("ANTHROPIC_API_KEY") or "").strip()
+        except Exception:
+            pass
+
+    if not api_key:
+        return (
+            "Encontrei referências técnicas públicas sobre o assunto, "
+            "mas não há chave de IA configurada para sintetizar a resposta. "
+            "Consulte a equipe Pred.IO ou abra um chamado técnico."
+        )
 
     try:
         import anthropic
@@ -2234,9 +2247,11 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
             max_tokens=600,
             system=(
                 "Você é o Assistente Técnico Pred.IO especializado em manutenção industrial. "
+                "Responda SEMPRE em português do Brasil. "
                 "Use as referências fornecidas para responder à pergunta de forma direta e objetiva. "
-                "Foque exatamente no que foi perguntado. Não cite URLs, títulos de documentos "
-                "nem nomes de sites. Não diga 'segundo o site X' ou 'conforme o PDF Y'. "
+                "Foque exatamente no que foi perguntado. "
+                "Não cite URLs, nomes de arquivos PDF, títulos de documentos nem nomes de sites. "
+                "Não diga 'segundo o site X' ou 'conforme o PDF Y'. "
                 "Se as referências não contiverem a resposta exata, diga brevemente o que foi "
                 "encontrado e sugira abrir um chamado técnico Pred.IO."
             ),
@@ -2244,9 +2259,8 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
                 "role": "user",
                 "content": (
                     f"Pergunta: {pergunta}\n\n"
-                    f"Referências públicas encontradas:\n{contexto_web}\n\n"
-                    f"Responda diretamente à pergunta com base nessas referências. "
-                    f"Seja conciso e direto."
+                    f"Referências técnicas encontradas:\n{contexto_web}\n\n"
+                    f"Responda em português, de forma direta e concisa."
                 ),
             }],
         )
@@ -2254,6 +2268,6 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
     except Exception:
         return (
             "Encontrei referências técnicas públicas sobre o assunto, "
-            "mas não consegui sintetizar uma resposta automática. "
+            "mas não consegui sintetizar a resposta automaticamente. "
             "Consulte a equipe Pred.IO ou abra um chamado técnico para uma resposta precisa."
         )
