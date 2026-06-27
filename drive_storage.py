@@ -4,12 +4,19 @@ SEGURANÇA:
   - Credenciais do serviço nunca expostas ao front-end.
   - Arquivos organizados por cliente_id em pastas isoladas.
   - Chaves lidas do mesmo conjunto de fontes que sheets.py.
+
+CONFIGURAÇÃO OBRIGATÓRIA:
+  Service accounts não possuem cota de armazenamento própria no Google Drive.
+  É necessário:
+    1. Criar uma pasta no Google Drive de uma conta real (ex: conta Google do portal).
+    2. Compartilhar essa pasta com o e-mail da service account como "Editor".
+    3. Copiar o ID da pasta (último segmento da URL no Drive).
+    4. Definir a variável de ambiente DRIVE_ROOT_FOLDER_ID=<id_da_pasta> no Render.com.
 """
 from __future__ import annotations
 import io
 import os
 
-_ROOT_FOLDER_NAME = "PredIO-Biblioteca"
 _MAX_SIZE_BYTES   = 50 * 1024 * 1024   # 50 MB
 _FOLDER_CACHE: dict[str, str] = {}
 
@@ -57,6 +64,28 @@ def _build_creds():
 def _build_service():
     from googleapiclient.discovery import build
     return build("drive", "v3", credentials=_build_creds(), cache_discovery=False)
+
+
+def _get_root_folder_id() -> str:
+    """Lê DRIVE_ROOT_FOLDER_ID de st.secrets ou variável de ambiente."""
+    folder_id = ""
+    try:
+        import streamlit as st
+        folder_id = (st.secrets.get("DRIVE_ROOT_FOLDER_ID") or "").strip()
+    except Exception:
+        pass
+    if not folder_id:
+        folder_id = os.environ.get("DRIVE_ROOT_FOLDER_ID", "").strip()
+    if not folder_id:
+        raise RuntimeError(
+            "DRIVE_ROOT_FOLDER_ID não configurado.\n"
+            "Passos:\n"
+            "  1. Crie uma pasta no Google Drive da sua conta pessoal.\n"
+            "  2. Compartilhe-a com o e-mail da service account como Editor.\n"
+            "  3. Copie o ID da pasta (último trecho da URL do Drive).\n"
+            "  4. Defina DRIVE_ROOT_FOLDER_ID=<id> no painel Render → Environment."
+        )
+    return folder_id
 
 
 def _get_or_create_folder(service, name: str, parent_id: str | None = None) -> str:
@@ -124,13 +153,15 @@ def upload_pdf(
             "Aguarde o próximo deploy e tente novamente."
         )
 
-    # ── Pastas: PredIO-Biblioteca / {cliente_id} / ───────────────────────────
+    # ── Pasta raiz: lida de DRIVE_ROOT_FOLDER_ID ─────────────────────────────
+    root_id = _get_root_folder_id()
+
+    # ── Subpasta por cliente ──────────────────────────────────────────────────
     try:
-        root_id    = _get_or_create_folder(service, _ROOT_FOLDER_NAME)
         client_dir = (cliente_id or "sem-cliente").lower().replace("/", "-")
         folder_id  = _get_or_create_folder(service, client_dir, root_id)
     except Exception as exc:
-        raise RuntimeError(f"Erro ao criar estrutura de pastas no Drive: {exc}") from exc
+        raise RuntimeError(f"Erro ao criar subpasta do cliente no Drive: {exc}") from exc
 
     # ── Upload ────────────────────────────────────────────────────────────────
     try:
