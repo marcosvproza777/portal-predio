@@ -724,17 +724,25 @@ def inject_mobile_notif_bell(unread_count: int = 0) -> None:
 
   // ── Navegação ─────────────────────────────────────────────────────────────
   function _scrollToNotif() {{
-    if (p.sessionStorage.getItem('pred_bell_scroll') !== '1') return;
-    p.sessionStorage.removeItem('pred_bell_scroll');
+    if (pd.documentElement.getAttribute('data-pred-bell-nav') !== '1') return;
+    pd.documentElement.removeAttribute('data-pred-bell-nav');
     setTimeout(function() {{
-      var h2 = pd.querySelector('h2');
-      if (h2) {{ h2.scrollIntoView({{behavior:'smooth', block:'start'}}); }}
-      else {{ p.scrollTo({{top:0, behavior:'smooth'}}); }}
-    }}, 350);
+      // Tenta o container scrollável do Streamlit (varia por versão)
+      var targets = [
+        pd.querySelector('[data-testid="stMain"]'),
+        pd.querySelector('[data-testid="stAppViewBlockContainer"]'),
+        pd.querySelector('.main'),
+        pd.body
+      ];
+      for (var i = 0; i < targets.length; i++) {{
+        if (targets[i]) {{ targets[i].scrollTop = 0; break; }}
+      }}
+      p.scrollTo(0, 0);
+    }}, 800);
   }}
 
   function _navTo(page) {{
-    p.sessionStorage.setItem('pred_bell_scroll', '1');
+    pd.documentElement.setAttribute('data-pred-bell-nav', '1');
     if (p.predNavTo) {{ p.predNavTo(page); return; }}
     var allBtns = pd.querySelectorAll('button');
     for (var i = 0; i < allBtns.length; i++) {{
