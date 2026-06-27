@@ -655,7 +655,7 @@ def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[
     paginas: list[str] = []
     n_pags = 0
 
-    # ── Tentativa 1: PyPDF2 (muito mais leve que pdfplumber) ─────────────────
+    # ── Tentativa 1: PyPDF2 (leve, funciona na maioria dos PDFs) ─────────────
     try:
         import PyPDF2
         buf = io.BytesIO(file_bytes)
@@ -663,7 +663,6 @@ def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[
         n_pags = len(reader.pages)
         for i in range(n_pags):
             paginas.append(reader.pages[i].extract_text() or "")
-            del reader.pages[i]   # libera a página da memória imediatamente
         del reader, buf
         gc.collect()
         if any(p.strip() for p in paginas):
@@ -673,6 +672,25 @@ def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[
         pass
     except Exception:
         paginas = []
+
+    # ── Tentativa 2: pdfplumber — apenas para PDFs pequenos (≤ 5 MB) ─────────
+    # pdfplumber extrai melhor PDFs com layout gráfico, mas usa muito mais RAM.
+    # Limitado a 5 MB para não estourar o Render free tier (512 MB).
+    if len(file_bytes) <= 5 * 1024 * 1024:
+        try:
+            import pdfplumber
+            buf = io.BytesIO(file_bytes)
+            with pdfplumber.open(buf) as pdf:
+                n_pags = len(pdf.pages)
+                for page in pdf.pages:
+                    paginas.append(page.extract_text() or "")
+                    page.flush_cache()
+            del buf
+            gc.collect()
+        except ImportError:
+            pass
+        except Exception:
+            paginas = []
 
     return "\n\n".join(paginas), n_pags
 
