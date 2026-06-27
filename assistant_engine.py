@@ -571,28 +571,46 @@ def query_assistant(
     """
     intent  = detect_intent(pergunta)
     context = get_client_context(client_id)
-    return _build_response(intent, context, pergunta, ativo_id)
+    result  = _build_response(intent, context, pergunta, ativo_id)
+
+    # Busca na internet como último recurso (controlada, se habilitada)
+    if _is_fallback_answer(result["answer"]):
+        result = _apply_web_search(result, pergunta, client_id)
+
+    return result
 
 
 def query_assistant_audit(
     client_id: str,
     pergunta: str,
     ativo_id: str = "",
+    use_web_search: bool = False,
 ) -> dict:
     """
     Versão estendida de query_assistant() para a tela de auditoria.
     Adiciona _intent, _confidence e _origem_resposta ao dict de resposta.
     SEGURANÇA: client_id SEMPRE da sessão.
+    use_web_search: ativa busca web para este teste (mesmo com WEB_SEARCH_ENABLED=false).
     """
     intent  = detect_intent(pergunta)
     context = get_client_context(client_id)
     result  = _build_response(intent, context, pergunta, ativo_id)
 
-    ans_lower = result["answer"].lower()
-    sem_base  = "não encontrei informação suficiente" in ans_lower
+    # Busca na internet: respeitando flag do teste ou configuração global
+    if _is_fallback_answer(result["answer"]) and use_web_search:
+        try:
+            result = _apply_web_search(result, pergunta, client_id, force=True)
+        except Exception:
+            pass
+
+    ans_lower     = result["answer"].lower()
+    sem_base      = "não encontrei informação suficiente" in ans_lower
+    usou_internet = bool(result.get("web_refs"))
 
     # Origem
-    if sem_base:
+    if usou_internet:
+        origem = "Internet (complemento)"
+    elif sem_base:
         origem = "Sem base suficiente"
     elif result["related_documents"]:
         origem = "Biblioteca Técnica"
@@ -604,7 +622,9 @@ def query_assistant_audit(
         origem = "Base Pred.IO"
 
     # Confiança
-    if sem_base:
+    if usou_internet:
+        confidence = "Média"   # externa, não confirmada pela base interna
+    elif sem_base:
         confidence = "Baixa"
     elif result["related_documents"]:
         confidence = "Alta"
@@ -618,15 +638,16 @@ def query_assistant_audit(
     chams      = context.get("chamados_reais", []) or context.get("chamados", [])
     alertas    = context.get("alertas_reais", []) or context.get("alertas", [])
 
-    result["_intent"]          = intent
-    result["_confidence"]      = confidence
-    result["_origem_resposta"] = origem
-    result["_document_ids"]    = [d.get("id", "") for d in docs if d.get("id")]
-    result["_report_ids"]      = [r.get("id", "") for r in reps_idx if r.get("id")]
-    result["_chunks_count"]    = sum(len(d.get("chunks", [])) for d in docs) + sum(len(r.get("chunks", [])) for r in reps_idx)
-    result["_exec_reports"]    = len(exec_reps)
-    result["_chamados_count"]  = len(chams)
-    result["_alertas_count"]   = len(alertas)
+    result["_intent"]           = intent
+    result["_confidence"]       = confidence
+    result["_origem_resposta"]  = origem
+    result["_usou_internet"]    = usou_internet
+    result["_document_ids"]     = [d.get("id", "") for d in docs if d.get("id")]
+    result["_report_ids"]       = [r.get("id", "") for r in reps_idx if r.get("id")]
+    result["_chunks_count"]     = sum(len(d.get("chunks", [])) for d in docs) + sum(len(r.get("chunks", [])) for r in reps_idx)
+    result["_exec_reports"]     = len(exec_reps)
+    result["_chamados_count"]   = len(chams)
+    result["_alertas_count"]    = len(alertas)
     return result
 
 
@@ -2135,6 +2156,7 @@ def _resp(
     documents: list | None = None,
     reports: list | None = None,
     actions: list | None = None,
+    web_refs: list | None = None,
 ) -> dict:
     return {
         "answer":            answer,
@@ -2142,4 +2164,56 @@ def _resp(
         "related_documents": documents or [],
         "related_reports":   reports   or [],
         "suggested_actions": actions   or [],
+        "web_refs":          web_refs  or [],
+    }
+
+
+def _is_fallback_answer(answer: str) -> bool:
+    """True se a resposta é o fallback genérico de base insuficiente."""
+    return "não encontrei informação suficiente" in answer.lower()
+
+
+def _apply_web_search(result: dict, pergunta: str, client_id: str, force: bool = False) -> dict:
+    """
+    Tenta enriquecer uma resposta de fallback com busca na internet.
+    Retorna o result original se a busca não produzir resultados úteis.
+    Nunca autoriza decisão crítica sozinha.
+    """
+    try:
+        from web_search_service import search as _web_search, is_critical_decision, extract_domain
+    except ImportError:
+        return result
+
+    if is_critical_decision(pergunta):
+        return result
+
+    web = _web_search(pergunta, client_id, force=force)
+    if not web.get("usou_internet") or not web.get("resultados"):
+        return result
+
+    refs = web["resultados"]
+    resumos = "\n\n".join(
+        f"• **{r['titulo']}** ({r.get('dominio', extract_domain(r.get('url','')))}): "
+        f"{r.get('resumo','')[:350]}"
+        for r in refs[:3]
+    )
+
+    aviso = (
+        "\n\n⚠️ _Esta informação veio de referência pública externa. "
+        "Valide com a equipe Pred.IO antes de qualquer decisão crítica._"
+        if any(r.get("confianca") == "baixa" for r in refs)
+        else ""
+    )
+
+    novo_answer = (
+        "Consultei a base Pred.IO e complementei com referências públicas disponíveis na internet.\n\n"
+        + resumos
+        + aviso
+        + "\n\nFonte: Pred.IO"
+    )
+
+    return {
+        **result,
+        "answer":   novo_answer,
+        "web_refs": refs,
     }

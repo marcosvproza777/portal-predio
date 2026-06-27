@@ -844,6 +844,57 @@ def get_assistant_logs(limit: int = 100) -> pd.DataFrame:
     return df.iloc[-limit:].iloc[::-1].reset_index(drop=True)
 
 
+# ── WebSearchLogs ─────────────────────────────────────────────────────────────
+
+_HEADERS_WEB_SEARCH_LOGS = [
+    "Id", "Cliente_Id", "Pergunta_Original", "Query_Limpa",
+    "Provider", "Dominios", "N_Resultados", "Cache_Hit", "Erro", "Created_At",
+]
+
+
+def add_web_search_log(entry: dict) -> None:
+    """Registra uma busca web no log de auditoria (apenas staff pode visualizar)."""
+    try:
+        ss  = get_spreadsheet()
+        try:
+            ws = ss.worksheet("WebSearchLogs")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = ss.add_worksheet(
+                title="WebSearchLogs", rows=2000, cols=len(_HEADERS_WEB_SEARCH_LOGS)
+            )
+            ws.append_row(_HEADERS_WEB_SEARCH_LOGS, value_input_option="USER_ENTERED")
+        log_id = _gerar_id("WSL")
+        agora  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        ws.append_row([
+            log_id,
+            entry.get("cliente_id", ""),
+            entry.get("pergunta_original", "")[:200],
+            entry.get("query_limpa", "")[:200],
+            entry.get("provider", ""),
+            entry.get("dominios", "")[:300],
+            entry.get("n_resultados", "0"),
+            entry.get("cache_hit", "Não"),
+            entry.get("erro", ""),
+            agora,
+        ], value_input_option="USER_ENTERED")
+        load_sheet.clear()
+    except Exception as _e:
+        import logging
+        logging.error("add_web_search_log: %s", _e)
+
+
+def get_web_search_logs(limit: int = 50) -> "pd.DataFrame":
+    """Retorna logs de busca web (apenas para staff)."""
+    df = load_sheet("WebSearchLogs")
+    if df.empty:
+        return pd.DataFrame()
+    for col in _HEADERS_WEB_SEARCH_LOGS:
+        t = col.title()
+        if t not in df.columns:
+            df[t] = ""
+    return df.iloc[-limit:].iloc[::-1].reset_index(drop=True)
+
+
 def update_log_avaliacao(log_id: str, avaliacao: str, observacao: str = "") -> bool:
     """Atualiza avaliação interna de um log do assistente."""
     try:

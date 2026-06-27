@@ -59,6 +59,7 @@ _ORIGEM_COLOR = {
     "Relatório Técnico":     ("#E0F2FE", "#0891B2"),
     "Base Pred.IO":          ("#E2E8F0", "#0F1F3D"),
     "Sem base suficiente":   ("#FEE2E2", "#DC2626"),
+    "Internet (complemento)":("#FEF9C3", "#B45309"),
 }
 
 _CONF_COLOR = {
@@ -104,11 +105,12 @@ def render() -> None:
         "com base nos documentos indexados.",
     )
 
-    tab_test, tab_logs, tab_faq, tab_metrics = st.tabs([
+    tab_test, tab_logs, tab_faq, tab_metrics, tab_web = st.tabs([
         "🧪 Testar Assistente",
         "📋 Logs de Auditoria",
         "⭐ Perguntas Frequentes",
         "📊 Métricas",
+        "🌐 Busca Web",
     ])
 
     with tab_test:
@@ -122,6 +124,9 @@ def render() -> None:
 
     with tab_metrics:
         _render_metrics_tab()
+
+    with tab_web:
+        _render_web_search_tab()
 
 
 # ── Tab: Testar ───────────────────────────────────────────────────────────────
@@ -212,6 +217,17 @@ def _render_test_tab() -> None:
         )
         selected_doc_id = doc_options[sel_doc][0]
 
+        st.markdown(
+            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.78rem;"
+            f"letter-spacing:0.06em;margin:12px 0 6px;'>INTERNET</p>",
+            unsafe_allow_html=True,
+        )
+        use_web_search = st.checkbox(
+            "Permitir busca na internet neste teste",
+            key="_aud_web_search",
+            help="Ativa busca web controlada mesmo que WEB_SEARCH_ENABLED=false no servidor.",
+        )
+
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_result:
@@ -247,6 +263,7 @@ def _render_test_tab() -> None:
                         client_id=selected_client_id,
                         pergunta=q,
                         ativo_id=selected_ativo_id,
+                        use_web_search=use_web_search,
                     )
                     chunks_hits = buscar_chunks(
                         client_id=selected_client_id,
@@ -393,6 +410,42 @@ def _render_result(result: dict) -> None:
                 "Indexe documentos na Biblioteca Técnica para enriquecer a base.</p>",
                 unsafe_allow_html=True,
             )
+
+    # Referências web (se busca web foi usada)
+    web_refs = result.get("web_refs", [])
+    if web_refs:
+        with st.expander(f"🌐 Referências públicas consultadas ({len(web_refs)})", expanded=True):
+            st.markdown(
+                "<p style='font-size:0.75rem;color:#64748B;margin:0 0 8px;'>"
+                "A base Pred.IO não tinha informação suficiente — consulta pública usada como complemento. "
+                "Valide com a equipe Pred.IO antes de qualquer decisão crítica.</p>",
+                unsafe_allow_html=True,
+            )
+            for ref in web_refs:
+                dom    = ref.get("dominio", "")
+                cat    = ref.get("categoria", "")
+                conf   = ref.get("confianca", "")
+                c_col  = "#15803D" if conf == "alta" else "#B45309"
+                c_bg   = "#DCFCE7" if conf == "alta" else "#FEF9C3"
+                url    = ref.get("url", "")
+                titulo = ref.get("titulo", dom)
+                resumo = ref.get("resumo", "")
+                st.markdown(
+                    f"<div style='background:#F8FAFF;border:1px solid #BFDBFE;"
+                    f"border-radius:8px;padding:10px 12px;margin-bottom:6px;'>"
+                    f"<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;'>"
+                    f"<span style='font-weight:700;font-size:0.82rem;color:#0F1F3D;'>{titulo}</span>"
+                    f"<span style='background:{c_bg};color:{c_col};font-size:0.68rem;"
+                    f"font-weight:700;padding:1px 7px;border-radius:8px;'>Confiança {conf}</span>"
+                    f"<span style='background:#E2E8F0;color:#64748B;font-size:0.68rem;"
+                    f"padding:1px 7px;border-radius:8px;'>{cat}</span>"
+                    f"</div>"
+                    f"<p style='font-size:0.76rem;color:#475569;margin:0 0 4px;'>{resumo[:300]}</p>"
+                    + (f"<a href='{url}' target='_blank' style='font-size:0.72rem;color:#2563EB;'>"
+                       f"🔗 {dom}</a>" if url else "")
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
 
     # Ações sugeridas
     links = result.get("related_links", [])
@@ -902,3 +955,122 @@ def _render_metrics_tab() -> None:
                     f"• {str(q_text)[:80]}</p>",
                     unsafe_allow_html=True,
                 )
+
+
+# ── Tab: Busca Web ────────────────────────────────────────────────────────────
+
+def _render_web_search_tab() -> None:
+    from web_search_service import (
+        WEB_SEARCH_ENABLED, WEB_SEARCH_PROVIDER, WEB_SEARCH_MAX_RESULTS,
+        WEB_SEARCH_API_KEY, ALLOWED_DOMAINS, is_enabled,
+    )
+
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+        f"margin:0 0 0.75rem;'>Configuração de Busca na Internet</p>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    ativada = is_enabled()
+    c1.metric("Status",          "✅ Ativada" if ativada else "🔴 Desativada")
+    c2.metric("Provider",        WEB_SEARCH_PROVIDER or "—")
+    c3.metric("Máx. resultados", WEB_SEARCH_MAX_RESULTS)
+    c4.metric("API Key",         "✅ Configurada" if WEB_SEARCH_API_KEY else "⚠️ Ausente")
+
+    st.markdown(
+        "<div style='background:#F8FAFF;border:1px solid #BFDBFE;border-radius:10px;"
+        "padding:12px 16px;margin:12px 0;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size:0.78rem;font-weight:700;color:{COLOR_NAVY};"
+        f"margin:0 0 8px;'>VARIÁVEIS DE AMBIENTE NECESSÁRIAS</p>",
+        unsafe_allow_html=True,
+    )
+    vars_info = [
+        ("WEB_SEARCH_ENABLED",     str(WEB_SEARCH_ENABLED), "true | false  (padrão: false)"),
+        ("WEB_SEARCH_PROVIDER",    WEB_SEARCH_PROVIDER,     "tavily | brave | duckduckgo"),
+        ("WEB_SEARCH_API_KEY",     "****" if WEB_SEARCH_API_KEY else "(não configurada)", "Chave do provider"),
+        ("WEB_SEARCH_MAX_RESULTS", str(WEB_SEARCH_MAX_RESULTS), "3 | 5 | 10  (padrão: 5)"),
+    ]
+    for var, val, desc in vars_info:
+        st.markdown(
+            f"<p style='font-size:0.78rem;margin:3px 0;'>"
+            f"<code style='background:#E2E8F0;padding:1px 6px;border-radius:4px;'>{var}</code> = "
+            f"<strong>{val}</strong>"
+            f"<span style='color:#94A3B8;'> — {desc}</span></p>",
+            unsafe_allow_html=True,
+        )
+    if not ativada:
+        st.markdown(
+            "<p style='color:#B45309;font-size:0.8rem;margin:8px 0 0;'>⚠️ "
+            "Busca web desativada. Para ativar: defina <code>WEB_SEARCH_ENABLED=true</code> "
+            "e <code>WEB_SEARCH_API_KEY</code> no painel Render → Environment.</p>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("🔒 Regras de segurança da busca web", expanded=False):
+        st.markdown("""
+**Dados que NUNCA saem do servidor:** cliente_id, números de série,
+relatórios privados, observações internas, chamados, alertas.
+
+**Decisões críticas que a internet NÃO autoriza:**
+parada/partida de máquina, reset de alarme, troca de rolamento,
+overhaul, alteração de set point, troca de óleo/componente crítico.
+
+Para essas perguntas o Assistente sempre sugere: _abrir chamado técnico_.
+""")
+
+    with st.expander(f"✅ Domínios confiáveis ({len(ALLOWED_DOMAINS)})", expanded=False):
+        from collections import defaultdict
+        by_cat: dict = defaultdict(list)
+        for dom, cat in ALLOWED_DOMAINS.items():
+            by_cat[cat].append(dom)
+        for cat, doms in sorted(by_cat.items()):
+            st.markdown(
+                f"<p style='font-size:0.78rem;font-weight:700;color:{COLOR_NAVY};"
+                f"margin:6px 0 3px;'>{cat}</p>",
+                unsafe_allow_html=True,
+            )
+            for d in doms:
+                st.markdown(
+                    f"<span style='font-size:0.77rem;color:#2563EB;margin-right:12px;'>{d}</span>",
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown(
+        f"<hr style='border-color:#E2E8F0;margin:1rem 0;'/>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;"
+        f"margin:0 0 0.75rem;'>Logs de Busca Web</p>",
+        unsafe_allow_html=True,
+    )
+    try:
+        from sheets import get_web_search_logs
+        df_wsl = get_web_search_logs(limit=50)
+    except Exception:
+        df_wsl = None
+
+    if df_wsl is None or (hasattr(df_wsl, "empty") and df_wsl.empty):
+        st.info("Nenhuma busca web registrada ainda.")
+        return
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0 0 8px;'>{len(df_wsl)} busca(s)</p>",
+        unsafe_allow_html=True,
+    )
+    for _, row in df_wsl.iterrows():
+        cache = str(row.get("Cache_Hit", "")).strip()
+        n_res = str(row.get("N_Resultados", "")).strip()
+        erro  = str(row.get("Erro", "")).strip()
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:8px;padding:10px 14px;margin-bottom:6px;'>"
+            f"<p style='font-weight:700;font-size:0.82rem;color:{COLOR_NAVY};margin:0 0 3px;'>{str(row.get('Pergunta_Original',''))[:80]}</p>"
+            f"<p style='font-size:0.75rem;color:#64748B;margin:0 0 2px;'>Query limpa: {str(row.get('Query_Limpa',''))[:80]}</p>"
+            f"<p style='font-size:0.75rem;color:#475569;margin:0;'>Domínios: {str(row.get('Dominios',''))[:80]} | Resultados: {n_res} | Cache: {cache}</p>"
+            + (f"<p style='color:#DC2626;font-size:0.73rem;margin:2px 0 0;'>⚠️ {erro}</p>" if erro else "")
+            + f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:4px 0 0;'>{str(row.get('Created_At',''))}</p></div>",
+            unsafe_allow_html=True,
+        )
