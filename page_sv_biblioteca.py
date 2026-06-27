@@ -240,26 +240,8 @@ def _render_form_cadastro() -> None:
         _nome_final  = (arquivo_nome.strip()
                         or (_file_name if _usar_upload else arquivo_url.strip().split("/")[-1]))
 
-        # ── Upload para Google Drive (quando há arquivo do PC) ────────────────
+        # Arquivo de upload processado direto em memória (sem storage externo)
         _url_final = arquivo_url.strip() if not _usar_upload else ""
-        if _usar_upload:
-            with st.spinner("Enviando arquivo para o storage…"):
-                try:
-                    from drive_storage import upload_pdf as _upload_pdf
-                    _url_final = _upload_pdf(
-                        file_bytes=_file_bytes,
-                        arquivo_nome=_nome_final,
-                        cliente_id=client_id,
-                    )
-                except (ValueError, RuntimeError) as _drive_err:
-                    st.error(f"❌ {_drive_err}")
-                    return
-                except Exception as _drive_err:
-                    st.error(
-                        f"❌ Não foi possível enviar o arquivo para o storage. "
-                        f"Detalhe interno: {type(_drive_err).__name__}."
-                    )
-                    return
 
         doc_id = add_documento_tecnico({
             "titulo":              titulo.strip(),
