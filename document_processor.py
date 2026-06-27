@@ -552,22 +552,16 @@ def extrair_texto_pdf(arquivo_url: str, arquivo_nome: str = "") -> tuple[str, in
         texto = ""
         n_pags = 0
         try:
-            import pdfplumber
-            with pdfplumber.open(tmp_path) as pdf:
-                n_pags = len(pdf.pages)
-                texto = "\n\n".join(p.extract_text() or "" for p in pdf.pages)
+            import PyPDF2
+            with open(tmp_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                n_pags = len(reader.pages)
+                texto = "\n\n".join(
+                    reader.pages[i].extract_text() or ""
+                    for i in range(n_pags)
+                )
         except ImportError:
-            try:
-                import PyPDF2
-                with open(tmp_path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    n_pags = len(reader.pages)
-                    texto = "\n\n".join(
-                        reader.pages[i].extract_text() or ""
-                        for i in range(n_pags)
-                    )
-            except ImportError:
-                pass
+            pass
 
         try:
             os.unlink(tmp_path)
@@ -679,22 +673,6 @@ def extrair_texto_pdf_bytes(file_bytes: bytes, arquivo_nome: str = "") -> tuple[
         pass
     except Exception:
         paginas = []
-
-    # ── Tentativa 2: pdfplumber (fallback — PDFs com layout complexo) ────────
-    try:
-        import pdfplumber
-        buf = io.BytesIO(file_bytes)
-        with pdfplumber.open(buf) as pdf:
-            n_pags = len(pdf.pages)
-            for page in pdf.pages:
-                paginas.append(page.extract_text() or "")
-                page.flush_cache()   # libera cache de layout da página
-        del buf
-        gc.collect()
-    except ImportError:
-        pass
-    except Exception:
-        pass
 
     return "\n\n".join(paginas), n_pags
 
