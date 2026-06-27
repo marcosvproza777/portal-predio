@@ -148,57 +148,8 @@ def _gerar_id(prefixo: str = "CH") -> str:
 
 
 def _mock_chamados() -> pd.DataFrame:
-    """Dados de teste quando a planilha Chamados está vazia."""
-    return pd.DataFrame([
-        {
-            "Id": "CH-20260618-C03001",
-            "Empresa": "Coca-Cola",
-            "Client_Id": "coca-cola",
-            "Email": "joao@cocacola.com",
-            "Titulo": "Ruído anormal após partida",
-            "Descricao": "Cliente informa ruído anormal e oscilação operacional.",
-            "Planta": "Jacarepaguá",
-            "Equipamento": "Compressor C-03",
-            "Prioridade": "Crítica",
-            "Status": "Em andamento",
-            "Responsavel": "Marcos",
-            "Data_Abertura": "18/06/2026 07:45:00",
-            "Data_Atualizacao": "20/06/2026 11:00:00",
-            "Data_Encerramento": "",
-        },
-        {
-            "Id": "CH-20260619-M10002",
-            "Empresa": "Sibele Alimentos",
-            "Client_Id": "sibele alimentos",
-            "Email": "maria@sibele.com",
-            "Titulo": "Solicitação de análise de óleo",
-            "Descricao": "Cliente solicita avaliação do último resultado da análise de óleo.",
-            "Planta": "Rio de Janeiro",
-            "Equipamento": "Motor M-10",
-            "Prioridade": "Média",
-            "Status": "Em análise",
-            "Responsavel": "Marcos",
-            "Data_Abertura": "19/06/2026 14:30:00",
-            "Data_Atualizacao": "19/06/2026 16:00:00",
-            "Data_Encerramento": "",
-        },
-        {
-            "Id": "CH-20260620-B204003",
-            "Empresa": "Coca-Cola",
-            "Client_Id": "coca-cola",
-            "Email": "joao@cocacola.com",
-            "Titulo": "Aumento de vibração",
-            "Descricao": "Cliente relata aumento de vibração após última partida.",
-            "Planta": "Jacarepaguá",
-            "Equipamento": "Bomba B-204",
-            "Prioridade": "Alta",
-            "Status": "Aberto",
-            "Responsavel": "",
-            "Data_Abertura": "20/06/2026 09:15:00",
-            "Data_Atualizacao": "",
-            "Data_Encerramento": "",
-        },
-    ])
+    """Retorna DataFrame vazio — dados de teste removidos."""
+    return pd.DataFrame()
 
 
 def _mock_mensagens(chamado_id: str) -> pd.DataFrame:
