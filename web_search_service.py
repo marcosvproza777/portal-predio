@@ -25,7 +25,7 @@ import time
 
 # ── Configuração via variáveis de ambiente ────────────────────────────────────
 WEB_SEARCH_ENABLED     = os.environ.get("WEB_SEARCH_ENABLED",     "false").lower() == "true"
-WEB_SEARCH_PROVIDER    = os.environ.get("WEB_SEARCH_PROVIDER",    "tavily").lower()
+WEB_SEARCH_PROVIDER    = os.environ.get("WEB_SEARCH_PROVIDER",    "duckduckgo").lower()
 WEB_SEARCH_API_KEY     = os.environ.get("WEB_SEARCH_API_KEY",     "")
 WEB_SEARCH_MAX_RESULTS = int(os.environ.get("WEB_SEARCH_MAX_RESULTS", "5"))
 
