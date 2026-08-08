@@ -2,9 +2,10 @@
 import version  # grava static/version.txt uma vez por inicialização do servidor
 import streamlit as st
 from ui import (inject_global_css, inject_login_bg, render_client_topnav,
-                render_supervisao_sidebar, load_image_b64,
+                render_supervisao_sidebar, render_admin_preview_banner, load_image_b64,
                 inject_floating_assistant, remove_floating_assistant)
-from auth import is_staff, current_nome, current_perfil
+from auth import (is_staff, current_nome, current_perfil,
+                  is_admin_preview, current_client_id, current_empresa)
 from pwa import inject_pwa, inject_mobile_css, inject_bottom_nav, remove_bottom_nav, inject_mobile_notif_bell
 
 
@@ -66,22 +67,29 @@ def main() -> None:
     perfil   = current_perfil()
 
     # ── SUPERVISÃO PRED.IO (funcionario / admin) ──────────────────────────────
-    if is_staff():
+    if is_staff() and not is_admin_preview():
         render_supervisao_sidebar(logo_b64, nome, perfil)
         _render_supervisao()
         return
 
     # ── PORTAL DO CLIENTE ─────────────────────────────────────────────────────
-    # Carrega logo do cliente uma vez por sessão
+    # (staff em modo "Ver como Cliente" cai aqui também — current_client_id()/
+    # current_empresa() já retornam os dados do cliente selecionado, não os
+    # da própria sessão do staff — ver auth.py)
+    if is_admin_preview():
+        render_admin_preview_banner()
+
+    # Carrega logo do cliente uma vez por sessão (ou por preview — ver
+    # enter_admin_preview, que limpa esse cache ao trocar de cliente)
     if not st.session_state.get("_clogo_loaded"):
         try:
             from sheets import get_client_logo as _gcl
-            st.session_state["client_logo_b64"] = _gcl(st.session_state.get("client_id", ""))
+            st.session_state["client_logo_b64"] = _gcl(current_client_id())
         except Exception:
             st.session_state["client_logo_b64"] = ""
         st.session_state["_clogo_loaded"] = True
 
-    render_client_topnav(logo_b64, empresa, telefone,
+    render_client_topnav(logo_b64, current_empresa(), telefone,
                          client_logo_b64=st.session_state.get("client_logo_b64", ""))
 
     # Navegação via link do assistente flutuante (?portal_page=X na URL)
@@ -97,13 +105,13 @@ def main() -> None:
     inject_bottom_nav(portal_page)
 
     # Assistente flutuante — visível em todas as páginas do portal do cliente
-    # client_id vem da sessão do servidor — NUNCA do front-end
-    inject_floating_assistant(_sid, st.session_state.get("client_id", ""))
+    # client_id vem da sessão do servidor (ou do preview, se staff) — NUNCA do front-end
+    inject_floating_assistant(_sid, current_client_id())
 
     # Sininho de notificações mobile (canto superior esquerdo, apenas mobile)
     try:
         from notifications import get_unread_count as _get_unread
-        _unread = _get_unread(st.session_state.get("client_id", ""))
+        _unread = _get_unread(current_client_id())
     except Exception:
         _unread = 0
     inject_mobile_notif_bell(_unread)

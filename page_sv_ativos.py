@@ -537,6 +537,21 @@ def _render_detalhe() -> None:
         st.session_state["sv_ativo_cliente_id_rel"] = client_id
         st.rerun()
 
+    # ── Resumo Executivo por Período ──────────────────────────────────────────
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.3rem;'>"
+        f"📊 Resumo Executivo por Período</p>"
+        f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:0 0 0.75rem;'>"
+        f"Preview em tela com relatórios, manutenções, alertas, chamados e GUT do período — para reuniões.</p>",
+        unsafe_allow_html=True,
+    )
+    from resumo_executivo_ui import render_resumo_executivo_button
+    render_resumo_executivo_button(
+        client_id=client_id, cliente_nome=empresa, ativo_id=ativo_id, ativo_nome=nome,
+        key_prefix=f"svativo_resexec_{ativo_id}",
+    )
+
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
 
 

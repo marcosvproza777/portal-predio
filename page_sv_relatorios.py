@@ -80,11 +80,14 @@ def _render_lista() -> None:
         "Gerencie, publique e acompanhe os relatórios técnicos dos clientes.",
     )
 
-    col_btn, _ = st.columns([1.4, 4])
+    col_btn, col_resumo, _ = st.columns([1.4, 1.8, 2.2])
     with col_btn:
         if st.button("➕ Novo Relatório", use_container_width=True, type="primary"):
             st.session_state["sv_view"] = "relatorio_novo"
             st.rerun()
+    with col_resumo:
+        from resumo_executivo_ui import render_resumo_executivo_button
+        render_resumo_executivo_button(key_prefix="svrel_resexec")
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 

@@ -1036,6 +1036,9 @@ def render() -> None:
 
     page_header("📊 Dashboard", f"Visão executiva — {empresa}")
 
+    from resumo_executivo_ui import render_resumo_executivo_button
+    render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="dash_resexec")
+
     # ── Banner de notificações não lidas ────────────────────────────────────
     try:
         from notifications import get_unread_count as _gnc

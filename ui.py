@@ -466,6 +466,37 @@ def render_sidebar_nav(logo_b64: str, empresa: str, telefone: str,
     render_sidebar(logo_b64, empresa, telefone)
 
 
+def render_admin_preview_banner() -> None:
+    """Banner fixo — sempre visível quando um staff está no modo
+    'Ver como Cliente'. Nunca aparece para cliente comum (só é chamado
+    de dentro do ramo is_admin_preview() em app.py, que já exige staff)."""
+    from auth import current_empresa, exit_admin_preview
+
+    empresa = current_empresa()
+    st.markdown(
+        f"<div style='background:linear-gradient(90deg,#7C2D12,#EA580C);color:#fff;"
+        f"padding:10px 20px;display:flex;align-items:center;"
+        f"justify-content:space-between;flex-wrap:wrap;gap:10px;"
+        f"font-size:0.85rem;font-weight:700;border-radius:10px;"
+        f"box-shadow:0 3px 12px rgba(0,0,0,0.25);margin-bottom:10px;'>"
+        f"<span style='-webkit-text-fill-color:#fff;'>🛡️ Modo Administrador — "
+        f"visualizando Cliente: {empresa}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("⬅️ Ir para Supervisão", key="admin_preview_go_sv",
+                     use_container_width=True):
+            exit_admin_preview()
+            st.rerun()
+    with col_b:
+        if st.button("🚪 Sair do modo cliente", key="admin_preview_exit",
+                     use_container_width=True):
+            exit_admin_preview()
+            st.rerun()
+
+
 def render_client_topnav(logo_b64: str, empresa: str, telefone: str,
                          client_logo_b64: str = "") -> None:
     """Barra de navegação horizontal premium — substitui a sidebar no portal do cliente."""
@@ -893,6 +924,22 @@ def render_sv_topnav() -> None:
     perfil_label = "Admin" if perfil == "admin" else "Funcionário"
 
     # ── Linha 1: Logo + título | Usuário + Sair ───────────────────────────
+    # Marcador CSS — sem isso, a regra global de mobile (que quebra todo
+    # st.columns em 2 linhas de 50%) empilhava logo e usuário/Sair um sobre
+    # o outro no celular. Mesmo padrão usado no topnav do cliente (linha
+    # ~540) para manter a barra numa linha só.
+    st.markdown(
+        "<div class='sv-topnav-marker'></div>"
+        "<style>"
+        "@media(max-width:768px){"
+        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
+        "flex-wrap:nowrap!important;gap:6px!important;}"
+        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']"
+        " [data-testid='column']{min-width:0!important;}"
+        "}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
     logo_col, user_col = st.columns([2, 2])
 
     with logo_col:
@@ -909,6 +956,18 @@ def render_sv_topnav() -> None:
             )
 
     with user_col:
+        st.markdown(
+            "<div class='sv-topnav-user-marker'></div>"
+            "<style>"
+            "@media(max-width:768px){"
+            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
+            "flex-wrap:nowrap!important;}"
+            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
+            " [data-testid='column']{min-width:0!important;}"
+            "}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
         u_info, u_btn = st.columns([3, 1])
         with u_info:
             st.markdown(

@@ -1,9 +1,9 @@
 """Supervisão Pred.IO — Clientes e Histórico."""
 import streamlit as st
-from auth import require_staff
+from auth import require_staff, enter_admin_preview
 from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     cadastrar_usuario, delete_usuario, update_usuario,
-                    get_client_logo, save_client_logo,
+                    get_client_logo, save_client_logo, delete_ativos_por_cliente,
                     get_contagem_usuarios_global, get_usuarios_staff)
 from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
                 COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
@@ -137,7 +137,7 @@ def _render_lista() -> None:
             f"<span style='font-size:0.8rem;color:#475569;'>{r}</span>" for r in resumo
         )
 
-        col_info, col_hist, col_del = st.columns([7, 1.2, 0.7])
+        col_info, col_preview, col_hist, col_del = st.columns([6, 1.4, 1.2, 0.7])
         with col_info:
             st.markdown(
                 f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
@@ -149,6 +149,18 @@ def _render_lista() -> None:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+        with col_preview:
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+            if st.button("👁️ Ver como cliente", key=f"sv_cli_preview_{client_id}",
+                         use_container_width=True,
+                         help="Visualizar o Portal do Cliente com os dados deste cliente"):
+                if enter_admin_preview(client_id, empresa):
+                    from sheets import log_audit
+                    from auth import current_email, current_perfil
+                    log_audit(current_email(), current_perfil(), client_id,
+                               "admin_visualizou_portal_cliente", recurso_tipo="cliente",
+                               recurso_id=client_id)
+                    st.rerun()
         with col_hist:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
             if st.button("Histórico →", key=f"sv_cli_{client_id}",
@@ -161,10 +173,14 @@ def _render_lista() -> None:
         with col_del:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
             if st.button("🗑️", key=f"sv_cli_del_{client_id}", use_container_width=True,
-                         help="Excluir este cliente"):
+                         help="Excluir este cliente e todos os seus ativos"):
                 ok = delete_usuario(email)
                 if ok:
-                    st.toast(f"🗑️ Cliente '{empresa}' removido.", icon="🗑️")
+                    n_ativos = delete_ativos_por_cliente(client_id)
+                    msg = f"🗑️ Cliente '{empresa}' removido."
+                    if n_ativos:
+                        msg += f" {n_ativos} ativo(s) relacionado(s) também removido(s)."
+                    st.toast(msg, icon="🗑️")
                     st.rerun()
                 else:
                     st.toast("⚠️ Não encontrado na planilha ou é dado de demonstração.", icon="⚠️")
@@ -184,6 +200,9 @@ def render_historico() -> None:
     if not client_id:
         st.warning("Cliente não identificado.")
         return
+
+    from resumo_executivo_ui import render_resumo_executivo_button
+    render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="svcli_resexec")
 
     historico = get_historico_cliente(client_id)
     chamados   = historico.get("chamados",   None)

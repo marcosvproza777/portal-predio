@@ -438,6 +438,23 @@ def delete_ativo_sv(ativo_id: str) -> bool:
     return delete_row_by_id("Ativos", "Id", ativo_id)
 
 
+def delete_ativos_por_cliente(client_id: str) -> int:
+    """Remove todos os ativos de um cliente. Usado ao excluir o cliente
+    (cascade delete). Retorna a quantidade de ativos removidos."""
+    cid = client_id.strip().lower()
+    if not cid:
+        return 0
+    df = load_sheet("Ativos")
+    if df.empty or "Client_Id" not in df.columns:
+        return 0
+    ids = df[df["Client_Id"].astype(str).str.strip().str.lower() == cid]["Id"].tolist()
+    removidos = 0
+    for ativo_id in ids:
+        if delete_ativo_sv(str(ativo_id).strip()):
+            removidos += 1
+    return removidos
+
+
 def delete_usuario(email: str) -> bool:
     """Remove usuário da aba Usuarios ou Clientes pelo e-mail."""
     valor = email.strip().lower()
@@ -1360,6 +1377,47 @@ def salvar_log_assistente(
         confidence, sources_json,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
     ])
+
+
+# ── Auditoria — Modo Admin "Ver como Cliente" ──────────────────────────────
+
+_HEADERS_AUDIT = [
+    "Id", "Usuario_Id", "Perfil_Usuario", "Cliente_Id",
+    "Recurso_Tipo", "Recurso_Id", "Acao", "Resultado", "Created_At",
+]
+
+
+def log_audit(usuario_id: str, perfil_usuario: str, cliente_id: str,
+              acao: str, recurso_tipo: str = "", recurso_id: str = "",
+              resultado: str = "sucesso") -> bool:
+    """Registra uma ação de auditoria (ex.: admin visualizando/editando
+    dados de um cliente em modo preview). Nunca lança exceção para não
+    interromper o fluxo principal por falha de log — falha silenciosa,
+    só retorna False.
+    """
+    try:
+        _ensure_tab_headers("AccessAuditLogs", _HEADERS_AUDIT)
+        log_id = _gerar_id("AUD")
+        return append_row("AccessAuditLogs", [
+            log_id, usuario_id, perfil_usuario, cliente_id,
+            recurso_tipo, recurso_id, acao, resultado,
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        ])
+    except Exception:
+        return False
+
+
+def get_audit_logs(cliente_id: str = "", limit: int = 200) -> pd.DataFrame:
+    """Retorna logs de auditoria, mais recentes primeiro. Uso interno da
+    Supervisão apenas — sem filtro de segurança de client_id porque quem
+    chama já é staff (mesma regra de get_all_ativos_sv etc.)."""
+    df = load_sheet("AccessAuditLogs")
+    if df.empty:
+        return df
+    if cliente_id:
+        cid = cliente_id.strip().lower()
+        df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cid]
+    return df.iloc[::-1].head(limit).reset_index(drop=True)
 
 
 # ── Ativos (supervisão) ──────────────────────────────────────────────────────
@@ -4007,6 +4065,112 @@ def update_notification_queue_status(item_id: str, new_status: str) -> bool:
             ws.update_cell(cell.row, headers.index("Updated_At") + 1, now)
         load_sheet.clear()
         get_notification_queue.clear()
+        return True
+    except Exception:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESUMO EXECUTIVO POR PERÍODO — aba ExecutiveSummaries
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_HEADERS_EXEC_SUMMARY = [
+    "Id", "Cliente_Id", "Ativo_Id", "Gerado_Por_Usuario_Id",
+    "Tipo_Resumo", "Modo", "Periodo_Inicio", "Periodo_Fim",
+    "Titulo", "Resumo_Texto", "Dados_Usados", "Arquivo_Url",
+    "Status", "Created_At", "Updated_At",
+]
+
+
+def add_executive_summary(
+    cliente_id: str,
+    titulo: str,
+    resumo_texto: str,
+    gerado_por_usuario_id: str = "",
+    ativo_id: str = "",
+    tipo_resumo: str = "Resumo para reunião",
+    modo: str = "cliente",
+    periodo_inicio: str = "",
+    periodo_fim: str = "",
+    dados_usados: str = "",
+) -> str | None:
+    """Registra um resumo executivo gerado. Retorna o Id ou None.
+    SEGURANÇA: cliente_id sempre da sessão (ou do cliente selecionado pelo
+    staff na Supervisão) — nunca de input livre do cliente comum."""
+    if not cliente_id:
+        return None
+    _ensure_tab_headers("ExecutiveSummaries", _HEADERS_EXEC_SUMMARY)
+    summary_id = _gerar_id("RES")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("ExecutiveSummaries", [
+        summary_id, cliente_id, ativo_id, gerado_por_usuario_id,
+        tipo_resumo, modo, periodo_inicio, periodo_fim,
+        titulo, resumo_texto, dados_usados, "",
+        "Gerado", now, now,
+    ])
+    return summary_id if ok else None
+
+
+def get_executive_summaries(cliente_id: str, ativo_id: str = "", limit: int = 50) -> pd.DataFrame:
+    """Histórico de resumos executivos do cliente, mais recentes primeiro.
+    SEGURANÇA: cliente_id sempre da sessão/seleção staff."""
+    if not cliente_id:
+        return pd.DataFrame(columns=_HEADERS_EXEC_SUMMARY)
+    df = load_sheet("ExecutiveSummaries")
+    if df.empty:
+        return df
+    for col in _HEADERS_EXEC_SUMMARY:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id.strip().lower()]
+    if ativo_id:
+        df = df[df["Ativo_Id"].astype(str).str.strip() == ativo_id.strip()]
+    df = df.copy()
+    df["_dt"] = pd.to_datetime(df.get("Created_At", pd.Series(dtype=str)), dayfirst=True, errors="coerce")
+    return df.sort_values("_dt", ascending=False).drop(columns=["_dt"]).head(limit).reset_index(drop=True)
+
+
+def get_executive_summary_by_id(summary_id: str, cliente_id: str = "") -> dict | None:
+    """Retorna dict do resumo pelo Id. Se cliente_id for informado, valida
+    ownership — nunca retorna resumo de outro cliente."""
+    df = load_sheet("ExecutiveSummaries")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == summary_id.strip()]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    if cliente_id and str(row.get("Cliente_Id", "")).strip().lower() != cliente_id.strip().lower():
+        return None
+    return {col: str(row.get(col, "")).strip() for col in _HEADERS_EXEC_SUMMARY}
+
+
+def update_executive_summary(summary_id: str, cliente_id: str, **campos) -> bool:
+    """Atualiza campos de um resumo executivo (ex.: Status='Arquivado').
+    Valida ownership pelo cliente_id antes de gravar."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("ExecutiveSummaries")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell = ws.find(summary_id, in_column=id_col)
+        if not cell:
+            return False
+        row_idx = cell.row
+        if "Cliente_Id" in headers:
+            cid_col_idx = headers.index("Cliente_Id") + 1
+            existing_cid = ws.cell(row_idx, cid_col_idx).value or ""
+            if existing_cid.strip().lower() != cliente_id.strip().lower():
+                return False
+        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        campos = dict(campos)
+        campos.setdefault("Updated_At", now)
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
         return True
     except Exception:
         return False

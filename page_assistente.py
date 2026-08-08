@@ -155,6 +155,18 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     except Exception:
         pass
 
+    # Modo Admin "Ver como Cliente": registra em auditoria que um staff
+    # consultou o Assistente em nome do cliente selecionado.
+    try:
+        from auth import is_admin_preview, current_email as _cur_email, current_perfil as _cur_perfil
+        if is_admin_preview():
+            from sheets import log_audit
+            log_audit(_cur_email(), _cur_perfil(), client_id,
+                      "admin_perguntou_assistente_cliente", recurso_tipo="assistente",
+                      recurso_id=pergunta[:200])
+    except Exception:
+        pass
+
     st.rerun()
 
 

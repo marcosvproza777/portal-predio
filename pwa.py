@@ -52,12 +52,42 @@ _HTML = """<!DOCTYPE html>
     var p = window.parent;
     if (!p || p === window) return;
 
+    /* ── App já instalado? Não mostra o botão nunca mais ──────────────── */
+    /* display-mode:standalone cobre Android/desktop; navigator.standalone
+       é o equivalente no iOS/Safari. O localStorage persiste a marca de
+       "instalado" mesmo quando o app é reaberto depois pelo navegador
+       normal (ex.: usuário compartilhou o link de novo).                  */
+    var _alreadyInstalled = false;
+    try {
+        _alreadyInstalled = p.matchMedia('(display-mode: standalone)').matches
+            || p.navigator.standalone === true
+            || p.localStorage.getItem('predio_pwa_installed') === '1';
+    } catch (e) {}
+
+    if (_alreadyInstalled) {
+        var _oldFab = p.document.getElementById('ppwa-fab');
+        var _oldOv  = p.document.getElementById('ppwa-ov');
+        if (_oldFab) _oldFab.remove();
+        if (_oldOv)  _oldOv.remove();
+        return;
+    }
+
     /* ── beforeinstallprompt: registra apenas uma vez no parent window ── */
     if (!p._ppwaListenerAdded) {
         p._ppwaDeferred = null;
         p.addEventListener('beforeinstallprompt', function (e) {
             e.preventDefault();
             p._ppwaDeferred = e;
+        });
+        /* Dispara assim que a instalação é concluída (1 clique no Android/
+           Chrome, ou depois do passo a passo manual no iOS) — some com o
+           botão na hora e lembra para as próximas visitas.                */
+        p.addEventListener('appinstalled', function () {
+            try { p.localStorage.setItem('predio_pwa_installed', '1'); } catch (e) {}
+            var _fab = p.document.getElementById('ppwa-fab');
+            var _ov  = p.document.getElementById('ppwa-ov');
+            if (_fab) _fab.remove();
+            if (_ov)  _ov.remove();
         });
         p._ppwaListenerAdded = true;
     }
@@ -67,10 +97,20 @@ _HTML = """<!DOCTYPE html>
        para garantir que sempre referenciam o documento pai atual.          */
     p._ppwaOpen = function () {
         if (p._ppwaDeferred) {
+            /* Android/Chrome: 1 clique — prompt nativo do navegador */
             p._ppwaDeferred.prompt();
-            p._ppwaDeferred.userChoice.then(function () { p._ppwaDeferred = null; });
+            p._ppwaDeferred.userChoice.then(function (choice) {
+                p._ppwaDeferred = null;
+                if (choice && choice.outcome === 'accepted') {
+                    try { p.localStorage.setItem('predio_pwa_installed', '1'); } catch (e) {}
+                    var _fab = p.document.getElementById('ppwa-fab');
+                    if (_fab) _fab.remove();
+                }
+            });
             return;
         }
+        /* iOS/Safari não tem API de instalação programática — só resta
+           mostrar o passo a passo manual (limitação da própria Apple).    */
         var ov = p.document.getElementById('ppwa-ov');
         if (ov) ov.classList.add('open');
     };
@@ -195,6 +235,18 @@ _HTML = """<!DOCTYPE html>
             '<div class="ps"><div class="ps-i">2&#65039;&#8419;</div>',
             '<div class="ps-t">Toque em <b>Adicionar &agrave; tela inicial</b> ',
             'ou <b>Instalar app</b> e confirme</div></div>',
+
+            '<hr class="phr">',
+
+            '<div class="ps"><div class="ps-i">&#128187;</div>',
+            '<div class="ps-t"><b>Computador &mdash; Chrome/Edge:</b></div></div>',
+            '<div class="ps"><div class="ps-i">1&#65039;&#8419;</div>',
+            '<div class="ps-t">Clique no &iacute;cone de instala&ccedil;&atilde;o ',
+            '<b>&#8853;</b> na barra de endere&ccedil;o (ou menu <b>&vellip;</b> ',
+            '&rarr; <b>Instalar Pred.IO</b>)</div></div>',
+            '<div class="ps"><div class="ps-i">2&#65039;&#8419;</div>',
+            '<div class="ps-t">Clique em <b>Instalar</b> &mdash; o app abre numa ',
+            'janela pr&oacute;pria, sem barra do navegador</div></div>',
 
             '<button id="ppwa-close" type="button">Entendi</button>',
             '</div>'

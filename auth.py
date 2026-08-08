@@ -156,12 +156,63 @@ def require_staff() -> None:
 
 
 def current_client_id() -> str:
-    """Retorna o client_id da sessão — NUNCA aceitar do front-end."""
+    """Retorna o client_id EFETIVO da sessão — NUNCA aceitar do front-end.
+
+    Se um usuário staff (admin/funcionário) estiver no modo "Ver como
+    Cliente" (admin_preview_client_id em session_state), retorna o
+    client_id do cliente selecionado em vez do client_id real da sessão
+    do staff (que normalmente é vazio). Essa chave só pode ser gravada
+    por enter_admin_preview(), chamado de dentro de uma tela já protegida
+    por require_staff() — nunca vem de query param ou input do cliente.
+    O `is_staff()` aqui é defesa extra: mesmo que a chave existisse por
+    algum motivo numa sessão de cliente comum, ela é ignorada.
+    """
+    preview_cid = st.session_state.get("admin_preview_client_id", "")
+    if preview_cid and is_staff():
+        return preview_cid
     return st.session_state.get("client_id", "")
 
 
 def current_empresa() -> str:
+    if is_admin_preview():
+        return st.session_state.get("admin_preview_client_empresa", "")
     return st.session_state.get("empresa", "")
+
+
+# ── Modo Admin — "Ver como Cliente" ─────────────────────────────────────────
+
+def enter_admin_preview(client_id: str, client_empresa: str) -> bool:
+    """Ativa o modo de visualização 'Ver como Cliente' para o staff logado.
+
+    Só pode ser chamado a partir de uma tela da Supervisão (já protegida
+    por require_staff()). client_id vem sempre de uma seleção feita ali
+    dentro — nunca de input livre ou parâmetro de URL.
+    """
+    if not is_staff():
+        return False
+    st.session_state["admin_preview_client_id"]     = client_id.strip().lower()
+    st.session_state["admin_preview_client_empresa"] = client_empresa
+    st.session_state["admin_preview_admin_email"]    = current_email()
+    st.session_state["admin_preview_admin_nome"]     = current_nome()
+    # Força recarregar o logo do cliente certo — sem isso, o cache de logo
+    # (por sessão, não por cliente) mostraria o logo do cliente visto antes.
+    st.session_state.pop("_clogo_loaded", None)
+    st.session_state.pop("client_logo_b64", None)
+    st.session_state["portal_page"] = "dashboard"
+    return True
+
+
+def exit_admin_preview() -> None:
+    """Sai do modo 'Ver como Cliente', voltando para a Supervisão normal."""
+    for k in ("admin_preview_client_id", "admin_preview_client_empresa",
+              "admin_preview_admin_email", "admin_preview_admin_nome",
+              "_clogo_loaded", "client_logo_b64"):
+        st.session_state.pop(k, None)
+
+
+def is_admin_preview() -> bool:
+    """True se um staff estiver visualizando o portal como um cliente."""
+    return is_staff() and bool(st.session_state.get("admin_preview_client_id"))
 
 
 def current_email() -> str:

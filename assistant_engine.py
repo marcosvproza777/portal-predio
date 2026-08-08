@@ -54,6 +54,22 @@ _INTENTS: dict[str, list[str]] = {
         "você é o chatgpt", "voce e o chatgpt", "que assistente é você",
         "que assistente e voce", "o que você é", "o que voce e",
     ],
+    # Resumo Executivo por Período — deliberadamente frases compostas
+    # ("resumo dos últimos", "reunião com a gerência") em vez de "resumo
+    # executivo" isolado, para não colidir com o intent "relatorio_executivo"
+    # (Relatório Executivo Word por ativo, já existente) — ver prioridade
+    # em detect_intent(): este intent é checado ANTES daquele.
+    "resumo_periodo": [
+        "resumo dos últimos", "resumo dos ultimos",
+        "resumo do período", "resumo do periodo",
+        "gerar resumo", "gerar um resumo",
+        "resumo para reunião", "resumo para reuniao",
+        "resumo gerencial",
+        "principais pontos do período", "principais pontos do periodo",
+        "levar para reunião", "levar para reuniao", "levar pra reuniao",
+        "reunião com a gerência", "reuniao com a gerencia",
+        "o que devo levar para", "o que levar para a reunião",
+    ],
     # GUT (Gravidade x Urgência x Tendência) — checar ANTES de manutencao/
     # alertas/chamados/status_ativo, já que perguntas de GUT citam essas
     # mesmas palavras ("qual manutenção é mais crítica" contém "manutenção").
@@ -156,7 +172,7 @@ _INTENTS: dict[str, list[str]] = {
         "horímetro", "horimetro", "análise de óleo", "analise de oleo",
         "vibração", "vibracao", "termografia", "preventiva", "preditiva",
         "inspeção", "inspecao", "lubrificação", "lubrificacao",
-        "filtro", "próximas ações", "proximas acoes",
+        "filtro", "próximas ações", "proximas acoes", "pendente", "pendentes",
         "como vibração ajuda", "como vibracao ajuda",
         "como analise de oleo ajuda", "como análise de óleo ajuda",
         "como termografia ajuda", "termografia ajuda compressor",
@@ -300,6 +316,7 @@ def detect_intent(pergunta: str) -> str:
     q = pergunta.lower()
     for intent in [
         "identidade",                # "Quem é você?" — antes de qualquer outro intent
+        "resumo_periodo",            # Resumo Executivo por Período — antes de relatorio_executivo/gut
         "gut",                       # Priorização GUT — antes de manutencao/alertas/status_ativo
         "mycold",                    # MYCOLD AB/PAO — antes de qualquer oleo
         "oleo_homologado",           # Tabela de óleos MAYEKAWA/MYCOM
@@ -715,6 +732,69 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
     """Constrói a resposta controlada para a intenção detectada."""
 
     empresa = ctx.get("empresa", "sua operação")
+
+    # ── Resumo Executivo por Período ──────────────────────────────────────────
+    # SEGURANÇA: sempre modo "cliente" (nunca rascunho/obs. interna), mesmo
+    # quando perguntado a partir da Supervisão — o modo "interno_predio"
+    # (com observações internas) só é oferecido pelo botão/modal "Gerar
+    # Resumo Executivo", com o toggle explícito e restrito a staff.
+    if intent == "resumo_periodo":
+        client_id = ctx.get("client_id", "")
+        if not client_id:
+            return _resp("Não foi possível identificar o cliente da sessão para gerar o resumo.")
+        try:
+            import datetime as _dt
+            import executive_summary as _es
+            ini, fim = _es.resolver_periodo("30d")
+            ativo_nome = ""
+            if ativo_id:
+                for a in ctx.get("ativos", []):
+                    if str(a.get("id", "")).strip() == str(ativo_id).strip():
+                        ativo_nome = a.get("nome", "")
+                        break
+            resultado = _es.generate_executive_summary(
+                usuario_id=ctx.get("email_logado", ""), cliente_id=client_id,
+                cliente_nome=empresa, ativo_id=ativo_id or "", ativo_nome=ativo_nome,
+                periodo_inicio=ini, periodo_fim=fim, modo="cliente", salvar=False,
+            )
+        except Exception:
+            resultado = None
+
+        if not resultado or not resultado.get("ok"):
+            return _resp(
+                "Não consegui gerar o resumo executivo agora. Tente novamente pela tela de "
+                "Dashboard usando o botão «Gerar Resumo Executivo».\n\nFonte: Pred.IO",
+                links=[{"label": "📊 Ir para o Dashboard", "page": "dashboard"}],
+            )
+
+        dados = resultado["dados"]
+        criticos_gut = [i for i in dados.get("gut_itens", []) if i.get("prioridade") == "Crítica"]
+        top3 = sorted(dados.get("gut_itens", []), key=lambda i: i.get("score", 0), reverse=True)[:3]
+        top3_txt = "; ".join(f"{i['titulo']} ({i['prioridade']})" for i in top3) or "nenhum item com GUT definido"
+
+        resumo_curto = (
+            f"**Resumo dos últimos 30 dias — {empresa}{f' · {ativo_nome}' if ativo_nome else ''}:**\n\n"
+            f"• {len(dados['relatorios'])} relatório(s) publicado(s)\n"
+            f"• {len(dados['manutencoes_executadas'])} manutenção(ões) executada(s)\n"
+            f"• {len(dados['alertas'])} alerta(s) e {len(dados['chamados'])} chamado(s)\n"
+            f"• {len(criticos_gut)} item(ns) em prioridade GUT crítica\n\n"
+            f"**Maiores prioridades:** {top3_txt}\n\n"
+            f"Para o documento completo (com seções de conclusão para reunião, recomendações e "
+            f"exportação em Word), use o botão **«📊 Gerar Resumo Executivo»** no Dashboard.\n\n"
+            f"{GUT_DISCLAIMER}\n\nFonte: Pred.IO"
+        )
+        try:
+            from security import log_acesso
+            log_acesso(acao="resumo_executivo_gerado", recurso_tipo="resumo_executivo",
+                      recurso_id="", resultado="permitido", client_id=client_id,
+                      detalhe="via assistente")
+        except Exception:
+            pass
+        return _resp(
+            resumo_curto,
+            links=[{"label": "📊 Ir para o Dashboard", "page": "dashboard"}],
+            actions=[{"label": "📊 Gerar Resumo Executivo completo", "page": "dashboard"}],
+        )
 
     # ── MYCOLD AB 68 / MYCOLD PAO ─────────────────────────────────────────────
     if intent == "mycold":

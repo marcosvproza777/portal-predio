@@ -332,11 +332,9 @@ def _render_metrics_grid(d: dict) -> None:
         f"color:{COLOR_MUTED};font-weight:700;margin:0 0 6px;'>Alertas &amp; Conteúdo</p>",
         unsafe_allow_html=True,
     )
-    c9, c10, c11, c12 = st.columns(4)
-    with c9:
-        cor = "#F97316" if d["alertas_criticos"] > 0 else "#10B981"
-        sv_metric_card("🔔", "Alertas Críticos", d["alertas_criticos"], cor,
-                       "Prioridade alta/urgente")
+    # "Alertas Críticos" removido — era um card estático sem nenhuma ação
+    # (não navegava para a tela de Alertas nem fazia nada ao clicar).
+    c10, c11, c12 = st.columns(3)
     with c10:
         cor = "#64748B" if d["cham_aguardando"] == 0 else "#D97706"
         sv_metric_card("⏳", "Aguardando Cliente", d["cham_aguardando"], cor,
@@ -530,6 +528,9 @@ def _render_assistente_recentes(d: dict) -> None:
 def render() -> None:
     require_staff()
     sv_page_header("Dashboard", "Visão executiva Pred.IO — todos os clientes")
+
+    from resumo_executivo_ui import render_resumo_executivo_button
+    render_resumo_executivo_button(key_prefix="svdash_resexec")
 
     tab_dash, tab_ativo, tab_cliente = st.tabs([
         "📊 Visão Geral",

@@ -1,6 +1,6 @@
 """Meus Relatórios — listagem com filtros, download de PDF."""
 import streamlit as st
-from auth import current_client_id
+from auth import current_client_id, current_empresa
 from sheets import get_relatorios, get_technical_reports, get_relatorios_executivos_publicados
 from ui import (page_header, status_badge, COLOR_NAVY, COLOR_BLUE,
                 COLOR_CARD, COLOR_BORDER, COLOR_MUTED, TIPOS_LAUDOS,
@@ -22,6 +22,9 @@ def render() -> None:
     page_header("📁 Meus Relatórios", "Acesse e baixe seus laudos técnicos")
 
     client_id = current_client_id()  # SEMPRE da sessão
+
+    from resumo_executivo_ui import render_resumo_executivo_button
+    render_resumo_executivo_button(client_id=client_id, cliente_nome=current_empresa(), key_prefix="rel_resexec")
 
     # ── Filtros ───────────────────────────────────────────────────────────────
     with st.expander("🔍 Filtros", expanded=False):

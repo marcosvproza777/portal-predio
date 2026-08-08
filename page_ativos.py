@@ -9,7 +9,7 @@ try:
 except ImportError:
     _HAS_PLOTLY = False
 
-from auth import current_client_id
+from auth import current_client_id, current_empresa
 from sheets import get_ativos
 from ui import (page_header, app_section_title, status_badge, empty_state, badge,
                 STATUS_REGISTRY, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED,
@@ -1585,7 +1585,7 @@ def _render_detalhe(a: dict, mock: bool) -> None:
 
     # ── Ações Rápidas ────────────────────────────────────────────────────────
     st.markdown(_section("⚡ Ações Rápidas"), unsafe_allow_html=True)
-    ac1, ac2, ac3, ac4 = st.columns(4)
+    ac1, ac2, ac3, ac4, ac5 = st.columns(5)
     with ac1:
         if st.button("📁 Ver relatórios", key=f"acao_rel_{a['id']}", use_container_width=True):
             st.session_state["portal_page"] = "relatorios"
@@ -1603,6 +1603,13 @@ def _render_detalhe(a: dict, mock: bool) -> None:
             st.session_state["assistente_ativo_contexto"] = a["nome"]
             st.session_state["portal_page"] = "assistente"
             st.rerun()
+    with ac5:
+        from resumo_executivo_ui import render_resumo_executivo_button
+        render_resumo_executivo_button(
+            client_id=client_id, cliente_nome=current_empresa(),
+            ativo_id=a.get("id", ""), ativo_nome=a.get("nome", ""),
+            key_prefix=f"ativo_resexec_{a.get('id','')}",
+        )
 
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
 
