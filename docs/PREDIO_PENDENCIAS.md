@@ -1,5 +1,14 @@
 # PENDÊNCIAS — Portal Pred.IO
-**Atualizado em:** 2026-06-28
+**Atualizado em:** 2026-08-08
+
+---
+
+## Prioridade Alta — novidades da Etapa 10 (homologação)
+
+- [ ] **Auditar histórico da corrupção em Ativos/Chamados**: a aba `Ativos` estava com 100% das linhas fora de alinhamento (afetando RJR, Vigor Alimentos, não só teste) até ser corrigida nesta etapa. Não se sabe há quanto tempo isso durava nem se os clientes perceberam. Ver `docs/PREDIO_HOMOLOGACAO_CLIENTE_TESTE.md` §3.
+- [ ] **Revisar duplicatas reais não apagadas**: RJR (~15 linhas `CP S1`/`cp-s1`) e Vigor Alimentos (5 linhas `CP NH3`) têm padrões de possíveis duplicatas acidentais, sinalizados mas não removidos — requer confirmação de negócio.
+- [ ] **Assistente não usa ativos reais no contexto**: `get_client_context()` nunca substitui `ctx["ativos"]` pelos dados reais do Sheets (fica em mock) — perguntas sobre um ativo nomeado específico respondem genérico. Ver `docs/PREDIO_HOMOLOGACAO_CLIENTE_TESTE.md` §3.5.
+- [ ] **Checklist interativo de homologação (20 itens, Supervisão → Homologação)** ainda não foi preenchido por um humano navegando de verdade pelo portal.
 
 ---
 
@@ -22,7 +31,7 @@
 - [ ] **Auditoria do Assistente — painel de métricas**: expandir a página `page_sv_assistente.py` com métricas de uso (perguntas por dia, intenções mais comuns, taxa de resposta via web).
 - [ ] **Dashboard Executivo Final**: completar `page_sv_dashboard.py` com visão consolidada de todos os clientes (ativos críticos, chamados abertos, manutenções vencidas).
 - [ ] **Notificações internas — disparo automático**: implementar criação automática de notificações quando tarefa de manutenção vence, alerta é criado ou chamado é respondido.
-- [ ] **PWA / Experiência Mobile**: testar instalação do app em iOS e Android, verificar bottom nav, sininho e banner de atualização.
+- [ ] **PWA / Experiência Mobile**: bottom nav, sininho, banner de atualização e cache seguro revisados por código na Etapa 9 (`docs/PREDIO_MOBILE_PWA.md`) — falta apenas teste real em dispositivo físico iOS/Android, não realizado por falta de hardware disponível na sessão.
 - [ ] **Mock data — remoção progressiva**: à medida que dados reais são cadastrados, remover dependências de `_mock_chamados`, `_mock_mensagens`, `assistant_mock_data.py`, etc.
 
 ---

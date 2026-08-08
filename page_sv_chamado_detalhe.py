@@ -5,9 +5,11 @@ from sheets import (
     get_chamado_by_id, get_mensagens_chamado,
     update_chamado, add_mensagem, concluir_chamado,
     abrir_chamado_v2, get_all_clientes, get_ativos,
+    update_chamado_gut,
 )
-from ui import (sv_page_header, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
+from ui import (sv_page_header, status_badge, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
                 COLOR_MUTED, STATUS_CFG, PRIORIDADE_CFG)
+from gut import calculate_gut, GUT_DISCLAIMER
 
 _STATUS_OPTS = [
     "Aberto", "Em análise", "Em andamento",
@@ -186,6 +188,9 @@ def _render_header_card(chamado: dict) -> None:
     pr_bg, pr_tc = PRIORIDADE_CFG.get(prioridade.lower(), ("#94A3B8", "#fff"))
     st_bg, st_tc = STATUS_CFG.get(status.lower(), ("#94A3B8", "#fff"))
 
+    gut_res = calculate_gut(chamado.get("Gut_Gravidade"), chamado.get("Gut_Urgencia"),
+                            chamado.get("Gut_Tendencia"))
+
     def pill(label, bg, tc):
         return (f"<span style='background:{bg};color:{tc};-webkit-text-fill-color:{tc};"
                 f"font-size:0.75rem;font-weight:700;padding:3px 12px;border-radius:20px;'>"
@@ -217,6 +222,9 @@ def _render_header_card(chamado: dict) -> None:
         f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:0.75rem;flex-wrap:wrap;'>"
         f"{pill(prioridade, pr_bg, pr_tc)} {pill(status, st_bg, st_tc)}"
         + (f" {pill(categoria,'#F1F5F9','#475569')}" if categoria else "")
+        + (f" {status_badge(gut_res['prioridade'], 'gut')}"
+           f"<span style='color:{COLOR_MUTED};font-size:0.7rem;margin-left:2px;'>GUT {gut_res['score']}</span>"
+           if gut_res else "")
         + f"</div>"
         f"<div style='margin-bottom:0.75rem;flex-wrap:wrap;'>{meta_html}</div>"
         + (f"<p style='font-size:0.78rem;color:{COLOR_MUTED};margin:0 0 0.6rem;'>"
@@ -379,6 +387,11 @@ def _render_action_panel(chamado_id: str, chamado: dict) -> None:
         unsafe_allow_html=True,
     )
 
+    g_atual   = int(chamado.get("Gut_Gravidade") or 3)
+    u_atual   = int(chamado.get("Gut_Urgencia") or 3)
+    t_atual   = int(chamado.get("Gut_Tendencia") or 3)
+    obs_atual = str(chamado.get("Gut_Observacao", "")).strip()
+
     with st.form(f"update_chamado_{chamado_id}"):
         novo_status = st.selectbox(
             "Status", _STATUS_OPTS,
@@ -398,6 +411,18 @@ def _render_action_panel(chamado_id: str, chamado: dict) -> None:
                                   placeholder="Ex: REP-2026-001")
         novo_task = st.text_input("Vincular Tarefa ID", value=task_atual,
                                   placeholder="Ex: TASK-2026-001")
+
+        st.markdown("**🎯 Prioridade GUT**")
+        st.caption(f"ℹ️ {GUT_DISCLAIMER}")
+        gc1, gc2, gc3 = st.columns(3)
+        with gc1:
+            g_novo = st.number_input("Gravidade", 1, 5, g_atual)
+        with gc2:
+            u_novo = st.number_input("Urgência", 1, 5, u_atual)
+        with gc3:
+            t_novo = st.number_input("Tendência", 1, 5, t_atual)
+        obs_novo = st.text_area("Observação técnica GUT", value=obs_atual, height=68)
+
         salvar = st.form_submit_button("💾 Salvar", use_container_width=True)
 
     if salvar:
@@ -419,6 +444,9 @@ def _render_action_panel(chamado_id: str, chamado: dict) -> None:
             campos["Report_Id"] = novo_rep.strip()
         if novo_task.strip() != task_atual:
             campos["Maintenance_Task_Id"] = novo_task.strip()
+
+        if (g_novo, u_novo, t_novo, obs_novo.strip()) != (g_atual, u_atual, t_atual, obs_atual):
+            update_chamado_gut(chamado_id, g_novo, u_novo, t_novo, obs_novo.strip())
 
         if campos:
             ok = update_chamado(chamado_id, campos)

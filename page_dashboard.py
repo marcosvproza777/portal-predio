@@ -3,8 +3,11 @@ import unicodedata
 import pandas as pd
 import streamlit as st
 from auth import current_client_id, current_empresa
-from ui import (page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
-                COLOR_MUTED, COLOR_BLUE)
+from ui import (page_header, empty_state, badge, STATUS_REGISTRY, COLOR_NAVY,
+                COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE, COLOR_SUCCESS,
+                COLOR_WARNING, COLOR_DANGER, COLOR_URGENT, COLOR_INFO, COLOR_ACCENT,
+                status_badge)
+from gut import GUT_DISCLAIMER
 
 # ── Disclaimer obrigatório ────────────────────────────────────────────────────
 _DISCLAIMER = (
@@ -49,14 +52,15 @@ def _ativo_status(raw: str) -> str:
 
 
 def _score_cor(score: int) -> tuple:
-    """(cor_texto, cor_bg, cor_borda)"""
+    """(cor_texto, cor_bg, cor_borda) — cores alinhadas ao Design System
+    (mesmos tokens de saúde do ativo usados em page_farois.py/page_ativos.py)."""
     if score >= 85:
-        return "#059669", "#F0FDF4", "#86EFAC"
+        return COLOR_SUCCESS, "#F0FDF4", "#86EFAC"
     if score >= 60:
-        return "#D97706", "#FFFBEB", "#FCD34D"
+        return COLOR_WARNING, "#FFFBEB", "#FCD34D"
     if score >= 30:
-        return "#DC2626", "#FEF2F2", "#FCA5A5"
-    return "#7C3AED", "#F5F3FF", "#C4B5FD"
+        return COLOR_DANGER, "#FEF2F2", "#FCA5A5"
+    return COLOR_URGENT, "#F5F3FF", "#C4B5FD"
 
 
 def _score_label(score: int) -> str:
@@ -102,9 +106,11 @@ def _load_data(client_id: str) -> dict:
         "cham_concluidos_mes": 0,
         "cham_list":          [],
         # Alertas
-        "alertas":        [],
+        "alertas":          [],
+        "alertas_criticos": 0,
         # Relatórios
-        "relatorios":     [],
+        "relatorios":      [],
+        "relatorios_mes":  0,
         # Recomendações e ações
         "recomendacoes":        [],
         "acoes_prioritarias":   [],
@@ -226,6 +232,9 @@ def _load_data(client_id: str) -> dict:
                     "data":       str(row.get("Data", row.get("Criado_Em", ""))).strip(),
                 })
             alertas_raw.sort(key=lambda a: _prio_ord.get(a["prioridade"], 3))
+            d["alertas_criticos"] = sum(
+                1 for a in alertas_raw if a["prioridade"] in ("Urgente", "Crítica")
+            )
             d["alertas"] = alertas_raw[:5]
     except Exception:
         pass
@@ -234,6 +243,10 @@ def _load_data(client_id: str) -> dict:
     try:
         df_rel = get_technical_reports(client_id=client_id, staff=False)
         if not df_rel.empty:
+            _mes_atual = datetime.datetime.now().strftime("%m/%Y")
+            d["relatorios_mes"] = int(
+                df_rel["Data_Relatorio"].astype(str).str.strip().str[3:10].eq(_mes_atual).sum()
+            )
             relatorios = []
             for _, row in df_rel.head(5).iterrows():
                 sev      = str(row.get("Severidade", "Normal")).strip().lower()
@@ -280,6 +293,30 @@ def _load_data(client_id: str) -> dict:
     d["acoes_prioritarias"] = acoes[:5]
 
     return d
+
+
+# ── Gráfico simples (barra segmentada em CSS, sem dependência pesada) ─────────
+
+def _mini_bar_html(segments: list) -> str:
+    """Barra horizontal segmentada + legenda. segments: [(label, contagem, cor), ...]."""
+    total = sum(c for _, c, _ in segments) or 1
+    bars = "".join(
+        f"<div style='background:{cor};width:{c / total * 100:.1f}%;height:100%;' "
+        f"title='{label}: {c}'></div>"
+        for label, c, cor in segments if c > 0
+    )
+    legend = "".join(
+        f"<span style='display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;"
+        f"color:{COLOR_MUTED};margin-right:12px;'>"
+        f"<span style='width:8px;height:8px;border-radius:2px;background:{cor};"
+        f"display:inline-block;'></span>{label}: {c}</span>"
+        for label, c, cor in segments
+    )
+    return (
+        f"<div style='display:flex;height:14px;border-radius:7px;overflow:hidden;"
+        f"background:{COLOR_BORDER};margin-bottom:8px;'>{bars}</div>"
+        f"<div style='display:flex;flex-wrap:wrap;'>{legend}</div>"
+    )
 
 
 # ── Cards superiores ──────────────────────────────────────────────────────────
@@ -330,11 +367,20 @@ def _render_top_cards(d: dict) -> None:
          f"Em análise: {d['cham_analise']}  ·  Aguardando: {d['cham_aguardando']}",
          "#F97316" if d["cham_abertos"] > 0 else "#10B981",
          "chamados"),
+
+        ("🔔", "Alertas Críticos",       d["alertas_criticos"],
+         f"{len(d['alertas'])} alerta(s) técnico(s) no total",
+         "#EF4444" if d["alertas_criticos"] > 0 else "#10B981",
+         "alertas"),
+
+        ("📁", "Relatórios no Mês",      d["relatorios_mes"],
+         "Publicados pela equipe Pred.IO",
+         "#3B82F6", "relatorios"),
     ]
 
-    # 3 + 3 layout
-    row1 = st.columns(3)
-    row2 = st.columns(3)
+    # 4 + 4 layout
+    row1 = st.columns(4)
+    row2 = st.columns(4)
     for i, ((icon, label, val, sub, cor, page_key), col) in enumerate(
         zip(cards, list(row1) + list(row2))
     ):
@@ -348,11 +394,206 @@ def _render_top_cards(d: dict) -> None:
     st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
 
 
+# ── Saúde dos Ativos (seção 2 do dashboard) ────────────────────────────────────
+
+def _render_saude_ativos(d: dict) -> None:
+    if d["ativos_total"] == 0:
+        return
+
+    sc, _, _ = _score_cor(d["score_medio"])
+
+    st.markdown(
+        f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1rem;margin:0 0 0.6rem;'>"
+        f"💚 Saúde dos Ativos</p>",
+        unsafe_allow_html=True,
+    )
+
+    col_score, col_bar = st.columns([1, 2.3])
+    with col_score:
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:12px;padding:1rem 1.25rem;text-align:center;height:100%;'>"
+            f"<p style='font-size:0.65rem;color:{COLOR_MUTED};text-transform:uppercase;"
+            f"letter-spacing:.07em;margin:0 0 4px;'>Score Médio</p>"
+            f"<p style='font-size:2.1rem;font-weight:900;color:{sc};margin:0;line-height:1;'>"
+            f"{d['score_medio']}<span style='font-size:1rem;color:{COLOR_MUTED};'>/100</span></p>"
+            f"<p style='font-size:0.75rem;color:{sc};font-weight:700;margin:4px 0 0;'>"
+            f"{d['score_label']}</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_bar:
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:12px;padding:1rem 1.25rem;'>"
+            f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0 0 8px;'>"
+            f"Ativos por status</p>"
+            + _mini_bar_html([
+                ("Bom",     d["n_bom"],     COLOR_SUCCESS),
+                ("Atenção", d["n_atencao"], COLOR_WARNING),
+                ("Crítico", d["n_critico"], COLOR_DANGER),
+                ("Urgente", d["n_urgente"], COLOR_URGENT),
+            ])
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    if st.button("⚙️ Ver todos os ativos →", key="dash_ver_saude_ativos"):
+        st.session_state["portal_page"] = "ativos"
+        st.rerun()
+
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0;'/>",
+        unsafe_allow_html=True,
+    )
+
+
+# ── Prioridade GUT (Gravidade x Urgência x Tendência) ──────────────────────────
+
+def _render_gut_section(client_id: str) -> None:
+    """Visão simples de priorização GUT — não substitui avaliação técnica.
+    Não cria dashboard complexo: só contagens + top 5, sem gráficos novos."""
+    try:
+        from sheets import get_gut_summary
+        itens = get_gut_summary(client_id)
+    except Exception:
+        itens = []
+
+    if not itens:
+        return  # nada com GUT definido ainda — não polui o dashboard
+
+    st.markdown(
+        f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1rem;margin:0 0 0.2rem;'>"
+        f"🎯 Prioridade GUT</p>"
+        f"<p style='font-size:0.72rem;color:{COLOR_MUTED};margin:0 0 0.6rem;'>{GUT_DISCLAIMER}</p>",
+        unsafe_allow_html=True,
+    )
+
+    criticos = [i for i in itens if i["prioridade"] == "Crítica"]
+    altos    = [i for i in itens if i["prioridade"] == "Alta"]
+
+    c1, c2 = st.columns(2)
+    for col, label, lista, cor in [
+        (c1, "Itens Críticos GUT", criticos, COLOR_DANGER),
+        (c2, "Itens Alta Prioridade", altos, "#F97316"),
+    ]:
+        with col:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-top:3px solid {cor};border-radius:12px;padding:0.85rem 1.1rem;'>"
+                f"<p style='font-size:0.62rem;color:{COLOR_MUTED};text-transform:uppercase;"
+                f"letter-spacing:.06em;margin:0 0 5px;'>{label}</p>"
+                f"<p style='font-size:1.6rem;font-weight:900;color:{cor};"
+                f"-webkit-text-fill-color:{cor};margin:0;line-height:1.1;'>{len(lista)}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+    # ── Críticos por origem (Alertas / Chamados / Recomendações / Manutenção) ──
+    manut_itens = [i for i in itens if i["origem"] == "manutencao"]
+    condicao_itens = [i for i in manut_itens if i.get("subtipo") == "Condição"]
+    alerta_itens   = [i for i in itens if i["origem"] == "alerta"]
+    chamado_itens  = [i for i in itens if i["origem"] == "chamado"]
+
+    c3, c4, c5, c6 = st.columns(4)
+    for col, label, lista, cor in [
+        (c3, "Alertas Críticos GUT",       [i for i in alerta_itens   if i["prioridade"] == "Crítica"], COLOR_DANGER),
+        (c4, "Chamados Críticos GUT",      [i for i in chamado_itens  if i["prioridade"] == "Crítica"], COLOR_DANGER),
+        (c5, "Recomendações Críticas GUT", [i for i in condicao_itens if i["prioridade"] == "Crítica"], COLOR_DANGER),
+        (c6, "Manutenções Críticas GUT",   [i for i in manut_itens    if i["prioridade"] == "Crítica"], COLOR_DANGER),
+    ]:
+        with col:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-top:3px solid {cor};border-radius:12px;padding:0.75rem 0.9rem;'>"
+                f"<p style='font-size:0.56rem;color:{COLOR_MUTED};text-transform:uppercase;"
+                f"letter-spacing:.05em;margin:0 0 4px;line-height:1.2;'>{label}</p>"
+                f"<p style='font-size:1.3rem;font-weight:900;color:{cor};"
+                f"-webkit-text-fill-color:{cor};margin:0;line-height:1.1;'>{len(lista)}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+
+    # ── Top 5 listas: Ativos | Ações Prioritárias (geral) | Manutenções ────────
+    col_ativos, col_acoes, col_manut = st.columns(3)
+    with col_ativos:
+        _render_gut_top_lista("⚙️ Top 5 Ativos por GUT", _top_ativos_gut(itens, 5))
+        if st.button("⚙️ Ver Ativos →", key="dash_gut_ver_ativos"):
+            st.session_state["portal_page"] = "ativos"
+            st.rerun()
+    with col_acoes:
+        top5_acoes = sorted(itens, key=lambda x: x["score"], reverse=True)[:5]
+        _render_gut_top_lista("🎯 Top 5 Ações Prioritárias", top5_acoes)
+    with col_manut:
+        manut_top5 = sorted(manut_itens, key=lambda x: x["score"], reverse=True)[:5]
+        _render_gut_top_lista("📅 Manutenções com Maior GUT", manut_top5)
+        if st.button("📅 Ver Manutenção →", key="dash_gut_ver_manut"):
+            st.session_state["portal_page"] = "manutencao"
+            st.rerun()
+
+    st.markdown(
+        f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0;'/>",
+        unsafe_allow_html=True,
+    )
+
+
+def _top_ativos_gut(itens: list, n: int) -> list:
+    """Maior GUT por ativo (não por item) — um ativo pode ter várias
+    manutenções/alertas/chamados; mostra só o pior de cada."""
+    por_ativo: dict = {}
+    for i in itens:
+        aid = i.get("ativo_id", "")
+        if not aid:
+            continue
+        if aid not in por_ativo or i["score"] > por_ativo[aid]["score"]:
+            por_ativo[aid] = i
+    ranking = sorted(por_ativo.values(), key=lambda x: x["score"], reverse=True)
+    return ranking[:n]
+
+
+def _render_gut_top_lista(titulo: str, itens: list) -> None:
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;margin:0 0 0.5rem;'>"
+        f"{titulo}</p>",
+        unsafe_allow_html=True,
+    )
+    if not itens:
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:10px;padding:0.85rem 1rem;'>"
+            f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0;'>Nenhum item com GUT definido.</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    linhas = ""
+    for i in itens:
+        bg, tc = STATUS_REGISTRY["gut"].get(i["prioridade"].lower(), (COLOR_MUTED, "#fff"))
+        linhas += (
+            f"<div style='display:flex;justify-content:space-between;align-items:center;"
+            f"padding:6px 0;border-bottom:1px solid {COLOR_BORDER};gap:8px;'>"
+            f"<span style='font-size:0.8rem;color:{COLOR_NAVY};overflow:hidden;"
+            f"text-overflow:ellipsis;white-space:nowrap;flex:1;'>{i['titulo']}</span>"
+            + badge(f"{i['score']} · {i['prioridade']}", bg, tc)
+            + "</div>"
+        )
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:0.6rem 1rem;'>{linhas}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ── Alertas Importantes ───────────────────────────────────────────────────────
 
 _PRIO_COR = {
-    "Urgente": "#7C3AED", "Crítica": "#DC2626",
-    "Alta": "#F97316", "Média": "#F59E0B", "Baixa": "#64748B",
+    "Urgente": COLOR_URGENT, "Crítica": COLOR_DANGER,
+    "Alta": "#F97316", "Média": COLOR_WARNING, "Baixa": "#64748B",
 }
 
 
@@ -362,7 +603,7 @@ def _render_alertas(d: dict) -> None:
 
     st.markdown(
         f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;'>"
-        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>🔔 Alertas Importantes</span>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>🔔 Alertas Recentes</span>"
         + (f"<span style='background:#EF4444;color:#fff;-webkit-text-fill-color:#fff;"
            f"font-size:0.65rem;font-weight:700;padding:1px 7px;border-radius:8px;'>{total}</span>"
            if total > 0 else "")
@@ -374,7 +615,7 @@ def _render_alertas(d: dict) -> None:
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
             f"border-radius:10px;padding:0.85rem 1rem;'>"
-            f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>Nenhum alerta ativo.</p>"
+            f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>Nenhum alerta crítico no momento.</p>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -423,7 +664,7 @@ def _render_manutencoes(d: dict) -> None:
 
     st.markdown(
         f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;'>"
-        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>📅 Manutenções</span>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>📅 Manutenções Prioritárias</span>"
         + (f"<span style='background:{header_cor};color:#fff;-webkit-text-fill-color:#fff;"
            f"font-size:0.65rem;font-weight:700;padding:1px 7px;border-radius:8px;'>"
            f"{vencidas} vencida(s)</span>" if vencidas > 0 else "")
@@ -471,7 +712,7 @@ def _render_manutencoes(d: dict) -> None:
     elif vencidas == 0 and proximas == 0:
         itens = (
             f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0;'>"
-            f"Nenhuma manutenção urgente no momento.</p>"
+            f"Nenhuma manutenção vencida.</p>"
         )
 
     # Nota sobre condição
@@ -483,10 +724,17 @@ def _render_manutencoes(d: dict) -> None:
             f"💡 {condicao} tarefa(s) por condição — depende de análise preditiva.</p>"
         )
 
+    barra = _mini_bar_html([
+        ("Vencidas",     vencidas,           COLOR_DANGER),
+        ("Próximas",     proximas,           COLOR_WARNING),
+        ("Por condição", condicao,           COLOR_INFO),
+        ("Em dia",       d["manut_em_dia"],  COLOR_SUCCESS),
+    ]) if (vencidas + proximas + condicao + d["manut_em_dia"]) > 0 else ""
+
     st.markdown(
         f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
         f"border-radius:10px;padding:0.85rem 1rem;'>"
-        f"{resumo}{itens}{nota_cond}"
+        f"{resumo}{barra}{itens}{nota_cond}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -499,12 +747,13 @@ def _render_manutencoes(d: dict) -> None:
 
 # ── Chamados ──────────────────────────────────────────────────────────────────
 
+# Cores alinhadas ao domínio "chamado" do Design System (ui.STATUS_REGISTRY)
 _CHAM_ST_COR = {
-    "aberto":     ("#F97316", "#FFF7ED"),
-    "em análise": ("#3B82F6", "#EFF6FF"),
-    "em andamento": ("#8B5CF6", "#F5F3FF"),
-    "aguardando cliente": ("#D97706", "#FFFBEB"),
-    "concluído":  ("#10B981", "#F0FDF4"),
+    "aberto":     (COLOR_INFO, "#EFF6FF"),
+    "em análise": (COLOR_ACCENT, "#F5F3FF"),
+    "em andamento": (COLOR_NAVY, "#EEF2FF"),
+    "aguardando cliente": (COLOR_WARNING, "#FFFBEB"),
+    "concluído":  (COLOR_SUCCESS, "#F0FDF4"),
 }
 
 
@@ -513,7 +762,7 @@ def _render_chamados(d: dict) -> None:
 
     st.markdown(
         f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;'>"
-        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>🔧 Chamados</span>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;'>🔧 Chamados em Aberto</span>"
         + (f"<span style='background:#F97316;color:#fff;-webkit-text-fill-color:#fff;"
            f"font-size:0.65rem;font-weight:700;padding:1px 7px;border-radius:8px;'>"
            f"{abertos} aberto(s)</span>" if abertos > 0 else "")
@@ -566,13 +815,21 @@ def _render_chamados(d: dict) -> None:
     else:
         itens = (
             f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0;'>"
-            f"Nenhum chamado em aberto.</p>"
+            f"Nenhum chamado aberto.</p>"
         )
+
+    outros_abertos = max(0, abertos - d["cham_analise"] - d["cham_aguardando"])
+    barra = _mini_bar_html([
+        ("Em análise",  d["cham_analise"],       COLOR_ACCENT),
+        ("Aguardando",  d["cham_aguardando"],    COLOR_WARNING),
+        ("Outros abertos", outros_abertos,       COLOR_INFO),
+        ("Concluídos no mês", d["cham_concluidos_mes"], COLOR_SUCCESS),
+    ]) if (abertos + d["cham_concluidos_mes"]) > 0 else ""
 
     st.markdown(
         f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
         f"border-radius:10px;padding:0.85rem 1rem;'>"
-        f"{resumo}{itens}"
+        f"{resumo}{barra}{itens}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -586,12 +843,12 @@ def _render_chamados(d: dict) -> None:
 # ── Últimos Relatórios ────────────────────────────────────────────────────────
 
 _SEV_COR = {
-    "normal":   ("#10B981", "#F0FDF4", "#86EFAC"),
-    "atenção":  ("#F59E0B", "#FFFBEB", "#FCD34D"),
-    "atencao":  ("#F59E0B", "#FFFBEB", "#FCD34D"),
-    "crítico":  ("#EF4444", "#FEF2F2", "#FCA5A5"),
-    "critico":  ("#EF4444", "#FEF2F2", "#FCA5A5"),
-    "urgente":  ("#7C3AED", "#F5F3FF", "#C4B5FD"),
+    "normal":   (COLOR_SUCCESS, "#F0FDF4", "#86EFAC"),
+    "atenção":  (COLOR_WARNING, "#FFFBEB", "#FCD34D"),
+    "atencao":  (COLOR_WARNING, "#FFFBEB", "#FCD34D"),
+    "crítico":  (COLOR_DANGER, "#FEF2F2", "#FCA5A5"),
+    "critico":  (COLOR_DANGER, "#FEF2F2", "#FCA5A5"),
+    "urgente":  (COLOR_URGENT, "#F5F3FF", "#C4B5FD"),
 }
 
 
@@ -600,12 +857,12 @@ def _render_relatorios(d: dict) -> None:
 
     st.markdown(
         f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1rem;margin:0 0 0.6rem;'>"
-        f"📁 Últimos Relatórios Publicados</p>",
+        f"📁 Relatórios Recentes</p>",
         unsafe_allow_html=True,
     )
 
     if not relatorios:
-        st.info("Nenhum relatório publicado disponível. Entre em contato com a equipe Pred.IO.")
+        empty_state("Nenhum relatório publicado até o momento.")
     else:
         for r in relatorios:
             sev_key = _sem_acento(r["severidade"])
@@ -707,7 +964,7 @@ def _render_acoes_prioritarias(d: dict) -> None:
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
             f"border-radius:12px;padding:1rem 1.25rem;'>"
             f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.5rem;'>"
-            f"✅ Ações Prioritárias</p>"
+            f"✅ Ações Recomendadas</p>"
             f"<p style='color:{COLOR_MUTED};font-size:0.83rem;margin:0;'>"
             f"Nenhuma ação urgente no momento. Continue acompanhando.</p>"
             f"</div>",
@@ -747,7 +1004,7 @@ def _render_acoes_prioritarias(d: dict) -> None:
         f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
         f"border-top:3px solid #EF4444;border-radius:12px;padding:1rem 1.25rem;'>"
         f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;margin:0 0 0.5rem;'>"
-        f"🎯 Ações Prioritárias</p>"
+        f"🎯 Ações Recomendadas</p>"
         f"<p style='font-size:0.68rem;color:{COLOR_MUTED};margin:0 0 0.75rem;'>"
         f"Itens que requerem atenção no momento</p>"
         f"{itens_html}"
@@ -809,7 +1066,12 @@ def render() -> None:
     with st.spinner("Carregando..."):
         d = _load_data(client_id)
 
-    # ── 6 Cards superiores ───────────────────────────────────────────────────
+    # ── Sem ativos: estado vazio amigável, dashboard não faz sentido sem dado ──
+    if d["ativos_total"] == 0:
+        empty_state("Nenhum ativo cadastrado ainda.")
+        return
+
+    # ── 1. Visão Geral — 8 cards superiores ──────────────────────────────────
     _render_top_cards(d)
 
     # ── Disclaimer obrigatório ───────────────────────────────────────────────
@@ -819,12 +1081,18 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Seção: Alertas | Manutenções | Chamados ──────────────────────────────
-    col_a, col_b, col_c = st.columns(3)
+    # ── 2. Saúde dos Ativos ───────────────────────────────────────────────────
+    _render_saude_ativos(d)
+
+    # ── Prioridade GUT — só aparece se houver algum item com GUT definido ────
+    _render_gut_section(client_id)
+
+    # ── 3. Manutenções Prioritárias | 4. Alertas Recentes | 5. Chamados em Aberto
+    col_m, col_a, col_c = st.columns(3)
+    with col_m:
+        _render_manutencoes(d)
     with col_a:
         _render_alertas(d)
-    with col_b:
-        _render_manutencoes(d)
     with col_c:
         _render_chamados(d)
 
@@ -833,7 +1101,7 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Últimos Relatórios ───────────────────────────────────────────────────
+    # ── 6. Relatórios Recentes ───────────────────────────────────────────────
     _render_relatorios(d)
 
     st.markdown(
@@ -841,12 +1109,12 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Recomendações | Ações Prioritárias ───────────────────────────────────
-    col_r, col_ac = st.columns(2)
-    with col_r:
-        _render_recomendacoes(d)
+    # ── 7. Ações Recomendadas | Recomendações por Condição ───────────────────
+    col_ac, col_r = st.columns(2)
     with col_ac:
         _render_acoes_prioritarias(d)
+    with col_r:
+        _render_recomendacoes(d)
 
     # ── Rodapé informativo ───────────────────────────────────────────────────
     st.markdown(

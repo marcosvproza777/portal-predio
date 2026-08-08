@@ -26,6 +26,19 @@ _SUGESTOES = [
 ]
 
 
+def _sugestoes_para(ativo_nome: str) -> list:
+    """Perguntas sugeridas com o ativo já embutido no texto — o contexto vai
+    para o Assistente como parte da própria pergunta (query_ai recebe só
+    texto livre, sempre escopado ao client_id da sessão)."""
+    return [
+        f"Qual a saúde do ativo {ativo_nome}?",
+        f"Quais manutenções estão pendentes para o {ativo_nome}?",
+        f"Existem alertas críticos no {ativo_nome}?",
+        f"O que o último relatório do {ativo_nome} recomenda?",
+        f"Preciso abrir chamado para o {ativo_nome}?",
+    ]
+
+
 def render() -> None:
     page_header("🤖 Assistente Técnico Pred.IO",
                 "Tire dúvidas sobre seus equipamentos e relatórios")
@@ -39,6 +52,26 @@ def render() -> None:
 
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
+
+    # ── Contexto de ativo — vindo do botão "Perguntar ao Assistente" no
+    # detalhe do ativo (page_ativos.py). Não some sozinho: fica até o
+    # cliente perguntar algo ou tocar em "limpar contexto".
+    ctx_ativo = st.session_state.get("assistente_ativo_contexto", "")
+    if ctx_ativo:
+        col_ctx, col_clear = st.columns([5, 1])
+        with col_ctx:
+            st.markdown(
+                f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;"
+                f"padding:8px 14px;margin-bottom:0.5rem;'>"
+                f"<p style='margin:0;font-size:0.83rem;color:#1E40AF;'>"
+                f"🔎 Perguntando sobre: <strong>{ctx_ativo}</strong></p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_clear:
+            if st.button("✕", key="_ast_clear_ctx", help="Limpar contexto do ativo"):
+                st.session_state.pop("assistente_ativo_contexto", None)
+                st.rerun()
 
     # ── Formulário de pergunta ────────────────────────────────────────────────
     with st.form("chat_form", clear_on_submit=True):
@@ -66,7 +99,8 @@ def render() -> None:
             unsafe_allow_html=True,
         )
         st.markdown("**Sugestões:**")
-        for sug in _SUGESTOES:
+        sugestoes = _sugestoes_para(ctx_ativo) if ctx_ativo else _SUGESTOES
+        for sug in sugestoes:
             if st.button(sug, key=f"sug_{hash(sug)}"):
                 _processar_pergunta(sug, client_id, email, empresa)
         return

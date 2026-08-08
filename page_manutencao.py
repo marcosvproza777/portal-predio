@@ -4,13 +4,24 @@ import streamlit as st
 from auth import current_client_id
 from page_ativos import (
     _load, _pm_calc_status, _pm_scfg, _norm,
-    _render_plano_manutencao, _HORIMETRO_ATUAL_MOCK,
+    _render_plano_manutencao, _HORIMETRO_ATUAL_MOCK, _DETALHE_KEY,
 )
 from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
 from ui import (
-    page_header,
+    page_header, status_badge,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
+    COLOR_DANGER, COLOR_WARNING,
 )
+from gut import calculate_gut, gut_acao_recomendada, GUT_DISCLAIMER
+
+# Cores de prioridade alinhadas ao domínio "prioridade" do Design System
+_PRIO_TEXT = {
+    "crítica": COLOR_DANGER, "critica": COLOR_DANGER,
+    "alta":    "#F97316",
+    "média":   COLOR_WARNING, "media": COLOR_WARNING,
+    "baixa":   COLOR_MUTED,
+}
+_PRIO_TEXT_DEFAULT = COLOR_MUTED
 
 _STATUS_BADGE = {
     "em dia":                       ("#10B981", "#F0FDF4", "#86EFAC", "#065F46"),
@@ -35,11 +46,44 @@ _NOTE_CONDICAO = (
 )
 
 
+def _gut_prioridade(e: dict) -> str:
+    """Prioridade GUT da tarefa (ou "" se G/U/T não estiverem definidos)."""
+    task = e["task"]
+    r = calculate_gut(task.get("Gut_Gravidade"), task.get("Gut_Urgencia"), task.get("Gut_Tendencia"))
+    return r["prioridade"] if r else ""
+
+
+def _proximidade(e: dict) -> float:
+    """Menor valor = mais próximo/urgente. 4º critério da ordenação padrão —
+    usado só para desempatar dentro da mesma prioridade GUT/status."""
+    task = e["task"]
+    tipo = e["tipo"]
+    if tipo in ("Horímetro", "horimetro"):
+        prox_h = str(task.get("Proxima_Execucao_Horimetro", "")).strip()
+        if prox_h and prox_h not in ("", "nan", "0"):
+            try:
+                return max(0, int(float(prox_h)) - e["h_atual"])
+            except (ValueError, TypeError):
+                pass
+        return 999999
+    if tipo in ("Calendário", "calendario"):
+        prox_dt = str(task.get("Proxima_Execucao_Data", "")).strip()
+        if prox_dt and prox_dt not in ("", "nan"):
+            try:
+                d = datetime.datetime.strptime(prox_dt, "%d/%m/%Y")
+                return (d - datetime.datetime.now()).days
+            except Exception:
+                pass
+        return 999999
+    return 999999  # Condição / sem data — não participa da ordenação por proximidade
+
+
 def render() -> None:
     page_header(
         "📅 Plano de Manutenção",
         "Acompanhe as próximas ações preventivas e preditivas dos ativos monitorados.",
     )
+    st.caption(f"ℹ️ {GUT_DISCLAIMER}")
 
     client_id = current_client_id()  # SEMPRE da sessão
 
@@ -157,30 +201,53 @@ def _render_sheets_mode(client_id: str, df_tasks) -> None:
             tipo_opts = ["Todos", "Calendário", "Horímetro", "Condição"]
             tipo_f    = st.selectbox("Tipo", tipo_opts, key="_pm_tipo_f")
         with c2:
-            status_opts = ["Todos", "Vencida", "Próxima do vencimento", "Em dia",
-                           "Depende de análise preditiva", "Concluída"]
+            status_opts = ["Todas", "Vencidas", "Próximas", "Concluídas",
+                           "Por condição", "Em dia"]
             status_f    = st.selectbox("Status", status_opts, key="_pm_st_f")
         with c3:
             prio_opts = ["Todas", "Crítica", "Alta", "Média", "Baixa"]
-            prio_f    = st.selectbox("Prioridade", prio_opts, key="_pm_prio_f")
+            prio_f    = st.selectbox("Prioridade do chamado", prio_opts, key="_pm_prio_f")
+
+        c4, c5 = st.columns(2)
+        with c4:
+            gut_opts = ["Todas", "Crítica", "Alta", "Moderada", "Baixa"]
+            gut_f    = st.selectbox("Prioridade GUT", gut_opts, key="_pm_gut_f")
+        with c5:
+            ativos_disp = sorted({e["ativo_id"] for e in tasks_enriched if e["ativo_id"]})
+            ativo_opts  = ["Todos"] + ativos_disp
+            ativo_f     = st.selectbox("Ativo", ativo_opts, key="_pm_ativo_f")
+
+    _STATUS_FILTRO_MAP = {
+        "vencidas": "vencida",
+        "próximas": "próxima do vencimento",
+        "concluídas": "concluída",
+        "por condição": "depende de análise preditiva",
+        "em dia": "em dia",
+    }
 
     # Aplica filtros
     filtered = tasks_enriched
     if tipo_f != "Todos":
         filtered = [e for e in filtered if e["tipo"] == tipo_f]
-    if status_f != "Todos":
-        sf = _norm(status_f)
+    if status_f != "Todas":
+        sf = _STATUS_FILTRO_MAP.get(_norm(status_f), _norm(status_f))
         filtered = [e for e in filtered if e["status_key"] == sf]
     if prio_f != "Todas":
         pf = prio_f.lower()
         filtered = [e for e in filtered
                    if _norm(str(e["task"].get("Prioridade", "")).strip()) == pf]
+    if gut_f != "Todas":
+        filtered = [e for e in filtered if _gut_prioridade(e) == gut_f]
+    if ativo_f != "Todos":
+        filtered = [e for e in filtered if e["ativo_id"] == ativo_f]
 
-    # Ordena: Vencida → Próxima → Em dia → Condição
-    _order = {"vencida": 0, "próxima do vencimento": 1, "proxima do vencimento": 1,
-               "em dia": 2, "depende de análise preditiva": 3,
-               "depende de analise preditiva": 3}
-    filtered.sort(key=lambda e: _order.get(e["status_key"], 4))
+    # Ordenação padrão: 1) GUT Crítica  2) GUT Alta  3) vencidas  4) data mais próxima
+    _GUT_RANK = {"Crítica": 0, "Alta": 1, "Moderada": 2, "Baixa": 3}
+    filtered.sort(key=lambda e: (
+        _GUT_RANK.get(_gut_prioridade(e), 4),
+        0 if e["status_key"] == "vencida" else 1,
+        _proximidade(e),
+    ))
 
     # ── Lista de tarefas ──────────────────────────────────────────────────────
     st.markdown(
@@ -229,6 +296,19 @@ def _render_task_card_client(e: dict) -> None:
 
     sc, sb, sbo, st_ = _STATUS_BADGE.get(_norm(status), _STATUS_DEFAULT)
     icon = _TIPO_ICON.get(tipo, "📋")
+    prio_cor = _PRIO_TEXT.get(_norm(prio), _PRIO_TEXT_DEFAULT)
+
+    # GUT (Gravidade x Urgência x Tendência) — cliente só vê prioridade e score,
+    # nunca as notas G/U/T individuais (essas são de uso técnico da Supervisão)
+    gut_resultado = calculate_gut(
+        task.get("Gut_Gravidade"), task.get("Gut_Urgencia"), task.get("Gut_Tendencia"))
+    gut_html = ""
+    if gut_resultado:
+        gut_html = (
+            f"<span style='margin-left:5px;'>{status_badge(gut_resultado['prioridade'], 'gut')}</span>"
+            f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:4px;'>"
+            f"GUT {gut_resultado['score']}</span>"
+        )
 
     if tipo in ("Horímetro", "horimetro"):
         if prox_h and prox_h not in ("", "nan", "0"):
@@ -257,9 +337,11 @@ def _render_task_card_client(e: dict) -> None:
         f"<span style='background:{sb};color:{st_};-webkit-text-fill-color:{st_};"
         f"border:1px solid {sbo};font-size:0.65rem;font-weight:700;"
         f"padding:2px 8px;border-radius:10px;'>{status}</span>"
-        + (f"<span style='background:#F3F4F6;color:#374151;-webkit-text-fill-color:#374151;"
-           f"font-size:0.65rem;font-weight:600;padding:2px 8px;border-radius:10px;'>{prio}</span>"
+        + (f"<span style='background:#F8FAFC;color:{prio_cor};-webkit-text-fill-color:{prio_cor};"
+           f"border:1px solid {COLOR_BORDER};font-size:0.65rem;font-weight:600;"
+           f"padding:2px 8px;border-radius:10px;'>{prio}</span>"
            if prio else "")
+        + gut_html
         + f"</div></div>"
         f"<p style='color:{COLOR_MUTED};font-size:0.77rem;margin:3px 0 0;'>"
         f"{cat}" + (f"  ·  {detalhe}" if detalhe else "") + "</p>"
@@ -269,34 +351,60 @@ def _render_task_card_client(e: dict) -> None:
            f"border-radius:6px;padding:4px 8px;margin:4px 0 0;'>"
            f"💡 {recom[:160]}{'…' if len(recom)>160 else ''}</p>"
            if recom and recom.lower() not in ("", "nan") else "")
+        + (f"<p style='color:#92400E;font-size:0.75rem;background:#FFFBEB;"
+           f"border-radius:6px;padding:4px 8px;margin:4px 0 0;'>"
+           f"🎯 Ação recomendada: {gut_acao_recomendada(gut_resultado['prioridade'])}</p>"
+           if gut_resultado else "")
         + "</div>",
         unsafe_allow_html=True,
     )
 
-    # Botão "Abrir chamado" para tarefas vencidas ou próximas do vencimento
-    sk = e["status_key"]
+    # ── Ações rápidas ──────────────────────────────────────────────────────────
+    task_id = str(task.get("Id", "")).strip()
+    at_id   = e.get("ativo_id", "")
+    sk      = e["status_key"]
+    key_base = task_id or f"{nome[:20]}_{sk}"
+
+    acoes = ["ativo", "relatorios", "assistente"]
     if sk in ("vencida", "próxima do vencimento", "proxima do vencimento"):
-        task_id = str(task.get("Id", "")).strip()
-        at_id   = e.get("ativo_id", "")
-        prio_map = {"vencida": "Alta", "próxima do vencimento": "Média",
-                    "proxima do vencimento": "Média"}
-        cat_map  = {"vencida": "Manutenção vencida", "próxima do vencimento": "Manutenção próxima",
-                    "proxima do vencimento": "Manutenção próxima"}
-        desc_txt = f"Tarefa: {nome}\nStatus: {status}\nCategoria: {cat}"
-        if detalhe:
-            desc_txt += f"\n{detalhe}"
-        if st.button(f"🔧 Abrir chamado — {nome[:30]}",
-                     key=f"man_ch_{task_id or nome[:20]}",
-                     use_container_width=False):
-            st.session_state["abrir_chamado_titulo"]    = f"Manutenção: {nome}"
-            st.session_state["abrir_chamado_descricao"] = desc_txt
-            st.session_state["abrir_chamado_categoria"] = cat_map.get(sk, "Manutenção vencida")
-            st.session_state["abrir_chamado_prioridade"]= prio_map.get(sk, "Média")
-            st.session_state["abrir_chamado_origem"]    = "Plano de Manutenção"
-            st.session_state["abrir_chamado_task_id"]   = task_id
-            st.session_state["abrir_chamado_ativo_id"]  = at_id
-            st.session_state["portal_page"] = "chamados"
-            st.rerun()
+        acoes.insert(0, "chamado")
+    cols = st.columns(len(acoes))
+
+    for col, acao in zip(cols, acoes):
+        with col:
+            if acao == "chamado":
+                prio_map = {"vencida": "Alta", "próxima do vencimento": "Média",
+                            "proxima do vencimento": "Média"}
+                cat_map  = {"vencida": "Manutenção vencida", "próxima do vencimento": "Manutenção próxima",
+                            "proxima do vencimento": "Manutenção próxima"}
+                desc_txt = f"Tarefa: {nome}\nStatus: {status}\nCategoria: {cat}"
+                if detalhe:
+                    desc_txt += f"\n{detalhe}"
+                if st.button("🔧 Abrir chamado", key=f"man_ch_{key_base}", use_container_width=True):
+                    st.session_state["abrir_chamado_titulo"]    = f"Manutenção: {nome}"
+                    st.session_state["abrir_chamado_descricao"] = desc_txt
+                    st.session_state["abrir_chamado_categoria"] = cat_map.get(sk, "Manutenção vencida")
+                    st.session_state["abrir_chamado_prioridade"]= prio_map.get(sk, "Média")
+                    st.session_state["abrir_chamado_origem"]    = "Plano de Manutenção"
+                    st.session_state["abrir_chamado_task_id"]   = task_id
+                    st.session_state["abrir_chamado_ativo_id"]  = at_id
+                    st.session_state["portal_page"] = "chamados"
+                    st.rerun()
+            elif acao == "ativo":
+                if st.button("⚙️ Ver ativo", key=f"man_at_{key_base}", use_container_width=True,
+                             disabled=not at_id):
+                    st.session_state[_DETALHE_KEY] = at_id
+                    st.session_state["portal_page"] = "ativos"
+                    st.rerun()
+            elif acao == "relatorios":
+                if st.button("📁 Ver relatórios", key=f"man_rel_{key_base}", use_container_width=True):
+                    st.session_state["portal_page"] = "relatorios"
+                    st.rerun()
+            elif acao == "assistente":
+                if st.button("🤖 Perguntar ao Assistente", key=f"man_ast_{key_base}", use_container_width=True):
+                    st.session_state["assistente_ativo_contexto"] = nome
+                    st.session_state["portal_page"] = "assistente"
+                    st.rerun()
 
 
 def _render_condicao_section(condicao: list) -> None:

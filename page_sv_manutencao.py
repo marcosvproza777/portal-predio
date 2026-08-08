@@ -9,7 +9,7 @@ from page_ativos import (
     _render_tarefa_card, _render_plano_manutencao,
 )
 from ui import (
-    sv_page_header,
+    sv_page_header, status_badge,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
 from sheets import (
@@ -22,7 +22,9 @@ from sheets import (
     complete_maintenance_task,
     generate_maintenance_alerts,
     calc_task_status,
+    update_maintenance_task_gut,
 )
+from gut import calculate_gut, GUT_DISCLAIMER
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 _TIPOS_MAN = ["Calendário", "Horímetro", "Condição"]
@@ -445,11 +447,28 @@ def _render_lista_tarefas_sv() -> None:
         cli_opts = ["Todos"]
         df_cli   = None
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         cli_f = st.selectbox("Cliente", cli_opts, key="_svman_tklst_cli")
     with c2:
         tipo_f = st.selectbox("Tipo", ["Todos"] + _TIPOS_MAN, key="_svman_tklst_tipo")
+    with c3:
+        status_f = st.selectbox(
+            "Status", ["Todas", "Vencidas", "Próximas", "Por condição", "Em dia"],
+            key="_svman_tklst_status",
+        )
+
+    c4, c5 = st.columns(2)
+    with c4:
+        gut_f = st.selectbox(
+            "Prioridade GUT", ["Todas", "Crítica", "Alta", "Moderada", "Baixa"],
+            key="_svman_tklst_gut",
+        )
+    with c5:
+        ativo_f = st.text_input(
+            "Filtrar por Ativo (Id)", key="_svman_tklst_ativo",
+            placeholder="Ex: AT-2026-001",
+        ).strip()
 
     cid_f = ""
     if cli_f != "Todos" and df_cli is not None:
@@ -470,8 +489,48 @@ def _render_lista_tarefas_sv() -> None:
         st.info("Nenhuma tarefa cadastrada com os filtros selecionados.")
         return
 
+    # ── Enriquece com status e prioridade GUT para filtrar/ordenar ────────────
+    _STATUS_FILTRO_MAP = {
+        "vencidas": "vencida", "próximas": "próxima do vencimento",
+        "por condição": "depende de análise preditiva", "em dia": "em dia",
+    }
+    enriched = []
     for _, row in df_tasks.iterrows():
-        _render_task_card_sv(row)
+        aid    = str(row.get("Ativo_Id", "")).strip()
+        h_at   = _get_h(aid) if aid else 0
+        status = calc_task_status(row.to_dict(), h_at)
+        gut_r  = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+        enriched.append({
+            "row": row, "ativo_id": aid, "status_key": _norm(status),
+            "gut_prioridade": gut_r["prioridade"] if gut_r else "",
+        })
+
+    if status_f != "Todas":
+        sf = _STATUS_FILTRO_MAP.get(_norm(status_f), _norm(status_f))
+        enriched = [e for e in enriched if e["status_key"] == sf]
+    if gut_f != "Todas":
+        enriched = [e for e in enriched if e["gut_prioridade"] == gut_f]
+    if ativo_f:
+        enriched = [e for e in enriched if e["ativo_id"] == ativo_f]
+
+    if not enriched:
+        st.info("Nenhuma tarefa encontrada com os filtros selecionados.")
+        return
+
+    # Ordenação padrão: GUT Crítica → GUT Alta → vencidas → (ordem original)
+    _GUT_RANK = {"Crítica": 0, "Alta": 1, "Moderada": 2, "Baixa": 3}
+    enriched.sort(key=lambda e: (
+        _GUT_RANK.get(e["gut_prioridade"], 4),
+        0 if e["status_key"] == "vencida" else 1,
+    ))
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0.5rem 0;'>"
+        f"{len(enriched)} tarefa(s) encontrada(s)</p>",
+        unsafe_allow_html=True,
+    )
+    for e in enriched:
+        _render_task_card_sv(e["row"])
 
 
 def _render_task_card_sv(row, show_actions: bool = True) -> None:
@@ -491,6 +550,12 @@ def _render_task_card_sv(row, show_actions: bool = True) -> None:
 
     sc, sb, sbo, st_ = _status_cfg(status)
     pc = _prio_color(prio)
+
+    gut_res  = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+    gut_html = (
+        f"<span style='margin-left:5px;'>{status_badge(gut_res['prioridade'], 'gut')}</span>"
+        f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:4px;'>GUT {gut_res['score']}</span>"
+    ) if gut_res else ""
 
     icons = {"Calendário": "📆", "Horímetro": "⏱", "Condição": "🔍"}
     icon  = icons.get(tipo, "📋")
@@ -520,7 +585,7 @@ def _render_task_card_sv(row, show_actions: bool = True) -> None:
             f"padding:2px 8px;border-radius:10px;'>{status}</span>"
             f"<span style='background:{pc};color:#fff;-webkit-text-fill-color:#fff;"
             f"font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;'>"
-            f"{prio}</span></div></div>"
+            f"{prio}</span>{gut_html}</div></div>"
             f"<p style='color:{COLOR_MUTED};font-size:0.75rem;margin:3px 0 0;'>"
             f"{cat}" + (f"  ·  {detalhe}" if detalhe else "")
             + (f"  ·  ⚙️ {ativo_id}" if ativo_id else "")
@@ -535,6 +600,37 @@ def _render_task_card_sv(row, show_actions: bool = True) -> None:
                 delete_maintenance_task(task_id)
                 from sheets import load_sheet as _ls; _ls.clear()
                 st.rerun()
+
+    if show_actions:
+        with st.expander(f"🎯 GUT — {nome[:40]}", expanded=False):
+            st.caption(f"ℹ️ {GUT_DISCLAIMER}")
+            gc1, gc2, gc3 = st.columns(3)
+            g_atual = int(row.get("Gut_Gravidade") or 3)
+            u_atual = int(row.get("Gut_Urgencia") or 3)
+            t_atual = int(row.get("Gut_Tendencia") or 3)
+            with gc1:
+                g_novo = st.number_input("Gravidade", 1, 5, g_atual, key=f"_gut_g_{task_id}")
+            with gc2:
+                u_novo = st.number_input("Urgência", 1, 5, u_atual, key=f"_gut_u_{task_id}")
+            with gc3:
+                t_novo = st.number_input("Tendência", 1, 5, t_atual, key=f"_gut_t_{task_id}")
+            obs_novo = st.text_area(
+                "Observação técnica", value=str(row.get("Gut_Observacao", "")).strip(),
+                key=f"_gut_obs_{task_id}", height=68,
+            )
+            preview = calculate_gut(g_novo, u_novo, t_novo)
+            if preview:
+                st.markdown(
+                    status_badge(preview["prioridade"], "gut")
+                    + f" <span style='font-size:0.8rem;color:{COLOR_MUTED};'>Score {preview['score']}</span>",
+                    unsafe_allow_html=True,
+                )
+            if st.button("💾 Salvar GUT", key=f"_gut_save_{task_id}"):
+                if update_maintenance_task_gut(task_id, g_novo, u_novo, t_novo, obs_novo):
+                    st.success("GUT atualizado.")
+                    st.rerun()
+                else:
+                    st.error("Não foi possível salvar o GUT desta tarefa.")
 
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 

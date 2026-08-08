@@ -39,9 +39,49 @@ SEGURANÇA OBRIGATÓRIA:
 
 from __future__ import annotations
 
+from gut import GUT_DISCLAIMER, calculate_gut as _calculate_gut
+
 # ── Mapa de intenções ────────────────────────────────────────────────────────
 
 _INTENTS: dict[str, list[str]] = {
+    # Identidade do Assistente — checado primeiro que tudo: perguntas como
+    # "quem é você" não devem cair em nenhum outro intent por coincidência
+    # de palavra genérica.
+    "identidade": [
+        "quem é você", "quem e voce", "qual o seu nome", "qual é o seu nome",
+        "qual seu nome", "como você se chama", "como voce se chama",
+        "você é uma ia", "voce e uma ia", "você é o claude", "voce e o claude",
+        "você é o chatgpt", "voce e o chatgpt", "que assistente é você",
+        "que assistente e voce", "o que você é", "o que voce e",
+    ],
+    # GUT (Gravidade x Urgência x Tendência) — checar ANTES de manutencao/
+    # alertas/chamados/status_ativo, já que perguntas de GUT citam essas
+    # mesmas palavras ("qual manutenção é mais crítica" contém "manutenção").
+    "gut": [
+        "gut", "gravidade", "urgência", "urgencia", "tendência", "tendencia",
+        "mais crítico", "mais critico", "mais crítica", "mais critica",
+        "maior prioridade", "prioridade máxima", "prioridade maxima",
+        "o que devo fazer primeiro", "o que fazer primeiro",
+        "o que devo resolver primeiro", "o que resolver primeiro", "resolver primeiro",
+        "o que devo olhar primeiro", "o que olhar primeiro",
+        "item crítico", "item critico", "itens críticos", "itens criticos",
+        "quais alertas têm maior", "quais alertas tem maior",
+        "qual ativo tem maior prioridade", "qual manutenção é mais crítica",
+        "qual manutencao e mais critica", "score gut", "prioridade gut",
+        "tarefas estão vencidas", "tarefas estao vencidas", "está vencida",
+        "estão vencidas", "manutenção vencida", "manutencao vencida",
+        "manutenções vencidas", "manutencoes vencidas", "em atraso",
+        "manutenção crítica", "manutencao critica", "manutenções críticas",
+        "manutencoes criticas", "prioridade de manutenção", "prioridade de manutencao",
+        "qual chamado devo tratar", "qual chamado tratar primeiro",
+        "chamado devo tratar primeiro", "chamado tratar primeiro",
+        "recomendações críticas", "recomendacoes criticas", "recomendação crítica",
+        "tenho recomendações", "tenho recomendacoes",
+        "relatório gerou prioridade", "relatorio gerou prioridade",
+        "algum relatório gerou", "algum relatorio gerou",
+        "item está mais crítico", "item esta mais critico", "qual item está mais crítico",
+        "qual alerta tem maior gut",
+    ],
     # MYCOLD AB 68 / PAO — verificar antes de qualquer outra intent de óleo
     "mycold": [
         "mycold", "mycold ab", "mycold pao", "mycold ab 68",
@@ -259,6 +299,8 @@ def detect_intent(pergunta: str) -> str:
     """
     q = pergunta.lower()
     for intent in [
+        "identidade",                # "Quem é você?" — antes de qualquer outro intent
+        "gut",                       # Priorização GUT — antes de manutencao/alertas/status_ativo
         "mycold",                    # MYCOLD AB/PAO — antes de qualquer oleo
         "oleo_homologado",           # Tabela de óleos MAYEKAWA/MYCOM
         "revisao_condicao",          # 20k horas / overhaul / kit revisão
@@ -272,10 +314,15 @@ def detect_intent(pergunta: str) -> str:
         "manutencao",                # Plano de manutenção
         "relatorios",
         "documentos",
-        "status_ativo",
+        # chamados/notificacoes_portal/alertas antes de status_ativo: este
+        # último tem palavras-chave muito genéricas ("status", "crítico",
+        # "motor", "compressor", "falha", "ativo") que, se checadas primeiro,
+        # sequestram perguntas claramente sobre chamado/alerta/notificação
+        # (ex.: "status do meu CHAMADO", "alerta CRÍTICO", "notificações").
         "chamados",
         "notificacoes_portal",
         "alertas",
+        "status_ativo",
     ]:
         if any(kw in q for kw in _INTENTS[intent]):
             return intent
@@ -359,6 +406,8 @@ def get_client_context(client_id: str) -> dict:
                         pass
                 tipo   = str(task.get("Tipo_Manutencao", "")).strip()
                 status = calc_task_status(task, h_at)
+                gut_r  = _calculate_gut(task.get("Gut_Gravidade"), task.get("Gut_Urgencia"),
+                                        task.get("Gut_Tendencia"))
                 tarefas.append({
                     "nome":        str(task.get("Nome_Tarefa", "")).strip(),
                     "tipo":        tipo,
@@ -370,6 +419,8 @@ def get_client_context(client_id: str) -> dict:
                     "prox_h":      str(task.get("Proxima_Execucao_Horimetro", "")).strip(),
                     "h_atual":     h_at,
                     "recomendacao": str(task.get("Recomendacao", "")).strip(),
+                    "gut_score":      gut_r["score"] if gut_r else None,
+                    "gut_prioridade": gut_r["prioridade"] if gut_r else "",
                 })
             if tarefas:
                 ctx["tarefas_manutencao"] = tarefas
@@ -531,6 +582,15 @@ def get_client_context(client_id: str) -> dict:
     except Exception:
         pass  # mantém docs do mock
 
+    # Priorização GUT — manutenções/alertas/chamados/recomendações com G/U/T
+    # definidos pela Supervisão. SEGURANÇA: get_gut_summary já filtra por
+    # client_id; GUT é ferramenta de priorização, nunca decide overhaul/parada.
+    try:
+        from sheets import get_gut_summary
+        ctx["gut_summary"] = get_gut_summary(client_id)
+    except Exception:
+        ctx["gut_summary"] = []
+
     ctx["client_id"] = client_id
     return ctx
 
@@ -539,7 +599,7 @@ def _empty_context() -> dict:
     return {
         "empresa": "",
         "ativos": [], "manutencoes": [], "relatorios": [],
-        "documentos": [], "chamados": [], "alertas": [],
+        "documentos": [], "chamados": [], "alertas": [], "gut_summary": [],
         "especificacoes": {"oleo": None},
     }
 
@@ -1906,6 +1966,181 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             links=[{"label": f"🔔 Ver {unread} Notificações", "page": "notificacoes"}],
         )
 
+    # ── Prioridade GUT (Gravidade x Urgência x Tendência) ─────────────────────
+    # GUT é ferramenta de priorização — nunca autoriza overhaul, troca de
+    # rolamento ou parada automática. Sempre recomenda chamado quando crítico.
+    if intent == "gut":
+        gut_itens = ctx.get("gut_summary", [])
+        tarefas   = ctx.get("tarefas_manutencao", [])
+        q = pergunta.lower()
+
+        # "Quais tarefas estão vencidas?" — status da tarefa, não depende de
+        # GUT estar definido (uma tarefa pode estar vencida sem GUT cadastrado)
+        if any(kw in q for kw in ["vencida", "vencidas", "atrasada", "atrasadas", "em atraso"]):
+            vencidas = [t for t in tarefas if _normalizar(t.get("status", "")) == "vencida"]
+            if not vencidas:
+                return _resp("Nenhuma tarefa de manutenção vencida no momento. 👍",
+                            links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}])
+            lista = "; ".join(f"{t['nome']} (Ativo: {t.get('ativo_id','—')})" for t in vencidas[:5])
+            return _resp(
+                f"Você tem **{len(vencidas)} tarefa(s) vencida(s)**: {lista}. "
+                f"Recomendo priorizar essas manutenções e, se necessário, abrir chamado técnico. "
+                f"{GUT_DISCLAIMER}",
+                links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+                actions=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        if not gut_itens:
+            return _resp(
+                "Ainda não há itens com prioridade GUT definida para sua operação. "
+                f"{GUT_DISCLAIMER}",
+                links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+            )
+
+        criticos = [i for i in gut_itens if i["prioridade"] == "Crítica"]
+        manuts_todas = [i for i in gut_itens if i["origem"] == "manutencao"]
+        pede_manutencao = "manutenc" in q or "manutenç" in q or "tarefa" in q
+
+        # "Qual chamado devo tratar primeiro?"
+        if "chamado" in q and any(kw in q for kw in ["primeiro", "tratar", "devo", "priorit"]):
+            chamados_gut = sorted([i for i in gut_itens if i["origem"] == "chamado"],
+                                  key=lambda x: x["score"], reverse=True)
+            if not chamados_gut:
+                return _resp("Nenhum chamado com prioridade GUT definida no momento.",
+                            links=[{"label": "🔧 Ver Chamados", "page": "chamados"}])
+            top = chamados_gut[0]
+            return _resp(
+                f"O chamado que deve ser tratado primeiro é **{top['titulo']}** "
+                f"(GUT {top['score']} · {top['prioridade']}). {GUT_DISCLAIMER}",
+                links=[{"label": "🔧 Ver Chamados", "page": "chamados"}],
+            )
+
+        # "Tenho recomendações críticas?" — recomendação por condição (tarefas
+        # de manutenção tipo "Condição"), nunca overhaul/troca automática
+        if "recomend" in q and any(kw in q for kw in ["tenho", "algum", "crítica", "critica", "existe"]):
+            recs_criticas = [i for i in manuts_todas
+                            if i.get("subtipo") == "Condição" and i["prioridade"] == "Crítica"]
+            if not recs_criticas:
+                return _resp(
+                    f"Não há recomendação por condição com prioridade GUT Crítica no momento. {GUT_DISCLAIMER}"
+                )
+            lista = "; ".join(f"{i['titulo']} (GUT {i['score']})" for i in recs_criticas[:5])
+            return _resp(
+                f"Sim — você tem **{len(recs_criticas)} recomendação(ões) por condição** com "
+                f"prioridade Crítica: {lista}. Essas dependem de avaliação técnica da equipe "
+                f"Pred.IO — nunca são executadas automaticamente por GUT. {GUT_DISCLAIMER}",
+                links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+                actions=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # "Algum relatório gerou prioridade alta?"
+        if "relatorio" in q or "relatório" in q:
+            reps_gut = sorted([i for i in gut_itens if i["origem"] == "relatorio"],
+                              key=lambda x: x["score"], reverse=True)
+            reps_altos = [i for i in reps_gut if i["prioridade"] in ("Alta", "Crítica")]
+            if not reps_altos:
+                return _resp("Nenhum relatório gerou recomendação de prioridade Alta ou Crítica no momento.",
+                            links=[{"label": "📁 Ver Relatórios", "page": "relatorios"}])
+            lista = "; ".join(f"{i['titulo']} (GUT {i['score']} · {i['prioridade']})" for i in reps_altos[:5])
+            return _resp(
+                f"Sim — {len(reps_altos)} relatório(s) geraram recomendação de prioridade "
+                f"Alta/Crítica: {lista}. {GUT_DISCLAIMER}",
+                links=[{"label": "📁 Ver Relatórios", "page": "relatorios"}],
+            )
+
+        # "Qual ativo tem maior prioridade de manutenção?" (ativo + manutenção
+        # juntos — checar ANTES dos dois casos isolados abaixo)
+        if "ativo" in q and pede_manutencao:
+            por_ativo: dict = {}
+            for i in manuts_todas:
+                aid = i.get("ativo_id", "")
+                if aid and (aid not in por_ativo or i["score"] > por_ativo[aid]["score"]):
+                    por_ativo[aid] = i
+            if not por_ativo:
+                return _resp("Nenhum ativo com manutenção priorizada por GUT no momento.")
+            top_id, top = max(por_ativo.items(), key=lambda kv: kv[1]["score"])
+            return _resp(
+                f"O ativo com maior prioridade de manutenção é **{top_id}**, por conta de "
+                f"'{top['titulo']}' (GUT {top['score']} · {top['prioridade']}). {GUT_DISCLAIMER}",
+                links=[{"label": "⚙️ Ver Ativos", "page": "ativos"}],
+            )
+
+        # "Tenho manutenção GUT crítica?"
+        if pede_manutencao and any(kw in q for kw in ["tenho", "algum", "existe"]):
+            manuts_criticas = [i for i in manuts_todas if i["prioridade"] == "Crítica"]
+            if not manuts_criticas:
+                return _resp(f"Não há manutenção com prioridade GUT Crítica no momento. {GUT_DISCLAIMER}")
+            lista = "; ".join(f"{i['titulo']} (GUT {i['score']})" for i in manuts_criticas[:5])
+            return _resp(
+                f"Sim — você tem **{len(manuts_criticas)} manutenção(ões)** com prioridade GUT "
+                f"Crítica: {lista}. Recomendo abrir chamado técnico. {GUT_DISCLAIMER}",
+                links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+                actions=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # "Tenho algum item GUT crítico?" (qualquer origem)
+        if any(kw in q for kw in ["tenho algum", "algum item crítico", "algum item critico", "item gut critico"]):
+            if not criticos:
+                return _resp(
+                    f"Não há itens com prioridade GUT **Crítica** no momento. {GUT_DISCLAIMER}",
+                )
+            lista = "; ".join(f"{i['titulo']} (GUT {i['score']})" for i in criticos[:5])
+            return _resp(
+                f"Sim — você tem **{len(criticos)} item(ns)** com prioridade GUT Crítica: {lista}. "
+                f"Recomendo abrir chamado técnico para os itens críticos. {GUT_DISCLAIMER}",
+                links=[{"label": "🔧 Abrir Chamado", "page": "chamados"}],
+            )
+
+        # "Quais alertas têm maior GUT?"
+        if "alerta" in q:
+            als = sorted([i for i in gut_itens if i["origem"] == "alerta"],
+                        key=lambda x: x["score"], reverse=True)
+            if not als:
+                return _resp("Nenhum alerta com prioridade GUT definida no momento.")
+            lista = "; ".join(f"{i['titulo']} (GUT {i['score']} · {i['prioridade']})" for i in als[:5])
+            return _resp(f"Alertas por prioridade GUT (maior primeiro): {lista}. {GUT_DISCLAIMER}",
+                        links=[{"label": "⚠️ Ver Alertas", "page": "alertas"}])
+
+        # "Qual manutenção é mais crítica?" / "Quais manutenções são mais críticas?"
+        if pede_manutencao:
+            manuts = sorted(manuts_todas, key=lambda x: x["score"], reverse=True)
+            if not manuts:
+                return _resp("Nenhuma tarefa de manutenção com prioridade GUT definida no momento.")
+            top = manuts[0]
+            return _resp(
+                f"A manutenção com maior prioridade GUT é **{top['titulo']}** "
+                f"(GUT {top['score']} · {top['prioridade']}). {GUT_DISCLAIMER} "
+                f"Recomendo abrir chamado técnico se ainda não houver um em andamento.",
+                links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+                actions=[{"label": "🔧 Abrir Chamado", "page": "chamados"}] if top["prioridade"] == "Crítica" else [],
+            )
+
+        # "Qual ativo tem maior prioridade?" (qualquer origem)
+        if "ativo" in q:
+            por_ativo: dict = {}
+            for i in gut_itens:
+                aid = i.get("ativo_id", "")
+                if aid and (aid not in por_ativo or i["score"] > por_ativo[aid]["score"]):
+                    por_ativo[aid] = i
+            if not por_ativo:
+                return _resp("Nenhum ativo com item GUT vinculado no momento.")
+            top_id, top = max(por_ativo.items(), key=lambda kv: kv[1]["score"])
+            return _resp(
+                f"O ativo com maior prioridade GUT é **{top_id}**, por conta de "
+                f"'{top['titulo']}' (GUT {top['score']} · {top['prioridade']}). {GUT_DISCLAIMER}",
+                links=[{"label": "⚙️ Ver Ativos", "page": "ativos"}],
+            )
+
+        # "O que devo fazer primeiro?" / genérico
+        top = max(gut_itens, key=lambda x: x["score"])
+        return _resp(
+            f"O item de maior prioridade no momento é **{top['titulo']}** "
+            f"(GUT {top['score']} · {top['prioridade']}), origem: {top['origem']}. "
+            f"{GUT_DISCLAIMER} Para itens críticos, recomendo abrir chamado técnico com a equipe Pred.IO.",
+            links=[{"label": "📅 Ver Manutenção", "page": "manutencao"}],
+            actions=[{"label": "🔧 Abrir Chamado", "page": "chamados"}] if top["prioridade"] == "Crítica" else [],
+        )
+
     # ── Alertas ───────────────────────────────────────────────────────────────
     if intent == "alertas":
         alertas_reais = ctx.get("alertas_reais", [])
@@ -1978,6 +2213,14 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             "<strong>não envia mensagens reais</strong>. "
             "Variável de controle: <code>NOTIFICATION_EXTERNAL_SEND_ENABLED=false</code>.\n\nFonte: Pred.IO",
             links=[{"label": "⚙️ Notificações", "page": "notificacoes"}],
+        )
+
+    # ── Identidade do Assistente ──────────────────────────────────────────────
+    if intent == "identidade":
+        return _resp(
+            "Sou o <strong>Assistente Técnico Pred.IO</strong> — respondo com base "
+            "apenas nos dados autorizados do seu portal (ativos, manutenção, "
+            "relatórios, chamados, alertas e biblioteca técnica).\n\nFonte: Pred.IO",
         )
 
     # ── Meta — sobre o Assistente Técnico Pred.IO ────────────────────────────

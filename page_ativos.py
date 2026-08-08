@@ -11,9 +11,18 @@ except ImportError:
 
 from auth import current_client_id
 from sheets import get_ativos
-from ui import page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BG
+from ui import (page_header, app_section_title, status_badge, empty_state, badge,
+                STATUS_REGISTRY, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED,
+                COLOR_BG, COLOR_DANGER, COLOR_WARNING, COLOR_SUCCESS, COLOR_URGENT)
+from gut import GUT_DISCLAIMER
 
 _DETALHE_KEY = "ativo_detalhe_id"
+
+
+def _clean(value, default: str = "—") -> str:
+    """String de célula da planilha, tratando vazio/NaN/None como ausente."""
+    v = str(value).strip()
+    return v if v and v.lower() != "nan" else default
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MOCK DATA — estrutura hierárquica: ativo principal → componentes
@@ -487,6 +496,7 @@ _STATUS = {
     "bom":               {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46", "icon": "🟢"},
     "atencao":           {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E", "icon": "🟡"},
     "critico":           {"color": "#EF4444", "bg": "#FEF2F2", "border": "#FCA5A5", "text": "#991B1B", "icon": "🔴"},
+    "urgente":           {"color": "#7C3AED", "bg": "#F5F3FF", "border": "#C4B5FD", "text": "#4C1D95", "icon": "🟣"},
     "em acompanhamento": {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E", "icon": "🔵"},
     "normal":            {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46", "icon": "🟢"},
 }
@@ -513,7 +523,7 @@ _PM_STATUS = {
 }
 _PM_STATUS_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569"}
 _PM_PRIO_COLOR = {
-    "critica": "#EF4444", "alta": "#F97316", "media": "#F59E0B", "baixa": "#94A3B8",
+    "critica": "#EF4444", "alta": "#F97316", "media": "#F59E0B", "baixa": COLOR_MUTED,
 }
 
 # ── Histórico Técnico — configuração por tipo de evento ───────────────────────
@@ -553,7 +563,19 @@ def _ccfg(crit: str) -> dict:
 
 
 def _score_color(score: int) -> str:
-    return "#10B981" if score >= 85 else "#F59E0B" if score >= 60 else "#EF4444"
+    """85-100 Bom · 60-84 Atenção · 30-59 Crítico · 0-29 Urgente."""
+    if score >= 85: return COLOR_SUCCESS
+    if score >= 60: return COLOR_WARNING
+    if score >= 30: return COLOR_DANGER
+    return COLOR_URGENT
+
+
+def _score_band(score: int) -> str:
+    """Faixa textual do score — mesmos limiares em todo o portal."""
+    if score >= 85: return "Bom"
+    if score >= 60: return "Atenção"
+    if score >= 30: return "Crítico"
+    return "Urgente"
 
 
 def _score_label(score: int) -> str:
@@ -561,7 +583,9 @@ def _score_label(score: int) -> str:
         return "Condição boa — operação dentro dos parâmetros."
     if score >= 60:
         return "Requer atenção técnica — monitoramento recomendado."
-    return "Condição crítica — intervenção técnica urgente."
+    if score >= 30:
+        return "Condição crítica — intervenção técnica urgente."
+    return "Condição urgente — risco elevado, acionar a equipe Pred.IO."
 
 
 def _lbl(title: str, value: str) -> str:
@@ -743,6 +767,179 @@ def _render_plano_manutencao(tarefas: list) -> None:
             _render_tarefa_card(t)
 
 
+def _gut_itens_ativo(client_id: str, ativo_id: str) -> list:
+    """Todos os itens GUT (manutenção/alertas/chamados/recomendações) deste
+    ativo, já ordenados por score desc. Uma única consulta reaproveitada por
+    _gut_maximo_ativo() e _render_prioridades_tecnicas()."""
+    if not ativo_id:
+        return []
+    try:
+        from sheets import get_gut_summary
+        return [i for i in get_gut_summary(client_id) if i.get("ativo_id") == ativo_id]
+    except Exception:
+        return []
+
+
+def _gut_maximo_ativo(client_id: str, ativo_id: str) -> dict | None:
+    """Maior GUT entre manutenções/alertas/chamados/recomendações deste ativo."""
+    itens = _gut_itens_ativo(client_id, ativo_id)
+    return itens[0] if itens else None
+
+
+def _render_prioridades_tecnicas(client_id: str, ativo_id: str) -> None:
+    """Bloco consolidado: maior GUT do ativo + origem + ação recomendada +
+    contagem de itens críticos por categoria (alertas/chamados/manutenção/
+    recomendações por condição) — visão rápida de "o que olhar primeiro"."""
+    itens = _gut_itens_ativo(client_id, ativo_id)
+    if not itens:
+        return
+
+    top = itens[0]
+    _origem_label = {
+        "manutencao": "Manutenção", "alerta": "Alerta",
+        "chamado": "Chamado", "relatorio": "Relatório técnico",
+    }
+    origem_txt = _origem_label.get(top["origem"], top["origem"])
+    if top["origem"] == "manutencao" and top.get("subtipo") == "Condição":
+        origem_txt = "Recomendação por condição"
+
+    bg, tc = STATUS_REGISTRY["gut"].get(top["prioridade"].lower(), (COLOR_MUTED, "#fff"))
+
+    st.markdown(_section("🎯 Prioridades Técnicas"), unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='background:{bg}18;border:1px solid {bg}55;border-radius:12px;"
+        f"padding:1rem 1.25rem;margin-bottom:0.75rem;'>"
+        f"<p style='font-size:0.68rem;color:{COLOR_MUTED};text-transform:uppercase;"
+        f"letter-spacing:.06em;margin:0 0 4px;'>Prioridade atual do ativo</p>"
+        f"<p style='font-size:1.3rem;font-weight:900;color:{bg};margin:0 0 6px;'>"
+        f"{top['prioridade']} <span style='font-size:0.85rem;font-weight:600;color:{COLOR_MUTED};'>"
+        f"(GUT {top['score']})</span></p>"
+        f"<p style='font-size:0.82rem;color:#475569;margin:0 0 3px;'>"
+        f"<strong>Origem:</strong> {origem_txt} — {top['titulo']}</p>"
+        f"<p style='font-size:0.82rem;color:#475569;margin:0;'>"
+        f"<strong>Ação recomendada:</strong> {top['acao_recomendada']}</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    n_alertas  = sum(1 for i in itens if i["origem"] == "alerta"   and i["prioridade"] == "Crítica")
+    n_chamados = sum(1 for i in itens if i["origem"] == "chamado"  and i["prioridade"] == "Crítica")
+    n_manut    = sum(1 for i in itens if i["origem"] == "manutencao" and i["prioridade"] == "Crítica")
+    n_cond     = sum(1 for i in itens if i["origem"] == "manutencao"
+                     and i.get("subtipo") == "Condição" and i["prioridade"] == "Crítica")
+
+    cols = st.columns(4)
+    for col, (label, val) in zip(cols, [
+        ("⚠️ Alertas críticos", n_alertas),
+        ("🔧 Chamados críticos", n_chamados),
+        ("📅 Manutenções críticas", n_manut),
+        ("🔍 Recomendações críticas", n_cond),
+    ]):
+        with col:
+            _cor = COLOR_DANGER if val > 0 else COLOR_MUTED
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-radius:10px;padding:0.6rem 0.8rem;text-align:center;'>"
+                f"<p style='font-size:0.6rem;color:{COLOR_MUTED};margin:0 0 3px;'>{label}</p>"
+                f"<p style='font-size:1.2rem;font-weight:900;color:{_cor};margin:0;'>{val}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+
+def _render_execucoes_recentes(client_id: str, ativo_id: str) -> None:
+    """Manutenções concluídas recentemente neste ativo. Nunca mostra
+    Obs_Interna (campo interno da execução, filtrado explicitamente)."""
+    if not ativo_id:
+        return
+    try:
+        from sheets import get_maintenance_executions
+        df = get_maintenance_executions(client_id=client_id, ativo_id=ativo_id, limit=3)
+        if df.empty:
+            return
+        st.markdown(_section("✅ Concluídas Recentemente"), unsafe_allow_html=True)
+        for _, row in df.iterrows():
+            data = str(row.get("Executado_Em", "")).strip()
+            desc = str(row.get("Descricao_Execucao", "")).strip()
+            st.markdown(
+                f"<div style='border-left:3px solid {COLOR_SUCCESS};padding:6px 10px;"
+                f"margin-bottom:6px;background:{COLOR_SUCCESS}0D;border-radius:0 8px 8px 0;'>"
+                f"<p style='font-size:0.8rem;color:{COLOR_NAVY};margin:0;'>"
+                f"{desc or 'Manutenção concluída'}</p>"
+                + (f"<p style='font-size:0.71rem;color:{COLOR_MUTED};margin:2px 0 0;'>{data}</p>" if data else "")
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
+
+def _render_manutencoes_prioritarias(client_id: str, ativo_id: str) -> None:
+    """Vencidas + GUT Crítica/Alta + próximas importantes deste ativo — recorte
+    de prioridade sobre o plano completo (mostrado logo abaixo, na íntegra)."""
+    if not ativo_id:
+        return
+    try:
+        from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
+        df = get_maintenance_tasks(client_id=client_id, ativo_id=ativo_id, staff=False)
+        if df.empty:
+            return
+        h_at = 0
+        try:
+            h = get_horimetro(ativo_id)
+            h_at = h if h is not None else 0
+        except Exception:
+            pass
+
+        itens = []
+        for _, row in df.iterrows():
+            task   = row.to_dict()
+            status = calc_task_status(task, h_at)
+            sk     = _norm(status)
+            gut_r  = calculate_gut(task.get("Gut_Gravidade"), task.get("Gut_Urgencia"), task.get("Gut_Tendencia"))
+            gut_p  = gut_r["prioridade"] if gut_r else ""
+            relevante = sk == "vencida" or gut_p in ("Crítica", "Alta") or sk in (
+                "próxima do vencimento", "proxima do vencimento")
+            if relevante:
+                itens.append({
+                    "nome": str(task.get("Nome_Tarefa", "")).strip() or "Tarefa preventiva",
+                    "status": status, "status_key": sk,
+                    "gut_score": gut_r["score"] if gut_r else 0,
+                    "gut_prioridade": gut_p,
+                })
+
+        if not itens:
+            return
+
+        _GUT_RANK = {"Crítica": 0, "Alta": 1, "Moderada": 2, "Baixa": 3}
+        itens.sort(key=lambda i: (
+            _GUT_RANK.get(i["gut_prioridade"], 4),
+            0 if i["status_key"] == "vencida" else 1,
+        ))
+
+        st.markdown(_section("🎯 Manutenções Prioritárias"), unsafe_allow_html=True)
+        for i in itens[:5]:
+            cor = COLOR_DANGER if i["status_key"] == "vencida" else COLOR_WARNING
+            gut_html = (
+                f" {status_badge(i['gut_prioridade'], 'gut')}"
+                f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:2px;'>"
+                f"GUT {i['gut_score']}</span>" if i["gut_prioridade"] else ""
+            )
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;align-items:center;"
+                f"border-left:3px solid {cor};padding:6px 10px;margin-bottom:5px;"
+                f"background:{cor}0D;border-radius:0 8px 8px 0;gap:8px;'>"
+                f"<span style='font-size:0.82rem;color:{COLOR_NAVY};font-weight:600;'>{i['nome']}</span>"
+                f"<span style='font-size:0.68rem;color:{COLOR_MUTED};white-space:nowrap;'>"
+                f"{i['status']}{gut_html}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
+
 def _load(client_id: str):
     try:
         df = get_ativos(client_id)
@@ -768,21 +965,25 @@ def _load(client_id: str):
         if score is None:
             score = _SCORE_MAP.get(_norm(status), 50)
 
-        tag = str(row.get("Tag", "")).strip()
+        tag     = str(row.get("Tag", "")).strip()
+        real_id = str(row.get("Id", "")).strip()
         rows.append({
-            "id":                    _norm(tag).replace(" ", "-"),
+            # Id real da planilha (mesma chave usada em Manutenção/Relatórios/
+            # Chamados/Alertas). Cai para um id derivado da Tag só se a linha
+            # não tiver Id (não deveria acontecer, já filtrado acima).
+            "id":                    real_id or _norm(tag).replace(" ", "-"),
             "nome":                  tag,
             "Tag":                   tag,
             "Tipo":                  (str(row.get("Tipo", "")) or str(row.get("Equipamentos", ""))).strip(),
-            "modelo":                str(row.get("Modelo", "—")).strip() or "—",
-            "numero_serie":          str(row.get("Ns", "") or row.get("Numero_Serie", "")).strip() or "—",
-            "mb":                    str(row.get("Mb", "")).strip() or "—",
-            "Planta":                str(row.get("Planta", "—")).strip() or "—",
+            "modelo":                _clean(row.get("Modelo", "")),
+            "numero_serie":          _clean(row.get("Ns", "") or row.get("Numero_Serie", "")),
+            "mb":                    _clean(row.get("Mb", "")),
+            "Planta":                _clean(row.get("Planta", "")),
             "Status":                status,
             "Score":                 score,
-            "Ultima_Atualizacao":    str(row.get("Data", "—")).strip(),
-            "criticidade":           str(row.get("Criticidade", "—")).strip() or "—",
-            "inversor_frequencia":   str(row.get("Inversor", "—")).strip() or "—",
+            "Ultima_Atualizacao":    _clean(row.get("Data", "")),
+            "criticidade":           _clean(row.get("Criticidade", "")),
+            "inversor_frequencia":   _clean(row.get("Inversor", "")),
             "analise_oleo_aplicavel": False,
             "recomendacao":          str(row.get("Detalhes", "")).strip(),
             "historico_score":       [],
@@ -823,26 +1024,47 @@ def _render_lista(ativos: list, mock: bool) -> None:
     )
 
     if not ativos:
-        st.info(
-            "Nenhum equipamento cadastrado ainda. "
-            "Seus ativos monitorados pela Pred.IO aparecerão aqui."
-        )
+        empty_state("Nenhum equipamento cadastrado ainda. Seus ativos monitorados pela Pred.IO aparecerão aqui.")
         return
 
-    col_s, col_p, _ = st.columns([1.3, 1.3, 2.4])
-    status_opts = ["Todos os status", "Bom", "Atenção", "Crítico", "Em acompanhamento"]
+    resumos = _build_resumos(current_client_id()) if not mock else {}
+
+    # ── Filtros ────────────────────────────────────────────────────────────────
+    busca = st.text_input(
+        "Buscar por nome", placeholder="🔎 Buscar ativo por nome...",
+        label_visibility="collapsed",
+    )
+
+    col_s, col_t, col_p = st.columns(3)
+    status_opts = ["Todos os status", "Bom", "Atenção", "Crítico", "Urgente", "Em acompanhamento"]
+    tipos       = ["Todos os tipos"] + sorted({a["Tipo"] for a in ativos if a["Tipo"] not in ("", "—")})
     plantas     = ["Todas as plantas"] + sorted(
         {a["Planta"] for a in ativos if a["Planta"] not in ("", "—")}
     )
     with col_s:
         sf = st.selectbox("Filtrar por status", status_opts, label_visibility="collapsed")
+    with col_t:
+        tf = st.selectbox("Filtrar por tipo", tipos, label_visibility="collapsed")
     with col_p:
         pf = st.selectbox("Filtrar por planta", plantas, label_visibility="collapsed")
+
+    col_v, col_al, col_ch = st.columns(3)
+    with col_v:
+        so_vencida = st.checkbox("📅 Com manutenção vencida")
+    with col_al:
+        so_alerta = st.checkbox("⚠️ Com alerta ativo")
+    with col_ch:
+        so_chamado = st.checkbox("🔧 Com chamado aberto")
 
     out = [
         a for a in ativos
         if (_norm(sf) in ("todos os status", _norm(a["Status"])))
+        and (tf == "Todos os tipos" or a["Tipo"] == tf)
         and (pf == "Todas as plantas" or a["Planta"] == pf)
+        and (not busca or _norm(busca) in _norm(a["nome"]))
+        and (not so_vencida or "vencida" in resumos.get(a["id"], {}).get("proxima_manut", "").lower())
+        and (not so_alerta or resumos.get(a["id"], {}).get("alertas_ativos", 0) > 0)
+        and (not so_chamado or resumos.get(a["id"], {}).get("chamados_abertos", 0) > 0)
     ]
     out = sorted(out, key=lambda x: x["Score"])
 
@@ -853,17 +1075,120 @@ def _render_lista(ativos: list, mock: bool) -> None:
     )
 
     if not out:
-        st.info("Nenhum ativo encontrado com os filtros selecionados.")
+        empty_state("Nenhum ativo encontrado com os filtros selecionados.", icon="🔍")
         return
 
     for a in out:
-        _render_card(a)
+        _render_card(a, resumos.get(a["id"], {}))
 
 
-def _render_card(a: dict) -> None:
+def _build_resumos(client_id: str) -> dict:
+    """Busca manutenção/relatórios/alertas/chamados do cliente UMA VEZ (não uma
+    consulta por ativo) e agrupa por Ativo_Id — evita N consultas ao Sheets
+    para uma lista com N ativos."""
+    resumos: dict = {}
+
+    def _r(aid: str) -> dict:
+        return resumos.setdefault(aid, {
+            "proxima_manut": "", "ultimo_relatorio": "",
+            "alertas_ativos": 0, "chamados_abertos": 0,
+            "gut_score": 0, "gut_prioridade": "",
+        })
+
+    # Manutenção — a mais urgente por ativo (Vencida antes de Próxima)
+    try:
+        from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
+        df_mt = get_maintenance_tasks(client_id=client_id, staff=False)
+        if not df_mt.empty:
+            ordem = {"Vencida": 0, "Próxima do vencimento": 1}
+            melhor: dict = {}
+            for _, row in df_mt.iterrows():
+                task = row.to_dict()
+                aid  = str(task.get("Ativo_Id", "")).strip()
+                if not aid:
+                    continue
+                h_at = 0
+                try:
+                    h = get_horimetro(aid)
+                    h_at = h if h is not None else 0
+                except Exception:
+                    pass
+                status = calc_task_status(task, h_at)
+                if status not in ordem:
+                    continue
+                nome  = str(task.get("Nome_Tarefa", "")).strip() or "Tarefa preventiva"
+                atual = melhor.get(aid)
+                if atual is None or ordem[status] < atual[0]:
+                    melhor[aid] = (ordem[status], f"{nome} ({status})")
+            for aid, (_, texto) in melhor.items():
+                _r(aid)["proxima_manut"] = texto
+    except Exception:
+        pass
+
+    # Relatórios — o mais recente por ativo (df já vem ordenado por data desc)
+    try:
+        from sheets import get_technical_reports
+        df_rel = get_technical_reports(client_id=client_id, staff=False)
+        if not df_rel.empty and "Ativo_Id" in df_rel.columns:
+            for aid_raw, grupo in df_rel.groupby(df_rel["Ativo_Id"].astype(str).str.strip()):
+                aid = aid_raw.strip()
+                if not aid:
+                    continue
+                titulo = str(grupo.iloc[0].get("Titulo", "")).strip() or "Relatório"
+                _r(aid)["ultimo_relatorio"] = titulo
+    except Exception:
+        pass
+
+    # Alertas — contagem por ativo
+    try:
+        from sheets import get_alertas_sv
+        df_al = get_alertas_sv(client_id)
+        if not df_al.empty and "Ativo_Id" in df_al.columns:
+            for aid_raw, grupo in df_al.groupby(df_al["Ativo_Id"].astype(str).str.strip()):
+                aid = aid_raw.strip()
+                if not aid:
+                    continue
+                _r(aid)["alertas_ativos"] = len(grupo)
+    except Exception:
+        pass
+
+    # Chamados abertos — contagem por ativo
+    try:
+        from sheets import get_chamados_v2
+        df_ch = get_chamados_v2(client_id=client_id)
+        if not df_ch.empty and "Ativo_Id" in df_ch.columns and "Status" in df_ch.columns:
+            fechados = {"concluído", "concluido", "cancelado", "fechado"}
+            df_ab = df_ch[~df_ch["Status"].astype(str).str.strip().str.lower().isin(fechados)]
+            for aid_raw, grupo in df_ab.groupby(df_ab["Ativo_Id"].astype(str).str.strip()):
+                aid = aid_raw.strip()
+                if not aid:
+                    continue
+                _r(aid)["chamados_abertos"] = len(grupo)
+    except Exception:
+        pass
+
+    # GUT — maior prioridade entre manutenções, alertas, chamados e
+    # recomendações de relatório deste ativo (get_gut_summary já agrega tudo)
+    try:
+        from sheets import get_gut_summary
+        for item in get_gut_summary(client_id):
+            aid = item.get("ativo_id", "").strip()
+            if not aid:
+                continue
+            if item["score"] > _r(aid)["gut_score"]:
+                _r(aid)["gut_score"] = item["score"]
+                _r(aid)["gut_prioridade"] = item["prioridade"]
+    except Exception:
+        pass
+
+    return resumos
+
+
+def _render_card(a: dict, resumo: dict | None = None) -> None:
     cfg   = _scfg(a["Status"])
     sc    = _score_color(a["Score"])
     score = a["Score"]
+    resumo = resumo or {}
 
     modelo = a.get("modelo", "—")
     ns     = a.get("numero_serie", "—")
@@ -874,6 +1199,35 @@ def _render_card(a: dict) -> None:
     if ns     and ns     != "—": meta_parts.append(f"NS: {ns}")
     if mb     and mb     != "—": meta_parts.append(mb)
     meta2 = "  ·  ".join(meta_parts)
+
+    # Resumo operacional — próxima manutenção, último relatório, alertas e
+    # chamados deste ativo (calculado uma vez para toda a lista, ver _build_resumos)
+    proxima_manut    = resumo.get("proxima_manut", "")
+    ultimo_relatorio = resumo.get("ultimo_relatorio", "")
+    alertas_ativos   = resumo.get("alertas_ativos", 0)
+    chamados_abertos = resumo.get("chamados_abertos", 0)
+    manut_cor = COLOR_DANGER if "vencida" in proxima_manut.lower() else COLOR_MUTED
+
+    gut_score      = resumo.get("gut_score", 0)
+    gut_prioridade = resumo.get("gut_prioridade", "")
+    gut_badge_html = ""
+    if gut_score:
+        _gut_bg, _gut_tc = STATUS_REGISTRY["gut"].get(gut_prioridade.lower(), (COLOR_MUTED, "#fff"))
+        gut_badge_html = badge(f"🎯 GUT {gut_score} · {gut_prioridade}", _gut_bg, _gut_tc)
+
+    resumo_html = (
+        f"<div style='display:flex;flex-direction:column;gap:4px;margin:10px 0;"
+        f"padding:8px 10px;background:{COLOR_BG};border-radius:8px;font-size:0.74rem;'>"
+        f"<span style='color:{manut_cor};'>📅 Próxima manutenção: "
+        f"<strong>{proxima_manut or 'nenhuma pendente'}</strong></span>"
+        f"<span style='color:{COLOR_MUTED};'>📁 Último relatório: "
+        f"<strong>{ultimo_relatorio or '—'}</strong></span>"
+        f"<span style='color:{COLOR_DANGER if alertas_ativos else COLOR_MUTED};'>⚠️ Alertas ativos: "
+        f"<strong>{alertas_ativos}</strong></span>"
+        f"<span style='color:{COLOR_WARNING if chamados_abertos else COLOR_MUTED};'>🔧 Chamados abertos: "
+        f"<strong>{chamados_abertos}</strong></span>"
+        f"</div>"
+    ) if resumo else ""
 
     # Seção compacta de componentes
     componentes = a.get("componentes", [])
@@ -892,14 +1246,14 @@ def _render_card(a: dict) -> None:
             f"</div>"
         )
 
-    st.markdown(
-        f"""<div style="background:{COLOR_CARD};border:1px solid {COLOR_BORDER};
+    card_html = f"""<div style="background:{COLOR_CARD};border:1px solid {COLOR_BORDER};
             border-left:5px solid {cfg['color']};border-radius:14px;
             padding:1rem 1.4rem 1rem;margin-bottom:4px;
             box-shadow:0 2px 8px rgba(15,31,61,0.05);">
           <div style="display:flex;justify-content:space-between;
                       align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
             <span style="font-size:1rem;font-weight:800;color:{COLOR_NAVY};">{a['nome']}</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <span style="background:{cfg['bg']};color:{cfg['text']};
                          -webkit-text-fill-color:{cfg['text']};
                          border:1px solid {cfg['border']};
@@ -907,6 +1261,8 @@ def _render_card(a: dict) -> None:
                          padding:3px 14px;border-radius:20px;white-space:nowrap;">
               {cfg['icon']} {a['Status']}
             </span>
+            {gut_badge_html}
+            </div>
           </div>
           <p style="color:{COLOR_MUTED};font-size:0.8rem;margin:0 0 3px;">{a['Tipo']}</p>
           <p style="color:{COLOR_MUTED};font-size:0.76rem;margin:0 0 8px;">{meta2}</p>
@@ -924,16 +1280,19 @@ def _render_card(a: dict) -> None:
           <div style="background:#E2E8F0;border-radius:6px;height:7px;overflow:hidden;">
             <div style="height:100%;border-radius:6px;background:{sc};width:{score}%;"></div>
           </div>
+          {resumo_html}
           {comp_html}
-        </div>""",
-        unsafe_allow_html=True,
-    )
+        </div>"""
+    # Linhas em branco (deixadas por interpolações vazias como {gut_badge_html})
+    # fazem o Markdown do Streamlit encerrar o bloco HTML no meio e tratar o
+    # resto como texto/código literal — remove-las evita esse vazamento.
+    card_html = "\n".join(line for line in card_html.splitlines() if line.strip())
+    st.markdown(card_html, unsafe_allow_html=True)
 
-    col_btn, _ = st.columns([1.2, 4])
-    with col_btn:
-        if st.button("Ver detalhes →", key=f"det_{a['id']}", use_container_width=True):
-            st.session_state[_DETALHE_KEY] = a["id"]
-            st.rerun()
+    if st.button("Ver detalhes →", key=f"det_{a['id']}", use_container_width=True,
+                 type="primary"):
+        st.session_state[_DETALHE_KEY] = a["id"]
+        st.rerun()
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -946,6 +1305,7 @@ def _render_detalhe(a: dict, mock: bool) -> None:
         st.session_state.pop(_DETALHE_KEY, None)
         st.rerun()
 
+    client_id = current_client_id()
     cfg   = _scfg(a["Status"])
     ccfg  = _ccfg(a.get("criticidade", "—"))
     sc    = _score_color(a["Score"])
@@ -986,7 +1346,9 @@ def _render_detalhe(a: dict, mock: bool) -> None:
     )
 
     # ── Métricas rápidas ──────────────────────────────────────────────────────
-    col_st, col_sc, col_cr = st.columns(3)
+    gut_max = _gut_maximo_ativo(client_id, a.get("id", ""))
+
+    col_st, col_sc, col_cr, col_gut = st.columns(4)
     with col_st:
         st.markdown(
             f"<div style='background:{cfg['bg']};border:1px solid {cfg['border']};"
@@ -1005,7 +1367,9 @@ def _render_detalhe(a: dict, mock: bool) -> None:
             f"<p style='font-size:0.67rem;color:{COLOR_MUTED};margin:0 0 4px;"
             f"text-transform:uppercase;letter-spacing:.06em;'>Score de Saúde</p>"
             f"<p style='font-size:1.45rem;font-weight:900;color:{sc};margin:0;line-height:1;'>"
-            f"{score}<span style='font-size:0.82rem;font-weight:500;color:{COLOR_MUTED};'>/100</span></p>"
+            f"{score}<span style='font-size:0.82rem;font-weight:500;color:{COLOR_MUTED};'>/100</span>"
+            f"<span style='font-size:0.72rem;font-weight:700;color:{sc};margin-left:6px;'>"
+            f"{_score_band(score)}</span></p>"
             f"<div style='background:#E2E8F0;border-radius:4px;height:5px;margin-top:6px;overflow:hidden;'>"
             f"<div style='height:100%;border-radius:4px;background:{sc};width:{score}%;'></div></div>"
             f"</div>",
@@ -1022,6 +1386,40 @@ def _render_detalhe(a: dict, mock: bool) -> None:
             f"</div>",
             unsafe_allow_html=True,
         )
+    with col_gut:
+        if gut_max:
+            _gbg, _gtc = STATUS_REGISTRY["gut"].get(gut_max["prioridade"].lower(), (COLOR_MUTED, "#fff"))
+            st.markdown(
+                f"<div style='background:{_gbg}22;border:1px solid {_gbg}55;"
+                f"border-radius:12px;padding:1rem 1.2rem;'>"
+                f"<p style='font-size:0.67rem;color:{COLOR_MUTED};margin:0 0 4px;"
+                f"text-transform:uppercase;letter-spacing:.06em;'>Prioridade GUT</p>"
+                f"<p style='font-size:1.05rem;font-weight:800;color:{_gbg};"
+                f"-webkit-text-fill-color:{_gbg};margin:0;'>🎯 {gut_max['prioridade']}</p>"
+                f"<p style='font-size:0.72rem;color:{COLOR_MUTED};margin:2px 0 0;'>"
+                f"GUT máximo: {gut_max['score']}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-radius:12px;padding:1rem 1.2rem;'>"
+                f"<p style='font-size:0.67rem;color:{COLOR_MUTED};margin:0 0 4px;"
+                f"text-transform:uppercase;letter-spacing:.06em;'>Prioridade GUT</p>"
+                f"<p style='font-size:0.85rem;color:{COLOR_MUTED};margin:0;'>Não definida</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:6px 0 0;font-style:italic;'>"
+        f"ℹ️ O score de saúde é uma visão consolidada para priorização técnica e "
+        f"não substitui a avaliação da equipe Pred.IO."
+        + (f" {GUT_DISCLAIMER}" if gut_max else "")
+        + "</p>",
+        unsafe_allow_html=True,
+    )
 
     # ── Dados técnicos ────────────────────────────────────────────────────────
     st.markdown(
@@ -1061,6 +1459,14 @@ def _render_detalhe(a: dict, mock: bool) -> None:
     if componentes:
         st.markdown(_section("⚙️ Componentes da Unidade"), unsafe_allow_html=True)
         _render_componentes(componentes)
+
+    # ── Prioridades Técnicas ──────────────────────────────────────────────────
+    if not mock:
+        _render_prioridades_tecnicas(client_id, a.get("id", ""))
+
+    # ── Manutenções Prioritárias ─────────────────────────────────────────────
+    if not mock:
+        _render_manutencoes_prioritarias(client_id, a.get("id", ""))
 
     # ── Plano de manutenção ───────────────────────────────────────────────────
     plano = a.get("plano_manutencao", [])
@@ -1107,6 +1513,9 @@ def _render_detalhe(a: dict, mock: bool) -> None:
                     _render_plano_manutencao(plano_sheets)
         except Exception:
             pass
+
+    if not mock:
+        _render_execucoes_recentes(current_client_id(), a.get("id", ""))
 
     # ── Análise de óleo ───────────────────────────────────────────────────────
     analise = a.get("analise_oleo") if a.get("analise_oleo_aplicavel") else None
@@ -1163,7 +1572,160 @@ def _render_detalhe(a: dict, mock: bool) -> None:
             unsafe_allow_html=True,
         )
 
+    # ── Relatórios · Alertas · Chamados vinculados a este ativo ────────────────
+    if not mock:
+        st.markdown(_section("🔗 Relacionados a este ativo"), unsafe_allow_html=True)
+        col_rel, col_al, col_ch = st.columns(3)
+        with col_rel:
+            _render_relatorios_ativo(client_id, a.get("id", ""))
+        with col_al:
+            _render_alertas_ativo(client_id, a.get("id", ""))
+        with col_ch:
+            _render_chamados_ativo(client_id, a.get("id", ""))
+
+    # ── Ações Rápidas ────────────────────────────────────────────────────────
+    st.markdown(_section("⚡ Ações Rápidas"), unsafe_allow_html=True)
+    ac1, ac2, ac3, ac4 = st.columns(4)
+    with ac1:
+        if st.button("📁 Ver relatórios", key=f"acao_rel_{a['id']}", use_container_width=True):
+            st.session_state["portal_page"] = "relatorios"
+            st.rerun()
+    with ac2:
+        if st.button("🔧 Abrir chamado", key=f"acao_cham_{a['id']}", use_container_width=True):
+            st.session_state["portal_page"] = "chamados"
+            st.rerun()
+    with ac3:
+        if st.button("📅 Ver manutenção", key=f"acao_man_{a['id']}", use_container_width=True):
+            st.session_state["portal_page"] = "manutencao"
+            st.rerun()
+    with ac4:
+        if st.button("🤖 Perguntar ao Assistente", key=f"acao_ast_{a['id']}", use_container_width=True):
+            st.session_state["assistente_ativo_contexto"] = a["nome"]
+            st.session_state["portal_page"] = "assistente"
+            st.rerun()
+
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
+
+
+def _render_relatorios_ativo(client_id: str, ativo_id: str) -> None:
+    """Relatórios do ativo — só publicados (get_technical_reports staff=False
+    já filtra Status=='Publicado'), nunca rascunho/em revisão/obs. internas."""
+    app_section_title("Últimos Relatórios", "📁")
+    try:
+        from sheets import get_technical_reports
+        df = get_technical_reports(client_id=client_id, staff=False)
+        if not df.empty and "Ativo_Id" in df.columns and ativo_id:
+            df = df[df["Ativo_Id"].astype(str).str.strip() == ativo_id]
+        if df.empty:
+            st.markdown(
+                f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>"
+                f"Nenhum relatório vinculado a este ativo ainda.</p>",
+                unsafe_allow_html=True,
+            )
+            return
+        for _, row in df.head(3).iterrows():
+            titulo = str(row.get("Titulo", "")).strip() or "Relatório"
+            tipo   = str(row.get("Tipo_Servico", "")).strip()
+            sev    = str(row.get("Severidade", "Normal")).strip()
+            data   = str(row.get("Data_Relatorio", "")).strip()
+            resumo = str(row.get("Resumo", "")).strip()
+            url    = str(row.get("Arquivo_Url", "")).strip()
+            meta = "  ·  ".join(filter(None, [tipo, data]))
+            st.markdown(
+                f"<p style='font-size:0.8rem;color:{COLOR_NAVY};font-weight:700;margin:8px 0 1px;'>"
+                f"• {titulo} {status_badge(sev, 'saude_ativo')}</p>"
+                + (f"<p style='font-size:0.71rem;color:{COLOR_MUTED};margin:0 0 2px 12px;'>{meta}</p>" if meta else "")
+                + (f"<p style='font-size:0.75rem;color:#475569;margin:0 0 2px 12px;'>{resumo[:140]}</p>" if resumo and resumo.lower() not in ("", "nan") else ""),
+                unsafe_allow_html=True,
+            )
+            if url and url.lower() not in ("", "nan", "none"):
+                st.link_button("📄 Ver relatório", url, key=f"rel_ativo_{ativo_id}_{titulo[:10]}")
+    except Exception:
+        st.markdown(
+            f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>Indisponível no momento.</p>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_alertas_ativo(client_id: str, ativo_id: str) -> None:
+    app_section_title("Alertas", "⚠️")
+    try:
+        from sheets import get_alertas_sv
+        df = get_alertas_sv(client_id)
+        if not df.empty and "Ativo_Id" in df.columns and ativo_id:
+            df = df[df["Ativo_Id"].astype(str).str.strip() == ativo_id]
+        if df.empty:
+            st.markdown(
+                f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>"
+                f"Nenhum alerta para este ativo.</p>",
+                unsafe_allow_html=True,
+            )
+            return
+        for _, row in df.head(3).iterrows():
+            titulo = str(row.get("Titulo", "")).strip() or "Alerta"
+            prio   = str(row.get("Prioridade", "Média")).strip()
+            data   = str(row.get("Data", row.get("Criado_Em", ""))).strip()
+            acao   = str(row.get("Descricao", "")).strip()
+            st.markdown(
+                f"<p style='font-size:0.8rem;color:{COLOR_NAVY};font-weight:700;margin:8px 0 1px;'>"
+                f"• {titulo} {status_badge(prio, 'prioridade')}</p>"
+                + (f"<p style='font-size:0.71rem;color:{COLOR_MUTED};margin:0 0 2px 12px;'>{data}</p>" if data else "")
+                + (f"<p style='font-size:0.75rem;color:#475569;margin:0 0 2px 12px;'>💡 {acao[:140]}</p>"
+                   if acao and acao.lower() not in ("", "nan") else ""),
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        st.markdown(
+            f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>Indisponível no momento.</p>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_chamados_ativo(client_id: str, ativo_id: str) -> None:
+    """Chamados do ativo — última resposta usa get_mensagens_visiveis_cliente,
+    que já filtra Visivel_Cliente e nunca traz observação interna."""
+    app_section_title("Chamados", "🔧")
+    try:
+        from sheets import get_chamados_v2, get_mensagens_visiveis_cliente
+        df = get_chamados_v2(client_id=client_id, ativo_id=ativo_id) if ativo_id else pd.DataFrame()
+        if df.empty:
+            st.markdown(
+                f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>"
+                f"Nenhum chamado vinculado a este ativo.</p>",
+                unsafe_allow_html=True,
+            )
+            return
+        for _, row in df.head(3).iterrows():
+            chamado_id = str(row.get("Id", "")).strip()
+            titulo     = str(row.get("Titulo", "")).strip() or "Chamado técnico"
+            status     = str(row.get("Status", "")).strip() or "Aberto"
+
+            ultima = ""
+            try:
+                msgs = get_mensagens_visiveis_cliente(chamado_id, client_id=client_id)
+                if not msgs.empty:
+                    m = msgs.iloc[-1]
+                    autor = str(m.get("Autor", "")).strip() or "Pred.IO"
+                    texto = str(m.get("Mensagem", "")).strip()[:100]
+                    ultima = f"{autor}: {texto}"
+            except Exception:
+                pass
+
+            st.markdown(
+                f"<p style='font-size:0.8rem;color:{COLOR_NAVY};font-weight:700;margin:8px 0 1px;'>"
+                f"• {titulo} {status_badge(status, 'chamado')}</p>"
+                + (f"<p style='font-size:0.75rem;color:#475569;margin:0 0 2px 12px;'>💬 {ultima}</p>"
+                   if ultima else ""),
+                unsafe_allow_html=True,
+            )
+            if chamado_id and st.button("Ver chamado →", key=f"cham_ativo_{chamado_id}"):
+                st.session_state["portal_page"] = "chamados"
+                st.rerun()
+    except Exception:
+        st.markdown(
+            f"<p style='color:{COLOR_MUTED};font-size:0.78rem;'>Indisponível no momento.</p>",
+            unsafe_allow_html=True,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -2,14 +2,16 @@
 import streamlit as st
 from auth import require_staff
 from sheets import get_all_chamados, delete_chamado
-from ui import (sv_page_header, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
-                COLOR_MUTED, STATUS_CFG, PRIORIDADE_CFG)
+from ui import (sv_page_header, status_badge, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
+                COLOR_MUTED, COLOR_DANGER, STATUS_CFG, PRIORIDADE_CFG)
+from gut import calculate_gut, GUT_DISCLAIMER
 
 _TODOS_STATUS = [
     "Todos", "Aberto", "Em análise", "Em andamento",
     "Aguardando cliente", "Concluído", "Cancelado", "Reaberto",
 ]
 _TODAS_PRIO = ["Todas", "Crítica", "Alta", "Média", "Baixa"]
+_TODAS_GUT  = ["Todas", "Crítica", "Alta", "Moderada", "Baixa"]
 _TODAS_ORIGENS = [
     "Todas", "Portal do Cliente", "Assistente Técnico",
     "Alerta", "Relatório Técnico", "Plano de Manutenção", "Supervisão Pred.IO",
@@ -57,7 +59,7 @@ def render() -> None:
             f_prioridade  = st.selectbox("Prioridade", _TODAS_PRIO)
             f_origem      = st.selectbox("Origem", _TODAS_ORIGENS)
 
-        c4, c5, c6 = st.columns(3)
+        c4, c5, c6, c7 = st.columns(4)
         with c4:
             f_texto    = st.text_input("🔎 Busca livre", placeholder="Título, descrição…")
             f_responsavel = st.text_input("Responsável", placeholder="Nome do técnico")
@@ -65,6 +67,8 @@ def render() -> None:
             f_data_ini = st.date_input("Data início", value=None)
         with c6:
             f_data_fim = st.date_input("Data fim", value=None)
+        with c7:
+            f_gut = st.selectbox("Prioridade GUT", _TODAS_GUT)
 
     filtros = {
         "cliente":     f_cliente.strip() or None,
@@ -91,45 +95,56 @@ def render() -> None:
     if filtros_ativos.get("origem") and not df.empty and "Origem" in df.columns:
         df = df[df["Origem"].str.strip() == filtros_ativos["origem"]]
 
+    # ── GUT: calcula, filtra e ordena (Crítica → Alta → Moderada → Baixa → sem GUT) ──
+    linhas = []
+    for _, row in df.iterrows():
+        gut_r = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+        linhas.append({"row": row, "gut": gut_r})
+    if f_gut != "Todas":
+        linhas = [l for l in linhas if l["gut"] and l["gut"]["prioridade"] == f_gut]
+    _GUT_RANK = {"Crítica": 0, "Alta": 1, "Moderada": 2, "Baixa": 3}
+    linhas.sort(key=lambda l: _GUT_RANK.get(l["gut"]["prioridade"], 4) if l["gut"] else 4)
+
     # ── Métricas rápidas ──────────────────────────────────────────────────────
-    if not df.empty:
-        n_aberto  = len(df[df.get("Status", df.columns[0]).str.strip() == "Aberto"]) \
-                    if "Status" in df.columns else 0
-        n_critico = len(df[df.get("Prioridade", df.columns[0]).str.strip() == "Crítica"]) \
-                    if "Prioridade" in df.columns else 0
-        mc = st.columns(3)
+    if linhas:
+        n_aberto     = sum(1 for l in linhas if str(l["row"].get("Status", "")).strip() == "Aberto")
+        n_critico    = sum(1 for l in linhas if str(l["row"].get("Prioridade", "")).strip() == "Crítica")
+        n_gut_critico = sum(1 for l in linhas if l["gut"] and l["gut"]["prioridade"] == "Crítica")
+        mc = st.columns(4)
         for col, (label, val, cor) in zip(mc, [
-            ("Total", len(df), COLOR_NAVY),
+            ("Total", len(linhas), COLOR_NAVY),
             ("Abertos", n_aberto, "#EF4444"),
-            ("Críticos", n_critico, "#7C3AED"),
+            ("Prioridade Crítica", n_critico, "#7C3AED"),
+            ("Críticos por GUT", n_gut_critico, "#EF4444"),
         ]):
             with col:
                 st.markdown(
                     f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
                     f"border-left:3px solid {cor};border-radius:8px;"
                     f"padding:0.6rem 1rem;text-align:center;margin-bottom:0.5rem;'>"
-                    f"<p style='font-size:0.65rem;color:{COLOR_MUTED};margin:0 0 2px;"
+                    f"<p style='font-size:0.62rem;color:{COLOR_MUTED};margin:0 0 2px;"
                     f"text-transform:uppercase;'>{label}</p>"
                     f"<p style='font-size:1.4rem;font-weight:900;color:{cor};margin:0;'>{val}</p>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+        st.caption(f"ℹ️ {GUT_DISCLAIMER}")
 
     st.markdown(
         f"<p style='color:{COLOR_MUTED};font-size:0.85rem;margin:0.25rem 0 0.75rem;'>"
-        f"{len(df)} chamado(s) encontrado(s)</p>",
+        f"{len(linhas)} chamado(s) encontrado(s)</p>",
         unsafe_allow_html=True,
     )
 
-    if df.empty:
+    if not linhas:
         st.info("Nenhum chamado encontrado com os filtros aplicados.")
         return
 
-    for idx, (_, row) in enumerate(df.iterrows()):
-        _render_card(row, idx)
+    for idx, l in enumerate(linhas):
+        _render_card(l["row"], idx, l["gut"])
 
 
-def _render_card(row, idx: int) -> None:
+def _render_card(row, idx: int, gut_r: dict | None = None) -> None:
     chamado_id  = str(row.get("Id",              "")).strip()
     titulo      = str(row.get("Titulo",          "Sem título")).strip()
     empresa     = str(row.get("Empresa",         "")).strip()
@@ -172,12 +187,24 @@ def _render_card(row, idx: int) -> None:
     if vinculos:    rodape.append("🔗 " + " · ".join(vinculos))
     rodape_str = "  ·  ".join(rodape)
 
+    gut_critico = bool(gut_r and gut_r["prioridade"] == "Crítica")
+    card_border = f"2px solid {COLOR_DANGER if gut_critico else 'transparent'}"
+    gut_badge_html = (
+        f"{status_badge(gut_r['prioridade'], 'gut')}"
+        f"<span style='font-size:0.65rem;color:{COLOR_MUTED};margin-left:2px;'>GUT {gut_r['score']}</span>"
+        if gut_r else ""
+    )
+
     with st.container():
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"outline:{card_border};outline-offset:-1px;"
             f"border-left:5px solid {pr_bg};border-radius:12px;"
             f"padding:14px 18px 10px;margin-bottom:4px;'>"
-            f"<div style='display:flex;justify-content:space-between;"
+            + (f"<p style='color:{COLOR_DANGER};font-size:0.7rem;font-weight:800;"
+               f"text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px;'>"
+               f"🚨 Prioridade GUT Crítica — tratar primeiro</p>" if gut_critico else "")
+            + f"<div style='display:flex;justify-content:space-between;"
             f"align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px;'>"
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:1rem;"
             f"line-height:1.3;'>{titulo}</span>"
@@ -188,6 +215,7 @@ def _render_card(row, idx: int) -> None:
             f"<span style='background:{st_bg};color:{st_tc};-webkit-text-fill-color:{st_tc};"
             f"font-size:0.72rem;font-weight:700;padding:3px 12px;border-radius:20px;'>"
             f"{status}</span>"
+            f"{gut_badge_html}"
             f"</div></div>"
             + (f"<p style='color:#64748B;font-size:0.82rem;margin:0 0 6px;'>{meta_str}</p>"
                if meta_str else "")

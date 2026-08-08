@@ -10,7 +10,9 @@ except ImportError:
 import streamlit as st
 from auth import current_client_id, current_empresa
 from sheets import get_ativos
-from ui import empty_state, COLOR_NAVY, COLOR_BG, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
+from ui import (empty_state, COLOR_NAVY, COLOR_BG, COLOR_CARD, COLOR_BORDER,
+                COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
+                COLOR_URGENT, COLOR_INFO, COLOR_ACCENT, COLOR_NEUTRAL)
 
 TIPOS_LAUDOS = [
     ("ordem de servico",    "Ordem de Serviço"),
@@ -114,13 +116,13 @@ def render(logo_b64: str) -> None:
 
     try:
         ativos = get_ativos(client_id)
-    except Exception as e:
-        st.error(f"Erro ao carregar ativos: {e}")
+    except Exception:
+        st.error("🔒 Não foi possível carregar seus ativos agora. Tente novamente em instantes.")
         return
 
     if ativos.empty:
         _render_empty_banner(empresa)
-        empty_state("Nenhum ativo cadastrado. Adicione equipamentos na aba 'Ativos' da planilha.")
+        empty_state("Nenhum ativo cadastrado ainda. Assim que a equipe Pred.IO cadastrar seus equipamentos, eles aparecerão aqui.")
         return
 
     # Colunas mínimas obrigatórias — preenche com vazio se faltar
@@ -130,9 +132,8 @@ def render(logo_b64: str) -> None:
 
     try:
         _render_painel(ativos, empresa, client_id)
-    except Exception as e:
-        st.error(f"Erro ao renderizar o painel: {e}")
-        st.exception(e)
+    except Exception:
+        st.error("🔒 Não foi possível exibir o painel agora. Tente novamente em instantes.")
 
 
 def _render_painel(ativos, empresa: str, client_id: str) -> None:
@@ -159,7 +160,7 @@ def _render_painel(ativos, empresa: str, client_id: str) -> None:
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
     # ── Visão Executiva ───────────────────────────────────────────────────────
-    _render_visao_executiva(empresa)
+    _render_visao_executiva(ativos, empresa)
 
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0 1rem;'/>",
@@ -373,8 +374,7 @@ def _render_card(row: pd.Series, has_ns: bool) -> None:
         f"Índice de saúde: <b style='color:{text};'>{health}%</b></p>"
     )
 
-    st.markdown(
-        f"""<div style="background:{bg};
+    card_html = f"""<div style="background:{bg};
             border:1px solid {border};border-left:6px solid {dot};
             border-radius:14px;padding:1rem 1.4rem 0.9rem;margin-bottom:10px;
             box-shadow:0 3px 12px {dot}18;">
@@ -399,7 +399,12 @@ def _render_card(row: pd.Series, has_ns: bool) -> None:
           {health_bar}
           {meta_html}
           <p style="margin:4px 0 0;color:#475569;font-size:0.84rem;line-height:1.65;">{det}</p>
-        </div>""",
+        </div>"""
+    # Linhas em branco de interpolações vazias (ex.: {meta_html} sem tipo/data)
+    # cortam o bloco HTML do Markdown do Streamlit no meio — ver page_ativos.py.
+    card_html = "\n".join(line for line in card_html.splitlines() if line.strip())
+    st.markdown(
+        card_html,
         unsafe_allow_html=True,
     )
     if link and link.lower() not in ("", "nan", "none"):
@@ -492,59 +497,6 @@ def _render_summary(ativos: pd.DataFrame, has_ns: bool) -> None:
     )
 
 
-def _render_alertas_importantes() -> None:
-    """Card de alertas não lidos — máx 3 itens, link para Central de Alertas."""
-    from page_alertas import _ALERTAS_MOCK, _TIPO_CFG, _PRIO_CFG
-    from ui import COLOR_CARD, COLOR_BORDER as CB, COLOR_NAVY as CN, COLOR_MUTED as CM
-
-    nao_lidos = [a for a in _ALERTAS_MOCK if a.get("status") == "nao_lido"]
-    _PRIO_ORD = {"Alta": 0, "Média": 1, "Baixa": 2}
-    top3 = sorted(nao_lidos, key=lambda a: _PRIO_ORD.get(a.get("prioridade", "Baixa"), 3))[:3]
-
-    total_nao_lidos = len(nao_lidos)
-    if total_nao_lidos == 0:
-        return
-
-    itens_html = ""
-    for a in top3:
-        tcfg    = _TIPO_CFG.get(a.get("tipo", ""), {"icone": "🔔", "label": ""})
-        pcfg    = _PRIO_CFG.get(a.get("prioridade", "Baixa"), _PRIO_CFG["Baixa"])
-        dot_cor = pcfg["dot"]
-        itens_html += (
-            f"<div style='display:flex;align-items:center;gap:8px;padding:7px 0;"
-            f"border-bottom:1px solid {CB};'>"
-            f"<span style='font-size:1rem;flex-shrink:0;'>{tcfg['icone']}</span>"
-            f"<span style='flex:1;font-size:0.8rem;font-weight:600;color:{CN};"
-            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>"
-            f"{a.get('titulo','')}</span>"
-            f"<span style='width:8px;height:8px;border-radius:50%;flex-shrink:0;"
-            f"background:{dot_cor};'></span>"
-            f"</div>"
-        )
-
-    st.markdown(
-        f"<div style='background:{COLOR_CARD};border:1px solid {CB};"
-        f"border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;'>"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:center;margin-bottom:0.6rem;'>"
-        f"<p style='font-weight:700;color:{CN};font-size:0.9rem;margin:0;'>"
-        f"🔔 Alertas Importantes</p>"
-        f"<span style='background:#EF4444;color:#fff;-webkit-text-fill-color:#fff;"
-        f"font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:10px;'>"
-        f"{total_nao_lidos} não lido{'s' if total_nao_lidos != 1 else ''}</span>"
-        f"</div>"
-        f"{itens_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    if st.button("🔔 Ver todos os alertas →", key="farois_ver_alertas"):
-        st.session_state["portal_page"] = "alertas"
-        st.rerun()
-
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
-
 def _render_proximas_manutencoes() -> None:
     """Card discreto de próximas manutenções — máx 3 itens."""
     from page_ativos import _PLANO_MOCK_COMPRESSOR, _pm_calc_status, _pm_scfg, _norm
@@ -596,60 +548,24 @@ def _render_proximas_manutencoes() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VISÃO EXECUTIVA — mock data + funções de renderização
+# VISÃO EXECUTIVA — funções de renderização (dados reais do cliente)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_EXEC_MOCK = {
-    "client_id": "coca-cola",
-    # Métricas dos 6 cards
-    "ativos_total":              1,
-    "status_geral":              "Atenção",
-    "status_geral_desc":         "Unidade Compressora 200 VLD requer acompanhamento",
-    "componentes_criticos":      1,
-    "componentes_criticos_desc": "Bomba de Óleo M60P em condição crítica",
-    "manutencoes_proximas":      2,
-    "manutencoes_desc":          "Análise de óleo e inspeção do filtro em 320 h",
-    "chamados_abertos":          1,
-    "chamados_desc":             "Chamado técnico em análise",
-    "relatorios_recentes_n":     0,
-    "relatorios_desc":           "Nenhum relatório publicado ainda",
-    # Pontos de atenção e próximas ações são carregados dinamicamente — ver _render_visao_executiva
-    "pontos_atencao": [],
-    "proximas_acoes": [],
-    # Resumo técnico
-    "resumo_tecnico": (
-        "A Unidade Compressora Parafuso 200 VLD apresenta status de Atenção, com score de saúde em 72/100. "
-        "O componente Bomba de Óleo M60P está em condição crítica e há tarefas preventivas próximas do "
-        "vencimento por horímetro. Recomenda-se manter acompanhamento integrado entre vibração, análise de "
-        "óleo, temperatura, operação e chamados técnicos."
-    ),
-    # Relatórios recentes (carregados dinamicamente do Sheets — ver _render_visao_executiva)
-    "relatorios": [],
-    # Chamados em andamento
-    "chamados": [
-        {
-            "titulo":     "Acompanhamento da Bomba de Óleo M60P",
-            "status":     "Em análise",
-            "prioridade": "Alta",
-            "descricao":  "Chamado aberto para acompanhamento da condição crítica do componente vinculado à Unidade Compressora.",
-        },
-    ],
-}
-
+# Cores alinhadas ao Design System (STATUS_REGISTRY em ui.py)
 _EXEC_COR = {
-    "Atenção":     "#F59E0B",
-    "Crítico":     "#EF4444",
-    "Bom":         "#10B981",
-    "Crítica":     "#EF4444",
+    "Atenção":     COLOR_WARNING,
+    "Crítico":     COLOR_DANGER,
+    "Bom":         COLOR_SUCCESS,
+    "Crítica":     COLOR_DANGER,
     "Alta":        "#F97316",
-    "Média":       "#F59E0B",
+    "Média":       COLOR_WARNING,
     "Baixa":       "#64748B",
-    "Em análise":  "#3B82F6",
-    "Aberto":      "#F97316",
-    "Em andamento":"#8B5CF6",
-    "Concluído":   "#10B981",
+    "Em análise":  COLOR_ACCENT,
+    "Aberto":      COLOR_INFO,
+    "Em andamento":COLOR_NAVY,
+    "Concluído":   COLOR_SUCCESS,
 }
-_EXEC_COR_DEFAULT = "#94A3B8"
+_EXEC_COR_DEFAULT = COLOR_NEUTRAL
 
 
 def _build_pontos_atencao(client_id: str) -> list:
@@ -672,135 +588,144 @@ def _build_pontos_atencao(client_id: str) -> list:
         return []
 
 
-def _build_proximas_acoes() -> list:
-    """Calcula próximas ações usando o horímetro real salvo no Sheets."""
+def _build_proximas_acoes(client_id: str) -> list:
+    """Próximas ações preventivas reais — a partir do plano de manutenção do
+    cliente (mesma fonte de page_manutencao.py), não mais de dado fictício."""
     try:
-        from page_ativos import _PLANO_MOCK_COMPRESSOR, _HORIMETRO_ATUAL_MOCK, _pm_calc_status, _norm, _MOCK
-        from sheets import get_horimetro
-        h = get_horimetro("AT-2026-001")
-        if h is None:
-            h = _HORIMETRO_ATUAL_MOCK
-        plano = [{**t, "horimetro_atual": h} for t in _PLANO_MOCK_COMPRESSOR]
+        from sheets import get_maintenance_tasks, calc_task_status, get_horimetro
+        df = get_maintenance_tasks(client_id=client_id, staff=False)
+        if df.empty:
+            return []
 
-        # Identificação do ativo principal
-        ativo       = _MOCK[0] if _MOCK else {}
-        ativo_tag   = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
-        ativo_model = str(ativo.get("modelo", "")).strip()
-        ativo_ns    = str(ativo.get("numero_serie", "")).strip()
-        ativo_label = f"{ativo_tag} {ativo_model}".strip()
-        ativo_id    = ativo_ns if ativo_ns and ativo_ns.lower() not in ("", "nan") else ativo_tag
+        order = {"Vencida": 0, "Próxima do vencimento": 1}
+        rows = []
+        for _, row in df.iterrows():
+            task = row.to_dict()
+            aid  = str(task.get("Ativo_Id", "")).strip()
+            h_at = 0
+            if aid:
+                try:
+                    h = get_horimetro(aid)
+                    h_at = h if h is not None else 0
+                except Exception:
+                    pass
+            status = calc_task_status(task, h_at)
+            if status not in order:
+                continue
 
-        horimetro  = sorted(
-            [t for t in plano if t.get("tipo") == "horimetro"],
-            key=lambda x: x.get("vencimento_horas", 9999) - x.get("horimetro_atual", 0),
-        )
-        calendario = [t for t in plano if t.get("tipo") == "calendario"]
-        acoes = []
-        for t in (horimetro[:2] + calendario[:1])[:3]:
-            tipo_t = t.get("tipo", "")
-            if tipo_t == "horimetro":
-                restam   = max(0, t.get("vencimento_horas", 0) - h)
-                prazo    = f"em {restam:,}h".replace(",", ".")
-                urgencia = "proximo" if _norm(_pm_calc_status(t)) in (
-                    "proximo do vencimento", "vencido") else "normal"
+            tipo = str(task.get("Tipo_Manutencao", "")).strip()
+            if tipo in ("Horímetro", "Horimetro"):
+                prox_h = str(task.get("Proxima_Execucao_Horimetro", "")).strip()
+                try:
+                    restam = (max(0, int(float(prox_h)) - h_at)
+                              if prox_h and prox_h not in ("", "nan") else 0)
+                except (ValueError, TypeError):
+                    restam = 0
+                prazo      = f"em {restam:,}h".replace(",", ".")
+                tipo_label = "Preventiva por horímetro"
             else:
-                prazo    = t.get("proxima_data", "")
-                urgencia = "normal"
-            acoes.append({
-                "nome":        t.get("nome", ""),
+                prox_dt    = str(task.get("Proxima_Execucao_Data", "")).strip()
+                prazo      = prox_dt if prox_dt and prox_dt not in ("", "nan") else "em breve"
+                tipo_label = "Preventiva por calendário"
+
+            rows.append((order[status], {
+                "nome":        str(task.get("Nome_Tarefa", "")).strip() or "Tarefa preventiva",
                 "prazo":       prazo,
-                "tipo":        "Preventiva por horímetro" if tipo_t == "horimetro"
-                               else "Preventiva por calendário",
-                "urgencia":    urgencia,
-                "ativo_tag":   ativo_tag,
-                "ativo_model": ativo_model,
-                "ativo_ns":    ativo_ns,
-                "ativo_label": ativo_label,
-                "ativo_id":    ativo_id,
-            })
-        return acoes
+                "tipo":        tipo_label,
+                "urgencia":    "proximo",
+                "ativo_tag":   aid,
+                "ativo_ns":    "",
+                "ativo_label": aid or "Equipamento",
+            }))
+
+        rows.sort(key=lambda x: x[0])
+        return [r for _, r in rows[:6]]
     except Exception:
         return []
 
 
-def _build_componentes_alarme(client_id: str) -> list:
-    """Componentes em Crítico ou Atenção com identificação completa (nome, modelo, NS, ativo pai)."""
+def _build_componentes_alarme(ativos) -> list:
+    """Ativos do cliente em Crítico ou Atenção — a partir dos dados reais já
+    carregados em render() (não mais do ativo fictício de demonstração)."""
+    if ativos is None or ativos.empty:
+        return []
     try:
-        from page_ativos import _MOCK
+        has_ns = "Ns" in ativos.columns
         alarmes = []
-        for ativo in _MOCK:
-            ativo_tag   = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
-            ativo_ns    = str(ativo.get("numero_serie", "")).strip()
-            ativo_model = str(ativo.get("modelo", "")).strip()
-            ativo_id = f"{ativo_tag} {ativo_model}".strip()
-            if ativo_ns and ativo_ns.lower() not in ("", "nan"):
-                ativo_id += f" — NS: {ativo_ns}"
-            else:
-                ativo_id += f" (tag: {ativo_tag})"
-            for comp in ativo.get("componentes", []):
-                cfg = get_status_cfg(str(comp.get("Status", "")))
-                if cfg["key"] not in ("Crítico", "Atenção"):
-                    continue
-                cns  = str(comp.get("numero_serie", "")).strip()
-                cmod = str(comp.get("modelo", "")).strip()
-                alarmes.append({
-                    "nome":         str(comp.get("nome", "")).strip(),
-                    "modelo":       cmod,
-                    "ns":           cns if cns and cns.lower() not in ("", "nan") else None,
-                    "tag":          ativo_tag,
-                    "status":       cfg["key"],
-                    "status_dot":   cfg["dot"],
-                    "status_label": cfg["label"],
-                    "ativo_id":     ativo_id,
-                })
+        for _, row in ativos.iterrows():
+            status_key = str(row.get("_status_key", "")).strip()
+            if status_key not in ("Crítico", "Atenção"):
+                continue
+            cfg = get_status_cfg(status_key)
+            tag = str(row.get("Tag", "")).strip()
+            ns  = str(row.get("Ns", "")).strip() if has_ns else ""
+            ns_valid = bool(ns and ns.lower() not in ("", "nan"))
+            ativo_id = f"{tag} — NS: {ns}" if ns_valid else f"{tag} (tag: {tag})"
+            alarmes.append({
+                "nome":         str(row.get("Equipamentos", "")).strip() or tag,
+                "modelo":       "",
+                "ns":           ns if ns_valid else None,
+                "tag":          tag,
+                "status":       cfg["key"],
+                "status_dot":   cfg["dot"],
+                "status_label": cfg["label"],
+                "ativo_id":     ativo_id,
+            })
         priority = {"Crítico": 0, "Atenção": 1}
         return sorted(alarmes, key=lambda x: priority.get(x["status"], 2))
     except Exception:
         return []
 
 
-def _build_resumo_tecnico(client_id: str) -> str:
-    """Resumo técnico dinâmico com identificação de ativos (NS ou tag) e componentes críticos."""
+def _build_resumo_tecnico(ativos) -> str:
+    """Resumo técnico dinâmico a partir dos ativos reais do cliente (um
+    parágrafo por ativo, agrupado por Tag/Nº de série — mesmo agrupamento
+    usado no restante da página)."""
+    if ativos is None or ativos.empty:
+        return "Nenhum ativo cadastrado ainda para gerar o resumo técnico."
     try:
-        from page_ativos import _MOCK, _HORIMETRO_ATUAL_MOCK
-        from sheets import get_horimetro
+        has_ns     = "Ns" in ativos.columns
+        group_cols = ["Tag", "Ns"] if has_ns else ["Tag"]
         parts = []
-        for ativo in _MOCK:
-            tag     = str(ativo.get("Tag", ativo.get("nome", ""))).strip()
-            modelo  = str(ativo.get("modelo", "")).strip()
-            ns      = str(ativo.get("numero_serie", "")).strip()
-            status  = str(ativo.get("Status", "")).strip()
-            score   = ativo.get("Score", "—")
-            try:
-                h = get_horimetro("AT-2026-001") or _HORIMETRO_ATUAL_MOCK
-            except Exception:
-                h = _HORIMETRO_ATUAL_MOCK
-            id_label = (
-                f"NS: {ns}" if ns and ns.lower() not in ("", "nan") else f"tag: {tag}"
-            )
-            label = f"{tag} {modelo}".strip()
-            criticos = [c for c in ativo.get("componentes", [])
-                        if get_status_cfg(str(c.get("Status", "")))["key"] == "Crítico"]
-            texto = (
-                f"{label} ({id_label}) — Status: {status}, "
-                f"Score de saúde: {score}/100, Horímetro: {h:,}h.".replace(",", ".")
-            )
-            if criticos:
-                comp_parts = []
-                for c in criticos:
-                    cns   = str(c.get("numero_serie", "")).strip()
-                    cmod  = str(c.get("modelo", "")).strip()
-                    cnome = str(c.get("nome", "")).strip()
-                    cid   = f"NS: {cns}" if cns and cns.lower() not in ("", "nan") else f"tag: {tag}"
-                    comp_parts.append(f"{cnome} ({cmod}, {cid})" if cmod else f"{cnome} ({cid})")
-                texto += f" Componente(s) crítico(s): {', '.join(comp_parts)}."
-            rec = str(ativo.get("recomendacao", "")).strip()
-            if rec:
-                texto += f" {rec}"
+        for keys, grupo in ativos.sort_values("_priority").groupby(group_cols, sort=False):
+            keys = keys if isinstance(keys, tuple) else (keys,)
+            tag  = str(keys[0]).strip()
+            ns   = str(keys[1]).strip() if has_ns else ""
+            pior = grupo.iloc[0]
+            status   = str(pior.get("_status_key", "")).strip() or "—"
+            equip    = str(pior.get("Equipamentos", "")).strip()
+            id_label = f"NS: {ns}" if ns and ns.lower() not in ("", "nan") else f"tag: {tag}"
+            label    = f"{tag} {equip}".strip()
+            texto    = f"{label} ({id_label}) — Status: {status}."
+            det = str(pior.get("Detalhes", "")).strip()
+            if det and det.lower() not in ("", "nan"):
+                texto += f" {det}"
             parts.append(texto)
-        return " ".join(parts) if parts else _EXEC_MOCK.get("resumo_tecnico", "")
+        return " ".join(parts)
     except Exception:
-        return _EXEC_MOCK.get("resumo_tecnico", "")
+        return ""
+
+
+def _build_chamados_abertos(client_id: str) -> list:
+    """Carrega chamados reais em aberto/análise do cliente (Chamados_v2)."""
+    try:
+        from sheets import get_chamados_v2
+        df = get_chamados_v2(client_id)
+        if df.empty or "Status" not in df.columns:
+            return []
+        abertos = df[df["Status"].astype(str).str.strip().str.lower().isin(
+            ["aberto", "em análise", "em analise", "aguardando cliente"])]
+        result = []
+        for _, row in abertos.head(3).iterrows():
+            result.append({
+                "titulo":     str(row.get("Titulo", "")).strip() or "Chamado técnico",
+                "status":     str(row.get("Status", "")).strip() or "Aberto",
+                "prioridade": str(row.get("Prioridade", "")).strip() or "Média",
+                "descricao":  str(row.get("Descricao", "")).strip(),
+            })
+        return result
+    except Exception:
+        return []
 
 
 def _build_relatorios_recentes(client_id: str) -> list:
@@ -820,27 +745,56 @@ def _build_relatorios_recentes(client_id: str) -> list:
         return []
 
 
-def _render_visao_executiva(empresa: str) -> None:
-    """Painel executivo completo: métricas, atenção, ações, resumo, relatórios, chamados."""
+def _render_visao_executiva(ativos, empresa: str) -> None:
+    """Painel executivo completo: métricas, atenção, ações, resumo, relatórios,
+    chamados — tudo a partir dos dados reais do cliente logado (recebe o mesmo
+    DataFrame `ativos` já carregado e enriquecido em _render_painel)."""
     client_id = current_client_id()
-    d = dict(_EXEC_MOCK)
+    d = {
+        "ativos_total": 0, "status_geral": "—", "status_geral_desc": "",
+        "componentes_criticos": 0, "componentes_criticos_desc": "Nenhum componente crítico",
+        "manutencoes_proximas": 0, "manutencoes_desc": "Nenhuma manutenção próxima",
+        "chamados_abertos": 0, "chamados_desc": "Nenhum chamado em aberto",
+        "relatorios_recentes_n": 0, "relatorios_desc": "Nenhum relatório publicado ainda",
+    }
+
+    has_ns = ativos is not None and "Ns" in ativos.columns
+    if ativos is not None and not ativos.empty:
+        group_cols = ["Tag", "Ns"] if has_ns else ["Tag"]
+        d["ativos_total"] = ativos.drop_duplicates(subset=group_cols).shape[0]
+
+        pior = ativos.sort_values("_priority").iloc[0]
+        tag  = str(pior.get("Tag", "")).strip()
+        equip = str(pior.get("Equipamentos", "")).strip()
+        ns   = str(pior.get("Ns", "")).strip() if has_ns else ""
+        id_label = f"NS: {ns}" if ns and ns.lower() not in ("", "nan") else f"tag: {tag}"
+        d["status_geral"]      = str(pior.get("_status_key", "")).strip() or "—"
+        d["status_geral_desc"] = f"{tag} {equip} — {id_label}".strip()
+
     d["pontos_atencao"]        = _build_pontos_atencao(client_id)
-    d["componentes_alarme"]    = _build_componentes_alarme(client_id)
-    proximas                   = _build_proximas_acoes()
+    d["componentes_alarme"]    = _build_componentes_alarme(ativos)
+    proximas                   = _build_proximas_acoes(client_id)
     d["proximas_acoes"]        = proximas
     d["manutencoes_proximas"]  = len(proximas)
-    d["manutencoes_desc"]      = (
-        ", ".join(a["nome"] for a in proximas[:2]) + " e outras"
-        if len(proximas) > 2 else
-        " e ".join(a["nome"] for a in proximas)
-        if proximas else "Nenhuma manutenção próxima"
-    )
+    if proximas:
+        d["manutencoes_desc"] = (
+            ", ".join(a["nome"] for a in proximas[:2]) + " e outras"
+            if len(proximas) > 2 else
+            " e ".join(a["nome"] for a in proximas)
+        )
     relatorios                 = _build_relatorios_recentes(client_id)
     d["relatorios"]            = relatorios
     d["relatorios_recentes_n"] = len(relatorios)
     d["relatorios_desc"]       = (f"{len(relatorios)} relatório(s) disponível(is)"
                                   if relatorios else "Nenhum relatório publicado ainda")
-    d["resumo_tecnico"]        = _build_resumo_tecnico(client_id)
+    d["resumo_tecnico"]        = _build_resumo_tecnico(ativos)
+
+    chamados               = _build_chamados_abertos(client_id)
+    d["chamados"]          = chamados
+    d["chamados_abertos"]  = len(chamados)
+    d["chamados_desc"]     = (
+        chamados[0]["titulo"] if chamados else "Nenhum chamado em aberto"
+    )
 
     alarmes   = d["componentes_alarme"]
     n_critico = sum(1 for a in alarmes if a["status"] == "Crítico")
@@ -851,21 +805,6 @@ def _render_visao_executiva(empresa: str) -> None:
             for a in alarmes if a["status"] == "Crítico"
         )[:120] or "Nenhum componente crítico"
     )
-
-    # Status geral com NS ou tag do equipamento
-    try:
-        from page_ativos import _MOCK
-        if _MOCK:
-            av  = _MOCK[0]
-            _ns  = str(av.get("numero_serie", "")).strip()
-            _mod = str(av.get("modelo", "")).strip()
-            _tag = str(av.get("Tag", av.get("nome", ""))).strip()
-            _st  = str(av.get("Status", d["status_geral"])).strip()
-            _id  = f"NS: {_ns}" if _ns and _ns.lower() not in ("", "nan") else f"tag: {_tag}"
-            d["status_geral"]      = _st
-            d["status_geral_desc"] = f"{_tag} {_mod} — {_id}"
-    except Exception:
-        pass
 
     st.markdown(
         f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1.1rem;"
@@ -907,7 +846,7 @@ def _render_exec_cards(d: dict) -> None:
         {
             "titulo":    "Ativos monitorados",
             "valor":     str(d["ativos_total"]),
-            "subtitulo": "Unidade Compressora acompanhada",
+            "subtitulo": "ativo acompanhado" if d["ativos_total"] == 1 else "ativos acompanhados",
             "cor":       COLOR_NAVY,
             "icone":     "⚙️",
         },
@@ -1029,9 +968,9 @@ def _render_componentes_alarme(d: dict) -> None:
 
 def _render_pontos_atencao(d: dict) -> None:
     PRIO_COR = {
-        "Crítica": "#EF4444",
+        "Crítica": COLOR_DANGER,
         "Alta":    "#F97316",
-        "Média":   "#F59E0B",
+        "Média":   COLOR_WARNING,
         "Baixa":   "#64748B",
     }
 
@@ -1216,17 +1155,18 @@ def _render_relatorios_recentes(d: dict) -> None:
 def _render_chamados_abertos(d: dict) -> None:
     chamados = d.get("chamados", [])
 
+    # Cores alinhadas ao domínio "chamado" do Design System (ui.STATUS_REGISTRY)
     PRIO_CFG = {
-        "Crítica": {"cor": "#EF4444", "bg": "#FEF2F2"},
+        "Crítica": {"cor": COLOR_DANGER, "bg": "#FEF2F2"},
         "Alta":    {"cor": "#F97316", "bg": "#FFF7ED"},
-        "Média":   {"cor": "#F59E0B", "bg": "#FFFBEB"},
+        "Média":   {"cor": COLOR_WARNING, "bg": "#FFFBEB"},
         "Baixa":   {"cor": "#64748B", "bg": "#F8FAFC"},
     }
     ST_CFG = {
-        "Em análise":   {"cor": "#3B82F6", "bg": "#EFF6FF"},
-        "Aberto":       {"cor": "#F97316", "bg": "#FFF7ED"},
-        "Em andamento": {"cor": "#8B5CF6", "bg": "#F5F3FF"},
-        "Concluído":    {"cor": "#10B981", "bg": "#F0FDF4"},
+        "Em análise":   {"cor": COLOR_ACCENT, "bg": "#F5F3FF"},
+        "Aberto":       {"cor": COLOR_INFO, "bg": "#EFF6FF"},
+        "Em andamento": {"cor": COLOR_NAVY, "bg": "#EEF2FF"},
+        "Concluído":    {"cor": COLOR_SUCCESS, "bg": "#F0FDF4"},
     }
 
     if not chamados:

@@ -76,6 +76,17 @@ REGRA ESPECIAL — TEMPERATURA DE DESCARGA:
 - Para compressor parafuso: referência até 90 °C.
 - Sempre perguntar ou considerar o tipo de compressor antes de avaliar temperatura.
 
+REGRA ESPECIAL — PRIORIZAÇÃO GUT (Gravidade x Urgência x Tendência):
+- GUT é uma ferramenta de priorização técnica (nota 1-5 em cada eixo, score = G x U x T, 1-125).
+- Faixas: 1-20 Baixa, 21-50 Moderada, 51-80 Alta, 81-125 Crítica.
+- Use os dados de "=== PRIORIZAÇÃO GUT ===" no contexto para responder perguntas como
+  "qual item é mais crítico", "qual ativo tem maior prioridade", "o que devo fazer primeiro".
+- GUT alto (Crítica/Alta) indica PRIORIDADE DE ANÁLISE — nunca autoriza sozinho overhaul,
+  troca de rolamento, parada de máquina ou qualquer intervenção automática.
+- Para item com prioridade GUT Crítica, sempre recomende abrir chamado técnico.
+- Frase obrigatória ao explicar GUT: "GUT é uma ferramenta de priorização e não substitui
+  a avaliação técnica da equipe Pred.IO."
+
 REGRA ESPECIAL — FONTE:
 - A fonte exibida ao cliente deve ser sempre "Pred.IO".
 - Não inventar informação técnica. Se não houver base suficiente, responder:
@@ -152,6 +163,8 @@ def _build_context_str(ctx: dict) -> str:
             linha = f"• {t.get('nome','')} [{t.get('tipo','')}] — Status: {t.get('status','')} — Ativo: {t.get('ativo_id','')}"
             if t.get("prox_data"):
                 linha += f" — Próx. data: {t['prox_data']}"
+            if t.get("gut_prioridade"):
+                linha += f" — GUT: {t['gut_score']} ({t['gut_prioridade']})"
             if t.get("recomendacao"):
                 linha += f"\n  Recomendação: {t['recomendacao']}"
             parts.append(linha)
@@ -219,6 +232,16 @@ def _build_context_str(ctx: dict) -> str:
             linha     = f"• {titulo} — Prioridade: {prioridade}"
             if descricao:
                 linha += f"\n  {descricao}"
+            parts.append(linha)
+
+    # Priorização GUT (Gravidade x Urgência x Tendência)
+    gut_itens = ctx.get("gut_summary", [])
+    if gut_itens:
+        parts.append("\n=== PRIORIZAÇÃO GUT (maior score primeiro) ===")
+        for g in gut_itens[:15]:
+            linha = f"• [{g.get('origem','')}] {g.get('titulo','')} — GUT {g.get('score','')} ({g.get('prioridade','')})"
+            if g.get("ativo_id"):
+                linha += f" — Ativo: {g['ativo_id']}"
             parts.append(linha)
 
     # Especificações

@@ -11,3 +11,9 @@ inspect_btn.py
 *.pyc
 __pycache__/
 .env
+
+# Config local do Claude Code — pode conter chaves/tokens usados em comandos locais
+.claude/
+
+# Backups de reparo de dados — dump operacional, não código-fonte
+backups/

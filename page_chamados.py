@@ -3,15 +3,18 @@ import streamlit as st
 from auth import current_client_id, current_email, current_empresa, current_nome
 from sheets import (
     abrir_chamado, abrir_chamado_v2, get_chamados, get_chamados_v2,
-    get_chamado_v2_by_id, update_chamado,
+    get_chamado_v2_by_id, update_chamado, update_chamado_gut,
     get_mensagens_visiveis_cliente, add_mensagem,
     get_ativos,
 )
 from ui import (
-    page_header, empty_state,
+    page_header, empty_state, status_badge,
     COLOR_NAVY, COLOR_BLUE, COLOR_CARD, COLOR_BORDER, COLOR_MUTED,
+    COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_INFO, COLOR_ACCENT,
+    COLOR_NEUTRAL,
     PRIORIDADES, PRIORIDADE_CFG, STATUS_CFG, badge,
 )
+from gut import calculate_gut, GUT_DISCLAIMER
 
 _CATEGORIAS = [
     "Dúvida técnica",
@@ -37,30 +40,33 @@ _STATUS_OPTS = [
     "Aguardando cliente", "Concluído", "Cancelado", "Reaberto",
 ]
 
-_STATUS_ABERTO_BADGE = ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B")
-_STATUS_ANALY_BADGE  = ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E")
-_STATUS_DONE_BADGE   = ("#10B981", "#F0FDF4", "#86EFAC", "#065F46")
+# Cores alinhadas ao domínio "chamado"/"prioridade" do Design System
+# (ui.STATUS_REGISTRY) — mesma cor de status em todo o portal.
 _STATUS_CFG2 = {
-    "aberto":              ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
-    "em análise":          ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "em analise":          ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "em andamento":        ("#3B82F6", "#EFF6FF", "#BFDBFE", "#1E40AF"),
-    "aguardando cliente":  ("#8B5CF6", "#F5F3FF", "#C4B5FD", "#4C1D95"),
-    "concluído":           ("#10B981", "#F0FDF4", "#86EFAC", "#065F46"),
-    "concluido":           ("#10B981", "#F0FDF4", "#86EFAC", "#065F46"),
-    "cancelado":           ("#64748B", "#F8FAFC", "#CBD5E1", "#475569"),
-    "reaberto":            ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
+    "aberto":              (COLOR_INFO,    "#EFF6FF", "#BFDBFE", "#1E40AF"),
+    "em análise":          (COLOR_ACCENT,  "#F5F3FF", "#C4B5FD", "#4C1D95"),
+    "em analise":          (COLOR_ACCENT,  "#F5F3FF", "#C4B5FD", "#4C1D95"),
+    "em andamento":        (COLOR_NAVY,    "#EEF2FF", "#C7D2FE", COLOR_NAVY),
+    "aguardando cliente":  (COLOR_WARNING, "#FFFBEB", "#FCD34D", "#92400E"),
+    "concluído":           (COLOR_SUCCESS, "#F0FDF4", "#86EFAC", "#065F46"),
+    "concluido":           (COLOR_SUCCESS, "#F0FDF4", "#86EFAC", "#065F46"),
+    "cancelado":           (COLOR_NEUTRAL, "#F8FAFC", "#CBD5E1", "#475569"),
+    "reaberto":            ("#EC4899",     "#FDF2F8", "#FBCFE8", "#9D174D"),
 }
 _PRIO_CFG2 = {
-    "crítica": ("#7C3AED", "#F5F3FF", "#C4B5FD", "#4C1D95"),
-    "critica": ("#7C3AED", "#F5F3FF", "#C4B5FD", "#4C1D95"),
-    "alta":    ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
-    "média":   ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "media":   ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "baixa":   ("#64748B", "#F8FAFC", "#CBD5E1", "#475569"),
+    "crítica": (COLOR_DANGER,  "#FEF2F2", "#FCA5A5", "#991B1B"),
+    "critica": (COLOR_DANGER,  "#FEF2F2", "#FCA5A5", "#991B1B"),
+    "alta":    ("#F97316",     "#FFF7ED", "#FED7AA", "#9A3412"),
+    "média":   (COLOR_WARNING, "#FFFBEB", "#FCD34D", "#92400E"),
+    "media":   (COLOR_WARNING, "#FFFBEB", "#FCD34D", "#92400E"),
+    "baixa":   (COLOR_NEUTRAL, "#F8FAFC", "#CBD5E1", "#475569"),
 }
-_STATUS_DEFAULT = ("#64748B", "#F8FAFC", "#CBD5E1", "#475569")
-_PRIO_DEFAULT   = ("#64748B", "#F8FAFC", "#CBD5E1", "#475569")
+_STATUS_DEFAULT = (COLOR_NEUTRAL, "#F8FAFC", "#CBD5E1", "#475569")
+_PRIO_DEFAULT   = (COLOR_NEUTRAL, "#F8FAFC", "#CBD5E1", "#475569")
+
+# Emoji de prioridade no título do expander — mesma semântica das cores acima
+_PRIO_EMOJI = {"crítica": "🔴", "critica": "🔴", "alta": "🟠",
+               "média": "🟡", "media": "🟡", "baixa": "⚪"}
 
 _ORIGEM_ICON = {
     "Portal do Cliente":    "🖥️",
@@ -185,6 +191,27 @@ def _render_form_novo(client_id: str, email: str, pre: dict) -> None:
         height=130, key="_ch_desc",
     )
 
+    with st.expander("🎯 Sua avaliação de prioridade (opcional)", expanded=False):
+        st.caption(
+            "Se você tiver conhecimento técnico, pode sugerir Gravidade/Urgência/Tendência "
+            "(1 a 5 cada). A equipe Pred.IO pode ajustar após avaliação técnica. "
+            f"{GUT_DISCLAIMER}"
+        )
+        gc1, gc2, gc3 = st.columns(3)
+        with gc1:
+            g_sug = st.selectbox("Gravidade", ["—", 1, 2, 3, 4, 5], key="_ch_g_sug")
+        with gc2:
+            u_sug = st.selectbox("Urgência", ["—", 1, 2, 3, 4, 5], key="_ch_u_sug")
+        with gc3:
+            t_sug = st.selectbox("Tendência", ["—", 1, 2, 3, 4, 5], key="_ch_t_sug")
+        preview = calculate_gut(g_sug, u_sug, t_sug) if "—" not in (g_sug, u_sug, t_sug) else None
+        if preview:
+            st.markdown(
+                status_badge(preview["prioridade"], "gut")
+                + f" <span style='font-size:0.8rem;color:{COLOR_MUTED};'>Score {preview['score']}</span>",
+                unsafe_allow_html=True,
+            )
+
     # Contexto vinculado (read-only, para transparência)
     report_id = pre.get("report_id", "")
     alert_id  = pre.get("alert_id", "")
@@ -237,6 +264,9 @@ def _render_form_novo(client_id: str, email: str, pre: dict) -> None:
         })
 
         if chamado_id:
+            if "—" not in (g_sug, u_sug, t_sug):
+                update_chamado_gut(chamado_id, g_sug, u_sug, t_sug,
+                                   "Avaliação inicial sugerida pelo cliente na abertura.")
             st.success(
                 f"✅ Chamado **#{chamado_id}** aberto! "
                 "Nossa equipe entrará em contato em breve."
@@ -270,12 +300,7 @@ def _render_lista(client_id: str) -> None:
         df = get_chamados(client_id)
 
     if df.empty:
-        empty_state("Nenhum chamado encontrado.")
-        st.markdown(
-            f"<p style='text-align:center;color:{COLOR_MUTED};font-size:0.85rem;'>"
-            f"Use a aba <b>➕ Novo Chamado</b> para abrir uma solicitação.</p>",
-            unsafe_allow_html=True,
-        )
+        empty_state("Nenhum chamado encontrado. Use a aba ➕ Novo Chamado para abrir uma solicitação.")
         return
 
     # Filtros simples
@@ -318,6 +343,10 @@ def _render_card_cliente(row, client_id: str) -> None:
     sc, sb, sbo, st_ = _STATUS_CFG2.get(status.lower(), _STATUS_DEFAULT)
     pc, pb, pbo, pt  = _PRIO_CFG2.get(prioridade.lower(), _PRIO_DEFAULT)
 
+    # GUT — cliente só vê prioridade e score (as notas G/U/T são uso técnico
+    # interno da Supervisão, ver page_sv_chamado_detalhe.py)
+    gut_res = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+
     meta = []
     if data_ab:   meta.append(f"📅 {data_ab}")
     if ativo_id:  meta.append(f"⚙️ {ativo_id}")
@@ -329,7 +358,8 @@ def _render_card_cliente(row, client_id: str) -> None:
         f"<span style='color:{COLOR_MUTED};font-size:0.77rem;'>{m}</span>" for m in meta
     )
 
-    label = f"{'🔴' if prioridade=='Crítica' else '🟡' if prioridade=='Alta' else '🔵'} {titulo}"
+    prio_emoji = _PRIO_EMOJI.get(prioridade.lower(), "🔵")
+    label = f"{prio_emoji} {titulo}"
     with st.expander(label, expanded=False):
         st.markdown(
             f"<div style='display:flex;gap:7px;flex-wrap:wrap;margin-bottom:7px;'>"
@@ -339,7 +369,10 @@ def _render_card_cliente(row, client_id: str) -> None:
             f"<span style='background:{pb};color:{pt};-webkit-text-fill-color:{pt};"
             f"border:1px solid {pbo};font-size:0.68rem;font-weight:700;"
             f"padding:2px 10px;border-radius:10px;'>{prioridade}</span>"
-            f"</div>"
+            + (f"{status_badge(gut_res['prioridade'], 'gut')}"
+               f"<span style='font-size:0.65rem;color:{COLOR_MUTED};margin-left:2px;'>"
+               f"GUT {gut_res['score']}</span>" if gut_res else "")
+            + f"</div>"
             f"<div style='margin-bottom:7px;'>{meta_html}</div>"
             + (f"<p style='color:#475569;font-size:0.86rem;background:#F8FAFC;"
                f"border-radius:8px;padding:9px 12px;margin:0 0 8px;line-height:1.5;'>"

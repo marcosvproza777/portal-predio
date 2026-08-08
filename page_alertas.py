@@ -1,72 +1,9 @@
 """Central de Alertas — portal do cliente."""
 import streamlit as st
 from auth import current_client_id
-from ui import page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
-
-# ── Mock de alertas ────────────────────────────────────────────────────────────
-# Estrutura preparada para filtragem por client_id quando houver banco real.
-_ALERTAS_MOCK = [
-    {
-        "id":         "alerta-001",
-        "client_id":  "coca-cola",
-        "tipo":       "manutencao_proxima",
-        "categoria":  "manutencao",
-        "titulo":     "Análise de óleo próxima do vencimento",
-        "descricao":  "A Unidade Compressora Parafuso 200 VLD está a 320 horas da próxima análise de óleo.",
-        "prioridade": "Média",
-        "status":     "nao_lido",
-        "data":       "21/06/2026",
-        "link_page":  "manutencao",
-    },
-    {
-        "id":         "alerta-002",
-        "client_id":  "coca-cola",
-        "tipo":       "ativo_critico",
-        "categoria":  "ativos",
-        "titulo":     "Bomba de Óleo M60P em condição crítica",
-        "descricao":  "O componente Bomba de Óleo M60P apresenta score crítico e requer acompanhamento técnico.",
-        "prioridade": "Alta",
-        "status":     "nao_lido",
-        "data":       "20/06/2026",
-        "link_page":  "ativos",
-    },
-    {
-        "id":         "alerta-003",
-        "client_id":  "coca-cola",
-        "tipo":       "relatorio_novo",
-        "categoria":  "relatorios",
-        "titulo":     "Novo relatório disponível",
-        "descricao":  "Relatório de Análise Preditiva — Unidade Compressora 200 VLD — Junho/2026 publicado.",
-        "prioridade": "Baixa",
-        "status":     "lido",
-        "data":       "17/06/2026",
-        "link_page":  "relatorios",
-    },
-    {
-        "id":         "alerta-004",
-        "client_id":  "coca-cola",
-        "tipo":       "chamado_respondido",
-        "categoria":  "chamados",
-        "titulo":     "Chamado respondido pela Pred.IO",
-        "descricao":  "A equipe Pred.IO respondeu o chamado sobre aumento de vibração.",
-        "prioridade": "Média",
-        "status":     "nao_lido",
-        "data":       "19/06/2026",
-        "link_page":  "chamados",
-    },
-    {
-        "id":         "alerta-005",
-        "client_id":  "coca-cola",
-        "tipo":       "termografia",
-        "categoria":  "manutencao",
-        "titulo":     "Termografia programada",
-        "descricao":  "A próxima inspeção termográfica está programada para 17/10/2026.",
-        "prioridade": "Baixa",
-        "status":     "lido",
-        "data":       "21/06/2026",
-        "link_page":  "manutencao",
-    },
-]
+from ui import (page_header, empty_state, status_badge, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
+                COLOR_MUTED, COLOR_WARNING, COLOR_DANGER, COLOR_NEUTRAL)
+from gut import calculate_gut, gut_acao_recomendada, GUT_DISCLAIMER
 
 # ── Configuração visual por tipo ───────────────────────────────────────────────
 _TIPO_CFG = {
@@ -81,23 +18,23 @@ _TIPO_CFG = {
     "termografia":        {"icone": "🌡️", "label": "Termografia programada"},
 }
 
-# ── Configuração visual por prioridade ────────────────────────────────────────
+# ── Configuração visual por prioridade — alinhada ao Design System ────────────
 _PRIO_CFG = {
     "Alta":  {
-        "bg": "#FEF2F2", "border": "#FCA5A5", "dot": "#EF4444", "text": "#991B1B",
-        "badge_bg": "#EF4444", "badge_tc": "#fff",
+        "bg": "#FFF7ED", "border": "#FED7AA", "dot": "#F97316", "text": "#9A3412",
+        "badge_bg": "#F97316", "badge_tc": "#fff",
     },
     "Média": {
-        "bg": "#FFFBEB", "border": "#FCD34D", "dot": "#F59E0B", "text": "#92400E",
-        "badge_bg": "#F59E0B", "badge_tc": "#000",
+        "bg": "#FFFBEB", "border": "#FCD34D", "dot": COLOR_WARNING, "text": "#92400E",
+        "badge_bg": COLOR_WARNING, "badge_tc": "#000",
     },
     "Baixa": {
         "bg": "#F0F9FF", "border": "#BAE6FD", "dot": "#38BDF8", "text": "#0C4A6E",
         "badge_bg": "#38BDF8", "badge_tc": "#fff",
     },
     "Lido":  {
-        "bg": "#F8FAFC", "border": "#E2E8F0", "dot": "#94A3B8", "text": "#64748B",
-        "badge_bg": "#94A3B8", "badge_tc": "#fff",
+        "bg": "#F8FAFC", "border": "#E2E8F0", "dot": COLOR_NEUTRAL, "text": "#64748B",
+        "badge_bg": COLOR_NEUTRAL, "badge_tc": "#fff",
     },
 }
 
@@ -105,14 +42,47 @@ _PRIO_ORDER = {"Alta": 0, "Média": 1, "Baixa": 2}
 
 
 def _load_alertas(client_id: str) -> list:
-    """Retorna alertas filtrados por client_id. Mock enquanto não houver banco real."""
-    # TODO: substituir pela consulta real ao banco, filtrando por client_id
-    return [a for a in _ALERTAS_MOCK if a.get("client_id") == client_id or not client_id]
+    """Alertas reais do cliente (aba AlertasSV, criados pela Supervisão).
+    SEGURANÇA: get_alertas_sv(client_id) já filtra pelo cliente da sessão."""
+    if not client_id:
+        return []
+    try:
+        from sheets import get_alertas_sv
+        df = get_alertas_sv(client_id)
+        if df.empty:
+            return []
+        alertas = []
+        for _, row in df.iterrows():
+            ativo_id = str(row.get("Ativo_Id", "")).strip()
+            alertas.append({
+                "id":            str(row.get("Id", "")).strip(),
+                "client_id":     client_id,
+                "titulo":        str(row.get("Titulo", "")).strip(),
+                "descricao":     str(row.get("Descricao", "")).strip(),
+                "prioridade":    str(row.get("Prioridade", "Média")).strip(),
+                "data":          str(row.get("Criado_Em", "")).strip(),
+                "ativo_id":      ativo_id,
+                "link_page":     "ativos" if ativo_id else "",
+                "gut_gravidade": row.get("Gut_Gravidade"),
+                "gut_urgencia":  row.get("Gut_Urgencia"),
+                "gut_tendencia": row.get("Gut_Tendencia"),
+            })
+        return alertas
+    except Exception:
+        return []
 
 
 def get_unread_count(client_id: str = "") -> int:
-    """Contagem de não lidos — usada pelo sidebar para exibir o badge."""
-    return sum(1 for a in _load_alertas(client_id) if a.get("status") == "nao_lido")
+    """Contagem de alertas com prioridade GUT Crítica — usada no badge do
+    topnav ("Alertas · N"). Não há rastreio de lido/não-lido em AlertasSV;
+    o badge sinaliza o que precisa de atenção agora (GUT Crítica)."""
+    alertas = _load_alertas(client_id)
+    criticos = 0
+    for a in alertas:
+        r = calculate_gut(a.get("gut_gravidade"), a.get("gut_urgencia"), a.get("gut_tendencia"))
+        if r and r["prioridade"] == "Crítica":
+            criticos += 1
+    return criticos
 
 
 # ── Render principal ───────────────────────────────────────────────────────────
@@ -127,23 +97,24 @@ def render() -> None:
     alertas   = _load_alertas(client_id)
 
     if not alertas:
-        st.markdown(
-            f"<div style='text-align:center;padding:3rem 1rem;color:{COLOR_MUTED};'>"
-            f"<div style='font-size:3rem;margin-bottom:0.6rem;'>🔕</div>"
-            f"<p style='font-size:1rem;'>Nenhum alerta no momento.</p></div>",
-            unsafe_allow_html=True,
-        )
+        empty_state("Nenhum alerta no momento.", icon="🔕")
         return
 
+    st.caption(f"ℹ️ {GUT_DISCLAIMER}")
+
     # ── Resumo rápido ─────────────────────────────────────────────────────────
-    nao_lidos = sum(1 for a in alertas if a.get("status") == "nao_lido")
-    alta      = sum(1 for a in alertas if a.get("prioridade") == "Alta" and a.get("status") == "nao_lido")
+    for a in alertas:
+        r = calculate_gut(a.get("gut_gravidade"), a.get("gut_urgencia"), a.get("gut_tendencia"))
+        a["_gut"] = r
+
+    criticos = sum(1 for a in alertas if a["_gut"] and a["_gut"]["prioridade"] == "Crítica")
+    altos    = sum(1 for a in alertas if a["_gut"] and a["_gut"]["prioridade"] == "Alta")
 
     c1, c2, c3 = st.columns(3)
     for col, val, label, cor in [
-        (c1, len(alertas),   "Total de alertas",   COLOR_NAVY),
-        (c2, nao_lidos,      "Não lidos",           "#F59E0B"),
-        (c3, alta,           "Alta prioridade",     "#EF4444"),
+        (c1, len(alertas), "Total de alertas",  COLOR_NAVY),
+        (c2, criticos,     "Críticos (GUT)",    COLOR_DANGER),
+        (c3, altos,        "Alta prioridade (GUT)", "#F97316"),
     ]:
         with col:
             st.markdown(
@@ -159,19 +130,18 @@ def render() -> None:
 
     st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
-    # ── Filtros ───────────────────────────────────────────────────────────────
+    # ── Filtros — por prioridade GUT ─────────────────────────────────────────
     if "alertas_filtro" not in st.session_state:
         st.session_state["alertas_filtro"] = "todos"
 
     filtro = st.session_state["alertas_filtro"]
 
     FILTROS = [
-        ("todos",      "Todos"),
-        ("nao_lido",   "Não lidos"),
-        ("manutencao", "Manutenção"),
-        ("ativos",     "Ativos"),
-        ("relatorios", "Relatórios"),
-        ("chamados",   "Chamados"),
+        ("todos",     "Todos"),
+        ("Crítica",   "Crítica"),
+        ("Alta",      "Alta"),
+        ("Moderada",  "Moderada"),
+        ("Baixa",     "Baixa"),
     ]
 
     cols_f = st.columns(len(FILTROS))
@@ -194,19 +164,15 @@ def render() -> None:
     filtrados = _aplicar_filtro(alertas, filtro)
 
     if not filtrados:
-        st.markdown(
-            f"<div style='text-align:center;padding:2.5rem 1rem;color:{COLOR_MUTED};'>"
-            f"<div style='font-size:2.5rem;margin-bottom:0.5rem;'>🔕</div>"
-            f"<p>Nenhum alerta nesta categoria.</p></div>",
-            unsafe_allow_html=True,
-        )
+        empty_state("Nenhum alerta nesta categoria.", icon="🔕")
         return
 
-    # Ordena: não lidos + alta prioridade primeiro
+    # Ordena: prioridade GUT (Crítica→Alta→Moderada→Baixa→sem GUT), depois prioridade do alerta
+    _GUT_RANK = {"Crítica": 0, "Alta": 1, "Moderada": 2, "Baixa": 3}
     filtrados = sorted(
         filtrados,
         key=lambda a: (
-            0 if a.get("status") == "nao_lido" else 1,
+            _GUT_RANK.get(a["_gut"]["prioridade"], 4) if a["_gut"] else 4,
             _PRIO_ORDER.get(a.get("prioridade", "Baixa"), 3),
         ),
     )
@@ -218,29 +184,23 @@ def render() -> None:
 def _aplicar_filtro(alertas: list, filtro: str) -> list:
     if filtro == "todos":
         return alertas
-    if filtro == "nao_lido":
-        return [a for a in alertas if a.get("status") == "nao_lido"]
-    return [a for a in alertas if a.get("categoria") == filtro]
+    return [a for a in alertas if a.get("_gut") and a["_gut"]["prioridade"] == filtro]
 
 
 def _render_alerta_card(alerta: dict) -> None:
-    lido     = alerta.get("status") == "lido"
-    prio     = alerta.get("prioridade", "Baixa")
-    pcfg     = _PRIO_CFG.get("Lido" if lido else prio, _PRIO_CFG["Baixa"])
-    tcfg     = _TIPO_CFG.get(alerta.get("tipo", ""), {"icone": "🔔", "label": "Notificação"})
+    prio = alerta.get("prioridade", "Baixa")
+    pcfg = _PRIO_CFG.get(prio, _PRIO_CFG["Baixa"])
+    gut_r = alerta.get("_gut") or calculate_gut(
+        alerta.get("gut_gravidade"), alerta.get("gut_urgencia"), alerta.get("gut_tendencia"))
 
-    titulo    = alerta.get("titulo", "")
+    titulo    = alerta.get("titulo", "") or "Alerta"
     descricao = alerta.get("descricao", "")
     data      = alerta.get("data", "")
     link_page = alerta.get("link_page", "")
 
-    opacity    = "opacity:0.58;" if lido else ""
-    peso_titulo = "500" if lido else "700"
-
     dot_html = (
         f"<span style='width:8px;height:8px;border-radius:50%;flex-shrink:0;"
         f"display:inline-block;background:{pcfg['dot']};margin-right:5px;'></span>"
-        if not lido else ""
     )
 
     prio_badge = (
@@ -249,35 +209,36 @@ def _render_alerta_card(alerta: dict) -> None:
         f"font-size:0.67rem;font-weight:700;padding:2px 8px;border-radius:10px;'>"
         f"{prio}</span>"
     )
-    lido_badge = (
-        f"<span style='background:#F1F5F9;color:#64748B;"
-        f"-webkit-text-fill-color:#64748B;font-size:0.64rem;"
-        f"padding:2px 7px;border-radius:8px;border:1px solid #E2E8F0;'>"
-        f"{'Lido' if lido else 'Não lido'}</span>"
+    gut_badge = (
+        f"{status_badge(gut_r['prioridade'], 'gut')}"
+        f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:2px;'>GUT {gut_r['score']}</span>"
+        if gut_r else ""
     )
 
     st.markdown(
         f"<div style='background:{pcfg['bg']};border:1px solid {pcfg['border']};"
         f"border-left:4px solid {pcfg['dot']};border-radius:12px;"
-        f"padding:1rem 1.25rem;margin-bottom:0.6rem;{opacity}'>"
+        f"padding:1rem 1.25rem;margin-bottom:0.6rem;'>"
         f"<div style='display:flex;align-items:flex-start;gap:12px;'>"
-        f"<span style='font-size:1.5rem;flex-shrink:0;margin-top:1px;'>{tcfg['icone']}</span>"
+        f"<span style='font-size:1.5rem;flex-shrink:0;margin-top:1px;'>🔔</span>"
         f"<div style='flex:1;min-width:0;'>"
         f"<div style='display:flex;justify-content:space-between;"
         f"align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:3px;'>"
         f"<div style='display:flex;align-items:center;'>"
         f"{dot_html}"
-        f"<span style='font-size:0.92rem;font-weight:{peso_titulo};"
+        f"<span style='font-size:0.92rem;font-weight:700;"
         f"color:{COLOR_NAVY};'>{titulo}</span>"
         f"</div>"
         f"<div style='display:flex;gap:5px;align-items:center;flex-shrink:0;'>"
-        f"{prio_badge} {lido_badge}"
+        f"{prio_badge} {gut_badge}"
         f"</div></div>"
-        f"<p style='font-size:0.75rem;font-weight:700;color:{pcfg['dot']};"
-        f"-webkit-text-fill-color:{pcfg['dot']};margin:0 0 6px;'>{tcfg['label']}</p>"
         f"<p style='font-size:0.83rem;color:#475569;margin:0 0 8px;line-height:1.55;'>"
         f"{descricao}</p>"
-        f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0;'>📅 {data}</p>"
+        + (f"<p style='color:#92400E;font-size:0.75rem;background:#FFFBEB;"
+           f"border-radius:6px;padding:4px 8px;margin:0 0 8px;'>"
+           f"🎯 Ação recomendada: {gut_acao_recomendada(gut_r['prioridade'])}</p>"
+           if gut_r else "")
+        + f"<p style='font-size:0.7rem;color:{COLOR_MUTED};margin:0;'>📅 {data}</p>"
         f"</div></div></div>",
         unsafe_allow_html=True,
     )
@@ -293,26 +254,15 @@ def _render_alerta_card(alerta: dict) -> None:
 
     # Botão "Abrir chamado" — pré-preenche o formulário de chamado com dados do alerta
     with btn_cols[1]:
-        _prio_map = {"Alta": "Alta", "Média": "Média", "Baixa": "Baixa", "Crítica": "Crítica"}
-        _cat_map  = {
-            "manutencao_proxima": "Manutenção próxima",
-            "manutencao_vencida": "Manutenção vencida",
-            "ativo_critico":      "Falha operacional",
-            "ativo_atencao":      "Dúvida técnica",
-            "relatorio_novo":     "Relatório técnico",
-            "chamado_respondido": "Dúvida técnica",
-            "recomendacao":       "Recomendação por condição",
-            "termografia":        "Termografia",
-        }
         if st.button("🔧 Chamado", key=f"alerta_chamado_{alerta['id']}",
                      use_container_width=True):
             st.session_state["abrir_chamado_titulo"]    = alerta.get("titulo", "")
             st.session_state["abrir_chamado_descricao"] = alerta.get("descricao", "")
-            st.session_state["abrir_chamado_categoria"] = _cat_map.get(
-                alerta.get("tipo", ""), "Dúvida técnica")
-            st.session_state["abrir_chamado_prioridade"] = _prio_map.get(
-                alerta.get("prioridade", "Média"), "Média")
+            st.session_state["abrir_chamado_categoria"] = "Dúvida técnica"
+            st.session_state["abrir_chamado_prioridade"] = prio if prio in (
+                "Baixa", "Média", "Alta", "Crítica") else "Média"
             st.session_state["abrir_chamado_origem"]    = "Alerta"
+            st.session_state["abrir_chamado_ativo_id"]  = alerta.get("ativo_id", "")
             st.session_state["abrir_chamado_alert_id"]  = alerta.get("id", "")
             st.session_state["portal_page"] = "chamados"
             st.rerun()

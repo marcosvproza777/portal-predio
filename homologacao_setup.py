@@ -101,7 +101,9 @@ def _pause() -> None:
 
 
 def _find_ativo_id(df, client_id: str, nome: str) -> str | None:
-    """Busca ativo existente por client_id + nome (Tag na planilha)."""
+    """Busca ativo existente por client_id + nome (gravado na coluna "Tag" —
+    ver _HEADERS_ATIVOS/cadastrar_ativo_sv: não existe coluna "Nome" na aba
+    Ativos; dados["nome"] é gravado na posição de "Tag")."""
     if df.empty or "Client_Id" not in df.columns:
         return None
     mask = (

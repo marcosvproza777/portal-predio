@@ -11,6 +11,105 @@ COLOR_CARD    = "#FFFFFF"
 COLOR_BORDER  = "#E2E8F0"
 COLOR_MUTED   = "#64748B"
 
+# ── Tokens semânticos de status — Design System Pred.IO ────────────────────────
+# Cor única por significado em todo o portal. Qualquer badge/status novo deve
+# usar um destes tokens em vez de um hex solto — ver STATUS_REGISTRY abaixo.
+COLOR_SUCCESS = "#10B981"   # Bom / Em dia / Publicado / Indexado / Concluído
+COLOR_WARNING = "#F59E0B"   # Atenção / Próxima / Em revisão / Processando
+COLOR_DANGER  = "#EF4444"   # Crítico / Vencida / Falhou
+COLOR_URGENT  = "#7C3AED"   # Urgente (nível acima de Crítico)
+COLOR_INFO    = "#3B82F6"   # Aberto / Em análise
+COLOR_ACCENT  = "#8B5CF6"   # Em andamento / Por condição (violeta claro)
+COLOR_NEUTRAL = "#94A3B8"   # Rascunho / Não indexado / Cancelado / Arquivado
+
+# ── Cadastro central de status por domínio ──────────────────────────────────────
+# domínio -> label (minúsculo) -> (cor_fundo, cor_texto)
+# Fonte única de verdade para badges de status em todo o portal — cliente e
+# supervisão. Use status_badge(label, dominio) em vez de recriar paletas locais.
+STATUS_REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
+    "saude_ativo": {
+        "bom":      (COLOR_SUCCESS, "#fff"),
+        "normal":   (COLOR_SUCCESS, "#fff"),
+        "atenção":  (COLOR_WARNING, "#000"),
+        "atencao":  (COLOR_WARNING, "#000"),
+        "crítico":  (COLOR_DANGER,  "#fff"),
+        "critico":  (COLOR_DANGER,  "#fff"),
+        "urgente":  (COLOR_URGENT,  "#fff"),
+    },
+    "manutencao": {
+        "em dia":            (COLOR_SUCCESS, "#fff"),
+        "próxima":           (COLOR_WARNING, "#000"),
+        "proxima":           (COLOR_WARNING, "#000"),
+        "próxima do vencimento": (COLOR_WARNING, "#000"),
+        "proxima do vencimento": (COLOR_WARNING, "#000"),
+        "vencida":           (COLOR_DANGER,  "#fff"),
+        "concluída":         (COLOR_NEUTRAL, "#fff"),
+        "concluida":         (COLOR_NEUTRAL, "#fff"),
+        "por condição":      (COLOR_CYAN,    "#000"),
+        "por condicao":      (COLOR_CYAN,    "#000"),
+        "depende de análise preditiva": (COLOR_CYAN, "#000"),
+        "depende de analise preditiva": (COLOR_CYAN, "#000"),
+    },
+    "relatorio": {
+        "publicado":    (COLOR_SUCCESS, "#fff"),
+        "rascunho":     (COLOR_NEUTRAL, "#fff"),
+        "em revisão":   (COLOR_WARNING, "#000"),
+        "em revisao":   (COLOR_WARNING, "#000"),
+        "arquivado":    (COLOR_NEUTRAL, "#fff"),
+    },
+    "chamado": {
+        "aberto":              (COLOR_INFO,    "#fff"),
+        "em análise":          (COLOR_ACCENT,  "#fff"),
+        "em analise":          (COLOR_ACCENT,  "#fff"),
+        "em andamento":        (COLOR_NAVY,    "#fff"),
+        "aguardando cliente":  (COLOR_WARNING, "#000"),
+        "respondido":          (COLOR_CYAN,    "#000"),
+        "concluído":           (COLOR_SUCCESS, "#fff"),
+        "concluido":           (COLOR_SUCCESS, "#fff"),
+        "resolvido":           (COLOR_SUCCESS, "#fff"),
+        "cancelado":           (COLOR_NEUTRAL, "#fff"),
+        "reaberto":            ("#EC4899",     "#fff"),
+        "fechado":             (COLOR_NEUTRAL, "#fff"),
+    },
+    "indexacao": {
+        "não indexado":  (COLOR_NEUTRAL, "#fff"),
+        "nao indexado":  (COLOR_NEUTRAL, "#fff"),
+        "processando":   (COLOR_WARNING, "#000"),
+        "indexado":      (COLOR_SUCCESS, "#fff"),
+        "falhou":        (COLOR_DANGER,  "#fff"),
+    },
+    "prioridade": {
+        "baixa":   (COLOR_MUTED,   "#fff"),
+        "média":   (COLOR_WARNING, "#000"),
+        "media":   (COLOR_WARNING, "#000"),
+        "alta":    ("#F97316",     "#fff"),
+        "crítica": (COLOR_DANGER,  "#fff"),
+        "critica": (COLOR_DANGER,  "#fff"),
+    },
+    # Prioridade GUT (Gravidade x Urgência x Tendência) — mesmas 4 faixas em
+    # todo o portal (gut.py define os limiares de score correspondentes).
+    "gut": {
+        "baixa":    (COLOR_MUTED,   "#fff"),
+        "moderada": (COLOR_WARNING, "#000"),
+        "alta":     ("#F97316",     "#fff"),
+        "crítica":  (COLOR_DANGER,  "#fff"),
+        "critica":  (COLOR_DANGER,  "#fff"),
+    },
+}
+
+
+def status_badge(label: str, dominio: str) -> str:
+    """Badge HTML padrão para um status de um dos domínios do Design System
+    (saude_ativo, manutencao, relatorio, chamado, indexacao, prioridade).
+
+    Uso: st.markdown(status_badge("Crítico", "saude_ativo"), unsafe_allow_html=True)
+    Cai em cinza neutro se o label não estiver cadastrado no domínio.
+    """
+    cfg = STATUS_REGISTRY.get(dominio, {})
+    bg, text = cfg.get(label.strip().lower(), (COLOR_NEUTRAL, "#fff"))
+    return badge(label, bg, text)
+
+
 TIPOS_LAUDOS = [
     ("ordem de servico",    "Ordem de Serviço"),
     ("analise de vibracao", "Análise de Vibração"),
@@ -524,7 +623,18 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str,
     )
 
 
-def page_header(title: str, subtitle: str = "") -> None:
+def page_header(title: str, subtitle: str = "", back_label: str = "",
+                back_view: str = "", back_key: str = "page_back_btn") -> None:
+    """Cabeçalho padrão de página (AppPageHeader) — título + subtítulo + divisor.
+
+    Se back_label/back_view forem informados, renderiza um botão "← voltar"
+    acima do título que troca st.session_state["sv_view"] (usado na Supervisão).
+    """
+    if back_label and back_view:
+        if st.button(f"← {back_label}", key=back_key):
+            st.session_state["sv_view"] = back_view
+            st.session_state.pop("sv_chamado_id", None)
+            st.rerun()
     st.markdown(
         f"<h2 style='color:{COLOR_NAVY};margin:0.5rem 0 0;font-size:1.55rem;"
         f"font-weight:800;'>{title}</h2>"
@@ -538,21 +648,82 @@ def page_header(title: str, subtitle: str = "") -> None:
     )
 
 
-def empty_state(message: str) -> None:
+def empty_state(message: str, icon: str = "📭") -> None:
+    """AppEmptyState — bloco padrão para "nada aqui ainda". Usar sempre no lugar
+    de st.info()/texto solto quando uma lista/seção não tem dados."""
     st.markdown(
         f"<div style='text-align:center;padding:3rem 1rem;color:{COLOR_MUTED};'>"
-        f"<div style='font-size:3rem;margin-bottom:0.8rem;'>📭</div>"
+        f"<div style='font-size:3rem;margin-bottom:0.8rem;'>{icon}</div>"
         f"<p style='font-size:1rem;'>{message}</p></div>",
         unsafe_allow_html=True,
     )
 
 
+# Alias — nome usado na documentação do Design System (AppEmptyState)
+app_empty_state = empty_state
+
+
 def badge(label: str, color: str, text_color: str = "#fff") -> str:
+    """AppBadge — pílula colorida genérica. Para status/prioridade padronizados,
+    prefira status_badge(label, dominio), que já resolve a cor pelo Design System."""
     return (
         f"<span style='background:{color};color:{text_color};"
         f"-webkit-text-fill-color:{text_color};font-size:0.72rem;"
         f"font-weight:700;padding:3px 12px;border-radius:20px;"
         f"white-space:nowrap;'>{label}</span>"
+    )
+
+
+def card_html(inner_html: str, accent: str = "", accent_side: str = "top") -> str:
+    """AppCard — moldura padrão de card (radius 14px, padding, sombra Design
+    System) envolvendo HTML já pronto. Uso:
+        st.markdown(card_html("<p>...</p>", accent=COLOR_DANGER), unsafe_allow_html=True)
+    accent_side: "top" (faixa superior) ou "left" (borda lateral, para alertas/itens de lista).
+    Para cards que contêm widgets Streamlit interativos (inputs, botões), use
+    st.container(border=True) em vez desta função — HTML não pode envolver widgets.
+    """
+    accent_css = (
+        f"border-{accent_side}:4px solid {accent};" if accent else
+        f"border-{accent_side}:4px solid transparent;"
+    )
+    return (
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"{accent_css}border-radius:14px;padding:1.25rem 1.5rem;"
+        f"box-shadow:0 1px 4px rgba(15,31,61,0.06);'>{inner_html}</div>"
+    )
+
+
+def app_section_title(text: str, icon: str = "") -> None:
+    """AppSectionTitle — subtítulo padrão para uma seção dentro de uma página
+    (ex: "Chamados em Andamento" dentro do Dashboard)."""
+    label = f"{icon}&nbsp;&nbsp;{text}" if icon else text
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.92rem;"
+        f"margin:0 0 0.75rem;'>{label}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+_ALERT_CFG = {
+    "info":    ("ℹ️", "#EFF6FF", "#BFDBFE", "#1E40AF"),
+    "success": ("✅", "#F0FDF4", "#86EFAC", "#065F46"),
+    "warning": ("⚠️", "#FFFBEB", "#FCD34D", "#92400E"),
+    "danger":  ("🔒", "#FEF2F2", "#FCA5A5", "#991B1B"),
+}
+
+
+def app_alert(message: str, kind: str = "info") -> None:
+    """AppAlert — alerta inline com visual consistente do Design System
+    (kind: "info" | "success" | "warning" | "danger"). Prefira esta função a
+    st.info()/st.warning()/st.error() dentro do conteúdo do portal, para manter
+    o mesmo estilo de card em vez do alerta nativo do Streamlit."""
+    icon, bg, border, text = _ALERT_CFG.get(kind, _ALERT_CFG["info"])
+    st.markdown(
+        f"<div style='background:{bg};border:1px solid {border};border-radius:10px;"
+        f"padding:0.75rem 1rem;color:{text};-webkit-text-fill-color:{text};"
+        f"font-size:0.85rem;display:flex;gap:8px;align-items:flex-start;'>"
+        f"<span>{icon}</span><span>{message}</span></div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -577,15 +748,16 @@ PRIORIDADE_CFG = {
 
 # ── Portal do Cliente — navegação ────────────────────────────────────────────
 
+# Ordem alinhada ao menu principal do Portal do Cliente (Etapa 3 — layout).
 PORTAL_NAV_ITEMS = [
     ("dashboard",    "📊", "Dashboard"),
     ("ativos",       "⚙️",  "Ativos"),
     ("manutencao",   "📅", "Manutenção"),
     ("relatorios",   "📁", "Relatórios"),
-    ("biblioteca",   "📚", "Biblioteca"),
     ("chamados",     "🔧", "Chamados"),
-    ("notificacoes", "🔔", "Avisos"),
     ("alertas",      "⚠️",  "Alertas"),
+    ("biblioteca",   "📚", "Biblioteca"),
+    ("notificacoes", "🔔", "Avisos"),
     ("assistente",   "🤖", "Assistente"),
     ("preferencias", "📱", "Config."),
 ]
@@ -1777,20 +1949,5 @@ def sv_metric_card(icon: str, title: str, value, color: str = COLOR_BLUE,
 
 def sv_page_header(title: str, subtitle: str = "", back_label: str = "",
                    back_view: str = "") -> None:
-    """Cabeçalho de página da supervisão com botão voltar opcional."""
-    if back_label and back_view:
-        if st.button(f"← {back_label}", key="sv_back_btn"):
-            st.session_state["sv_view"] = back_view
-            st.session_state.pop("sv_chamado_id", None)
-            st.rerun()
-    st.markdown(
-        f"<h2 style='color:{COLOR_NAVY};margin:0.25rem 0 0;font-size:1.5rem;"
-        f"font-weight:800;'>{title}</h2>"
-        + (f"<p style='color:#64748B;margin:4px 0 0;font-size:0.88rem;'>{subtitle}</p>"
-           if subtitle else ""),
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"<hr style='border-color:{COLOR_BORDER};margin:0.75rem 0 1rem;'/>",
-        unsafe_allow_html=True,
-    )
+    """Cabeçalho de página da Supervisão — alias de page_header (AppPageHeader)."""
+    page_header(title, subtitle, back_label, back_view, back_key="sv_back_btn")

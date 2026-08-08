@@ -2,16 +2,19 @@
 import streamlit as st
 from auth import current_client_id
 from sheets import get_relatorios, get_technical_reports, get_relatorios_executivos_publicados
-from ui import (page_header, COLOR_NAVY, COLOR_BLUE,
-                COLOR_CARD, COLOR_BORDER, COLOR_MUTED, TIPOS_LAUDOS)
+from ui import (page_header, status_badge, COLOR_NAVY, COLOR_BLUE,
+                COLOR_CARD, COLOR_BORDER, COLOR_MUTED, TIPOS_LAUDOS,
+                COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_URGENT,
+                COLOR_NEUTRAL)
+from gut import calculate_gut
 
 _SEV_COLOR = {
-    "normal":   ("#10B981", "#F0FDF4", "#86EFAC", "#065F46"),
-    "atenção":  ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "atencao":  ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "crítico":  ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
-    "critico":  ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
-    "urgente":  ("#7C3AED", "#F5F3FF", "#C4B5FD", "#4C1D95"),
+    "normal":   (COLOR_SUCCESS, "#F0FDF4", "#86EFAC", "#065F46"),
+    "atenção":  (COLOR_WARNING, "#FFFBEB", "#FCD34D", "#92400E"),
+    "atencao":  (COLOR_WARNING, "#FFFBEB", "#FCD34D", "#92400E"),
+    "crítico":  (COLOR_DANGER, "#FEF2F2", "#FCA5A5", "#991B1B"),
+    "critico":  (COLOR_DANGER, "#FEF2F2", "#FCA5A5", "#991B1B"),
+    "urgente":  (COLOR_URGENT, "#F5F3FF", "#C4B5FD", "#4C1D95"),
 }
 
 
@@ -128,6 +131,10 @@ def _render_card_tech(row) -> None:
 
     sc, sb, sbo, st_ = _SEV_COLOR.get(sev.strip().lower(), ("#94A3B8","#F8FAFC","#CBD5E1","#475569"))
 
+    # GUT da recomendação — cliente só vê prioridade e score (notas G/U/T são
+    # uso técnico interno da Supervisão)
+    gut_res = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+
     meta = []
     if tipo:        meta.append(f"📋 {tipo}")
     if data:        meta.append(f"📅 {data}")
@@ -161,7 +168,11 @@ def _render_card_tech(row) -> None:
                if resumo and resumo.lower() not in ("", "nan") else "")
             + (f"<p style='color:#1E40AF;font-size:0.8rem;margin:4px 0 0;"
                f"background:#EFF6FF;border-radius:6px;padding:5px 10px;'>"
-               f"💡 {recomend[:200]}{'…' if len(recomend)>200 else ''}</p>"
+               f"💡 {recomend[:200]}{'…' if len(recomend)>200 else ''}"
+               + (f" {status_badge(gut_res['prioridade'], 'gut')}"
+                  f"<span style='font-size:0.65rem;color:{COLOR_MUTED};margin-left:2px;'>"
+                  f"GUT {gut_res['score']}</span>" if gut_res else "")
+               + "</p>"
                if recomend and recomend.lower() not in ("", "nan") else "")
             + "</div>",
             unsafe_allow_html=True,
@@ -263,7 +274,7 @@ def _render_card_legacy(row) -> None:
     url     = str(row.get("Arquivo_Url",    "")).strip()
     status  = str(row.get("Status",         "Disponível")).strip()
 
-    status_color = "#22c55e" if status.lower() == "disponível" else "#94a3b8"
+    status_color = COLOR_SUCCESS if status.lower() == "disponível" else COLOR_NEUTRAL
 
     meta = []
     if tipo:   meta.append(f"📋 {tipo}")

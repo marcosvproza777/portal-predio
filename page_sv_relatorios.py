@@ -13,11 +13,13 @@ from sheets import (
     publish_technical_report,
     archive_technical_report,
     delete_technical_report,
+    update_report_gut,
 )
 from ui import (
-    sv_page_header,
+    sv_page_header, status_badge,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
+from gut import calculate_gut, GUT_DISCLAIMER
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -442,6 +444,39 @@ def _render_form(report: dict | None) -> None:
             key="_svrel_f_obs",
         )
 
+    if editing:
+        with st.expander("🎯 Prioridade GUT da recomendação", expanded=False):
+            st.caption(f"ℹ️ {GUT_DISCLAIMER}")
+            g_atual = int((report or {}).get("Gut_Gravidade") or 3)
+            u_atual = int((report or {}).get("Gut_Urgencia") or 3)
+            t_atual = int((report or {}).get("Gut_Tendencia") or 3)
+            gc1, gc2, gc3 = st.columns(3)
+            with gc1:
+                g_novo = st.number_input("Gravidade", 1, 5, g_atual, key="_gut_g_rel")
+            with gc2:
+                u_novo = st.number_input("Urgência", 1, 5, u_atual, key="_gut_u_rel")
+            with gc3:
+                t_novo = st.number_input("Tendência", 1, 5, t_atual, key="_gut_t_rel")
+            obs_gut = st.text_area(
+                "Observação técnica GUT",
+                value=str((report or {}).get("Gut_Observacao", "")).strip(),
+                key="_gut_obs_rel", height=68,
+            )
+            preview = calculate_gut(g_novo, u_novo, t_novo)
+            if preview:
+                st.markdown(
+                    status_badge(preview["prioridade"], "gut")
+                    + f" <span style='font-size:0.8rem;color:{COLOR_MUTED};'>Score {preview['score']}</span>",
+                    unsafe_allow_html=True,
+                )
+            if st.button("💾 Salvar GUT da recomendação", key="_gut_save_rel"):
+                rep_id = st.session_state.get(_KEY_REP_ID, "")
+                if update_report_gut(rep_id, g_novo, u_novo, t_novo, obs_gut):
+                    st.success("GUT da recomendação atualizado.")
+                    st.rerun()
+                else:
+                    st.error("Não foi possível salvar o GUT deste relatório.")
+
     # ── Preview de impacto no score ───────────────────────────────────────────
     delta_map = {
         "Urgente": -25, "Crítico": -15, "Atenção": -7, "Normal": 2,
@@ -480,6 +515,26 @@ def _render_form(report: dict | None) -> None:
             "obs_interna":   obs_interna.strip(),
         }
 
+    # add_technical_report() espera chaves em snake_case (dados["cliente_id"]...),
+    # mas update_technical_report() só grava campos cujo nome bate exatamente
+    # com o cabeçalho da planilha (Title_Case — "Cliente_Id", "Titulo"...).
+    # BUG CORRIGIDO: os dois botões abaixo passavam _dados() (snake_case)
+    # direto para update_technical_report(), então nenhuma edição de título/
+    # resumo/severidade/etc. em relatório já existente era realmente salva —
+    # só "Updated_At" batia por coincidência. Este mapeamento traduz para o
+    # nome real da coluna antes de chamar update_technical_report().
+    _DADOS_TO_SHEET_COL = {
+        "cliente_id": "Cliente_Id", "ativo_id": "Ativo_Id", "titulo": "Titulo",
+        "tipo_servico": "Tipo_Servico", "severidade": "Severidade",
+        "data_relatorio": "Data_Relatorio", "planta": "Planta",
+        "equipamento": "Equipamento", "resumo": "Resumo",
+        "recomendacoes": "Recomendacoes", "arquivo_url": "Arquivo_Url",
+        "obs_interna": "Obs_Interna",
+    }
+
+    def _dados_sheet() -> dict:
+        return {_DADOS_TO_SHEET_COL[k]: v for k, v in _dados().items()}
+
     with col_save:
         if st.button("💾 Salvar Rascunho", use_container_width=True):
             if not sel_cid:
@@ -492,7 +547,7 @@ def _render_form(report: dict | None) -> None:
                 dados = _dados()
                 if editing:
                     ok = update_technical_report(
-                        st.session_state.get(_KEY_REP_ID, ""), dados
+                        st.session_state.get(_KEY_REP_ID, ""), _dados_sheet()
                     )
                     if ok:
                         st.success("Rascunho atualizado com sucesso!")
@@ -525,7 +580,7 @@ def _render_form(report: dict | None) -> None:
                 else:
                     # Salva campos antes de publicar
                     update_technical_report(
-                        st.session_state.get(_KEY_REP_ID, ""), _dados()
+                        st.session_state.get(_KEY_REP_ID, ""), _dados_sheet()
                     )
                     _pub_rep_id = st.session_state.get(_KEY_REP_ID, "")
                     with st.spinner("Publicando..."):

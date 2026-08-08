@@ -10,6 +10,8 @@ import gspread
 import pandas as pd
 import streamlit as st
 
+import gut
+
 SHEET_ID = "1cyDz6nuZ9ro7Inq-DNg9OH9d7GNn17WHZSIikkQ6hOA"
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -121,7 +123,15 @@ def append_row(tab_name: str, values: list) -> bool:
             ws = ss.worksheet(tab_name)
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title=tab_name, rows=1000, cols=max(len(values), 26))
-        ws.append_row(values, value_input_option="USER_ENTERED")
+        # table_range limita a detecção de tabela do gspread às colunas que
+        # esta escrita realmente usa. Sem isso, em abas com colunas fantasmas
+        # à direita (cabeçalho historicamente mal gerido), o append_row pode
+        # "descobrir" uma tabela muito mais larga que o conteúdo real e
+        # inserir a nova linha deslocada para a direita — efeito "escada"
+        # observado em Ativos e Chamados, onde cada linha nova aparecia mais
+        # à direita que a anterior em vez de sempre começar na coluna A.
+        last_col = gspread.utils.rowcol_to_a1(1, len(values)).rstrip("0123456789")
+        ws.append_row(values, value_input_option="USER_ENTERED", table_range=f"A1:{last_col}1")
         load_sheet.clear()
         try:
             st.session_state.pop("_sheets_last_error", None)
@@ -456,7 +466,13 @@ def delete_usuario(email: str) -> bool:
 
 # ── Alertas de Supervisão (Pontos de Atenção manuais) ────────────────────────
 
-_HEADERS_ALERTAS_SV = ["Id", "Client_Id", "Empresa", "Titulo", "Descricao", "Prioridade", "Criado_Em", "Whatsapp"]
+_HEADERS_ALERTAS_SV = [
+    "Id", "Client_Id", "Empresa", "Titulo", "Descricao", "Prioridade",
+    "Criado_Em", "Whatsapp", "Ativo_Id",
+    # GUT — ver _HEADERS_GUT / gut.py
+    "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
+    "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
+]
 
 
 def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
@@ -473,16 +489,20 @@ def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
 
 
 def add_alerta_sv(client_id: str, empresa: str, titulo: str,
-                  descricao: str, prioridade: str, whatsapp: str = "") -> bool:
-    """Adiciona um alerta manual de supervisão."""
+                  descricao: str, prioridade: str, whatsapp: str = "",
+                  ativo_id: str = "") -> str | None:
+    """Adiciona um alerta manual de supervisão. Retorna o Id gerado ou None
+    em falha (continua "truthy" em `if add_alerta_sv(...):`, compatível com
+    chamadores existentes que só checavam sucesso/falha)."""
     _ensure_tab_headers("AlertasSV", _HEADERS_ALERTAS_SV)
     alerta_id = _gerar_id("ALS")
-    return append_row("AlertasSV", [
+    ok = append_row("AlertasSV", [
         alerta_id, client_id.strip().lower(), empresa,
         titulo, descricao, prioridade,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        whatsapp.strip(),
+        whatsapp.strip(), ativo_id.strip(),
     ])
+    return alerta_id if ok else None
 
 
 def delete_alerta_sv(alerta_id: str) -> bool:
@@ -2096,6 +2116,9 @@ _HEADERS_TECH_REPORTS = [
     "Data_Relatorio", "Planta", "Equipamento", "Resumo", "Recomendacoes",
     "Arquivo_Url", "Score_Impacto", "Status", "Obs_Interna",
     "Created_By", "Created_At", "Updated_At",
+    # GUT da recomendação técnica — ver _HEADERS_GUT / gut.py
+    "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
+    "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
 ]
 
 _TIPO_SERVICO_TO_TIMELINE = {
@@ -2463,6 +2486,9 @@ _HEADERS_MAINT_TASKS = [
     "Proxima_Execucao_Data", "Proxima_Execucao_Horimetro",
     "Status", "Prioridade", "Depende_Relatorio", "Origem",
     "Descricao", "Recomendacao", "Obs_Interna", "Created_At", "Updated_At",
+    # GUT — ver _HEADERS_GUT / gut.py
+    "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
+    "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
 ]
 
 _HEADERS_MAINT_EXEC = [
@@ -2938,6 +2964,230 @@ def generate_maintenance_alerts(client_id: str = "", ativo_id: str = "") -> int:
 
 # ── Chamados V2 — campos estendidos ──────────────────────────────────────────
 
+# ── Sistema GUT (Gravidade x Urgência x Tendência) ────────────────────────────
+# Colunas adicionadas de forma não-destrutiva (ver _ensure_extra_cols) em
+# MaintenanceTasks, AlertasSV, Chamados e TechnicalReports.
+_HEADERS_GUT = [
+    "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
+    "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
+]
+
+
+def _ensure_extra_cols(tab_name: str, needed_cols: list) -> None:
+    """Garante que colunas extras existam num sheet já existente, sem apagar
+    nem reordenar dados — adiciona ao final do cabeçalho as que faltarem.
+    Mesmo padrão usado por _ensure_chamados_v2_cols, generalizado para
+    qualquer aba (usado pelas colunas GUT em várias abas)."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet(tab_name)
+        headers = ws.row_values(1)
+        if not headers:
+            return
+        for col in needed_cols:
+            if col not in headers:
+                ws.update_cell(1, len(headers) + 1, col)
+                headers.append(col)
+        load_sheet.clear()
+    except Exception:
+        pass
+
+
+def _gut_campos(gravidade, urgencia, tendencia, observacao: str = "") -> dict:
+    """Monta os campos Gut_* para as funções update_*() — recalcula score e
+    prioridade a partir de G/U/T sempre que chamada, nunca grava um score
+    desatualizado. Se G/U/T não formarem um GUT válido, grava as notas que
+    vieram (podem estar parcialmente preenchidas) e deixa score/prioridade
+    em branco em vez de um valor errado."""
+    resultado = gut.calculate_gut(gravidade, urgencia, tendencia)
+    return {
+        "Gut_Gravidade":  gravidade if gravidade not in (None, "") else "",
+        "Gut_Urgencia":   urgencia if urgencia not in (None, "") else "",
+        "Gut_Tendencia":  tendencia if tendencia not in (None, "") else "",
+        "Gut_Score":      resultado["score"] if resultado else "",
+        "Gut_Prioridade": resultado["prioridade"] if resultado else "",
+        "Gut_Observacao": observacao,
+    }
+
+
+def update_maintenance_task_gut(task_id: str, gravidade, urgencia, tendencia,
+                                observacao: str = "") -> bool:
+    """Define/atualiza a prioridade GUT de uma tarefa de manutenção.
+    Uso: Supervisão define G/U/T aqui; o cliente só visualiza o resultado."""
+    _ensure_extra_cols("MaintenanceTasks", _HEADERS_GUT)
+    return update_maintenance_task(
+        task_id, _gut_campos(gravidade, urgencia, tendencia, observacao))
+
+
+def update_alerta_gut(alerta_id: str, gravidade, urgencia, tendencia,
+                      observacao: str = "") -> bool:
+    """Define/atualiza a prioridade GUT de um alerta técnico."""
+    _ensure_extra_cols("AlertasSV", _HEADERS_GUT)
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("AlertasSV")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        cell = ws.find(alerta_id, in_column=headers.index("Id") + 1)
+        if not cell:
+            return False
+        campos = _gut_campos(gravidade, urgencia, tendencia, observacao)
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def update_chamado_gut(chamado_id: str, gravidade, urgencia, tendencia,
+                       observacao: str = "") -> bool:
+    """Define/atualiza a prioridade GUT de um chamado técnico."""
+    _ensure_extra_cols("Chamados", _HEADERS_GUT)
+    return update_chamado(
+        chamado_id, _gut_campos(gravidade, urgencia, tendencia, observacao))
+
+
+def update_report_gut(report_id: str, gravidade, urgencia, tendencia,
+                      observacao: str = "") -> bool:
+    """Define/atualiza a prioridade GUT da recomendação de um relatório técnico."""
+    _ensure_extra_cols("TechnicalReports", _HEADERS_GUT)
+    return update_technical_report(
+        report_id, _gut_campos(gravidade, urgencia, tendencia, observacao))
+
+
+def get_gut_summary(client_id: str) -> list[dict]:
+    """Agrega itens com GUT calculado do cliente — manutenção, alertas,
+    chamados e recomendações de relatórios — numa lista única ordenada por
+    score GUT decrescente. Usado por Dashboard, detalhe do Ativo e Assistente.
+
+    Cada item também funciona como uma "recomendação por condição" no
+    formato pedido (ativo_id, cliente_id, origem, descrição, ação
+    recomendada, GUT, status, created_at) — não existe uma aba separada só
+    de recomendações; este é o registro consolidado, calculado a partir dos
+    4 sistemas de origem (não persistido — sempre recalculado na leitura).
+    Tarefas de manutenção do tipo "Condição" vêm com "subtipo": "Condição",
+    para quem quiser distinguir recomendação por condição das preventivas
+    comuns sem quebrar quem já filtra só por origem == "manutencao".
+
+    SEGURANÇA: todas as fontes já filtram por client_id/staff=False — nunca
+    lê dado de outro cliente, rascunho ou observação interna.
+
+    Cada item: {"origem": "manutencao"|"alerta"|"chamado"|"relatorio",
+                "titulo": str, "ativo_id": str, "score": int, "prioridade": str,
+                "id": str, "cliente_id": str, "descricao": str,
+                "acao_recomendada": str, "status": str, "created_at": str,
+                "subtipo": str (só em "manutencao")}
+    """
+    itens: list[dict] = []
+    if not client_id:
+        return itens
+
+    try:
+        df = get_maintenance_tasks(client_id=client_id, staff=False)
+        if not df.empty:
+            for _, row in df.iterrows():
+                r = gut.calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"),
+                                      row.get("Gut_Tendencia"))
+                if r:
+                    itens.append({
+                        "origem": "manutencao",
+                        "titulo": str(row.get("Nome_Tarefa", "")).strip() or "Tarefa preventiva",
+                        "ativo_id": str(row.get("Ativo_Id", "")).strip(),
+                        "score": r["score"], "prioridade": r["prioridade"],
+                        "id": str(row.get("Id", "")).strip(),
+                        "cliente_id": client_id,
+                        "descricao": str(row.get("Descricao", "")).strip(),
+                        "acao_recomendada": gut.gut_acao_recomendada(r["prioridade"]),
+                        "status": str(row.get("Status", "")).strip(),
+                        "created_at": str(row.get("Created_At", "")).strip(),
+                        "subtipo": str(row.get("Tipo_Manutencao", "")).strip(),
+                    })
+    except Exception:
+        pass
+
+    try:
+        df = get_alertas_sv(client_id)
+        if not df.empty:
+            for _, row in df.iterrows():
+                r = gut.calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"),
+                                      row.get("Gut_Tendencia"))
+                if r:
+                    itens.append({
+                        "origem": "alerta",
+                        "titulo": str(row.get("Titulo", "")).strip() or "Alerta",
+                        "ativo_id": str(row.get("Ativo_Id", "")).strip(),
+                        "score": r["score"], "prioridade": r["prioridade"],
+                        "id": str(row.get("Id", "")).strip(),
+                        "cliente_id": client_id,
+                        "descricao": str(row.get("Descricao", "")).strip(),
+                        "acao_recomendada": gut.gut_acao_recomendada(r["prioridade"]),
+                        "status": "",
+                        "created_at": str(row.get("Criado_Em", "")).strip(),
+                    })
+    except Exception:
+        pass
+
+    try:
+        df = get_chamados_v2(client_id=client_id)
+        if not df.empty:
+            for _, row in df.iterrows():
+                r = gut.calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"),
+                                      row.get("Gut_Tendencia"))
+                if r:
+                    itens.append({
+                        "origem": "chamado",
+                        "titulo": str(row.get("Titulo", "")).strip() or "Chamado técnico",
+                        "ativo_id": str(row.get("Ativo_Id", "")).strip(),
+                        "score": r["score"], "prioridade": r["prioridade"],
+                        "id": str(row.get("Id", "")).strip(),
+                        "cliente_id": client_id,
+                        "descricao": str(row.get("Descricao", "")).strip(),
+                        "acao_recomendada": gut.gut_acao_recomendada(r["prioridade"]),
+                        "status": str(row.get("Status", "")).strip(),
+                        "created_at": str(row.get("Aberto_Em", "")).strip(),
+                    })
+    except Exception:
+        pass
+
+    try:
+        df = get_technical_reports(client_id=client_id, staff=False)
+        if not df.empty:
+            for _, row in df.iterrows():
+                r = gut.calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"),
+                                      row.get("Gut_Tendencia"))
+                if r:
+                    itens.append({
+                        "origem": "relatorio",
+                        "titulo": str(row.get("Titulo", "")).strip() or "Recomendação técnica",
+                        "ativo_id": str(row.get("Ativo_Id", "")).strip(),
+                        "score": r["score"], "prioridade": r["prioridade"],
+                        "id": str(row.get("Id", "")).strip(),
+                        "cliente_id": client_id,
+                        "descricao": str(row.get("Recomendacoes", "")).strip()
+                                     or str(row.get("Resumo", "")).strip(),
+                        "acao_recomendada": gut.gut_acao_recomendada(r["prioridade"]),
+                        "status": str(row.get("Status", "")).strip(),
+                        "created_at": str(row.get("Created_At", "")).strip(),
+                    })
+    except Exception:
+        pass
+
+    itens.sort(key=lambda x: x["score"], reverse=True)
+    return itens
+
+
+def get_recomendacoes_condicao(client_id: str) -> list[dict]:
+    """Só as tarefas de manutenção por Condição com GUT — o subconjunto de
+    get_gut_summary() que representa "Recomendação por Condição" no sentido
+    estrito (overhaul, troca de rolamento, kit revisão — nunca automáticos
+    por horímetro, sempre dependem de avaliação técnica)."""
+    return [i for i in get_gut_summary(client_id)
+            if i["origem"] == "manutencao" and i.get("subtipo") == "Condição"]
+
+
 _HEADERS_CHAMADOS_V2 = [
     "Id", "Client_Id", "Usuario_Id", "Empresa", "Email",
     "Ativo_Id", "Componente_Id", "Report_Id", "Maintenance_Task_Id", "Alert_Id",
@@ -2974,29 +3224,42 @@ def abrir_chamado_v2(dados: dict) -> str | None:
     _ensure_chamados_v2_cols()
     chamado_id = _gerar_id("CH")
     agora      = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    ok = append_row("Chamados", [
-        chamado_id,
-        dados.get("client_id", ""),
-        dados.get("usuario_id", ""),
-        dados.get("empresa", dados.get("client_id", "")),
-        dados.get("email", ""),
-        dados.get("ativo_id", ""),
-        dados.get("componente_id", ""),
-        dados.get("report_id", ""),
-        dados.get("maintenance_task_id", ""),
-        dados.get("alert_id", ""),
-        dados.get("titulo", ""),
-        dados.get("descricao", ""),
-        dados.get("categoria", "Dúvida técnica"),
-        dados.get("prioridade", "Média"),
-        "Aberto",
-        dados.get("origem", "Portal do Cliente"),
-        "",   # responsavel
-        dados.get("planta", ""),
-        dados.get("equipamento", ""),
-        agora, agora, "",   # Aberto_Em, Atualizado_Em, Concluido_Em
-        agora, agora, "",   # legado: Data_Abertura, Data_Atualizacao, Data_Encerramento
-    ])
+    # Mapa campo->valor, gravado na ORDEM REAL do cabeçalho da planilha (não
+    # necessariamente a ordem de _HEADERS_CHAMADOS_V2) — a aba Chamados tem
+    # cabeçalho legado com as colunas V2 anexadas ao final por
+    # _ensure_chamados_v2_cols(), então uma lista posicional fixa gravava
+    # cada valor na coluna errada.
+    campos = {
+        "Id": chamado_id,
+        "Client_Id": dados.get("client_id", ""),
+        "Usuario_Id": dados.get("usuario_id", ""),
+        "Empresa": dados.get("empresa", dados.get("client_id", "")),
+        "Email": dados.get("email", ""),
+        "Ativo_Id": dados.get("ativo_id", ""),
+        "Componente_Id": dados.get("componente_id", ""),
+        "Report_Id": dados.get("report_id", ""),
+        "Maintenance_Task_Id": dados.get("maintenance_task_id", ""),
+        "Alert_Id": dados.get("alert_id", ""),
+        "Titulo": dados.get("titulo", ""),
+        "Descricao": dados.get("descricao", ""),
+        "Categoria": dados.get("categoria", "Dúvida técnica"),
+        "Prioridade": dados.get("prioridade", "Média"),
+        "Status": "Aberto",
+        "Origem": dados.get("origem", "Portal do Cliente"),
+        "Responsavel": "",
+        "Planta": dados.get("planta", ""),
+        "Equipamento": dados.get("equipamento", ""),
+        "Aberto_Em": agora, "Atualizado_Em": agora, "Concluido_Em": "",
+        "Data_Abertura": agora, "Data_Atualizacao": agora, "Data_Encerramento": "",
+    }
+    try:
+        headers = get_spreadsheet().worksheet("Chamados").row_values(1)
+    except Exception:
+        headers = []
+    if headers:
+        ok = append_row("Chamados", [campos.get(h, "") for h in headers])
+    else:
+        ok = append_row("Chamados", [campos.get(h, "") for h in _HEADERS_CHAMADOS_V2])
     if ok:
         # Cria evento no histórico técnico do ativo
         ativo_id  = dados.get("ativo_id", "")

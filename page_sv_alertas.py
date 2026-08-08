@@ -1,9 +1,11 @@
 """Supervisão — Alertas e Pontos de Atenção manuais."""
 import streamlit as st
 from auth import require_staff
-from sheets import get_all_clientes, get_alertas_sv, add_alerta_sv, delete_alerta_sv
+from sheets import (get_all_clientes, get_alertas_sv, add_alerta_sv,
+                    delete_alerta_sv, update_alerta_gut)
 from assistant import send_whatsapp
-from ui import sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
+from ui import sv_page_header, status_badge, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
+from gut import calculate_gut, GUT_DISCLAIMER
 
 _PRIO_OPTS = ["Crítica", "Alta", "Média", "Baixa"]
 _PRIO_COR  = {
@@ -47,10 +49,21 @@ def render() -> None:
             placeholder="Descreva o ponto de atenção para o cliente...",
             height=80,
         )
+        ativo_id = st.text_input("Ativo relacionado (Id, opcional)", placeholder="Ex: AT-2026-001")
         whatsapp = st.text_input(
             "WhatsApp para envio",
             placeholder="Ex: 5511999999999 (com DDI e DDD, sem espaços ou +)",
         )
+
+        st.markdown("**🎯 Prioridade GUT (opcional)**")
+        st.caption(f"ℹ️ {GUT_DISCLAIMER} Deixe em branco para definir depois.")
+        gc1, gc2, gc3 = st.columns(3)
+        with gc1:
+            g_ini = st.selectbox("Gravidade", ["—", 1, 2, 3, 4, 5], key="_novoal_g")
+        with gc2:
+            u_ini = st.selectbox("Urgência", ["—", 1, 2, 3, 4, 5], key="_novoal_u")
+        with gc3:
+            t_ini = st.selectbox("Tendência", ["—", 1, 2, 3, 4, 5], key="_novoal_t")
 
         submitted = st.form_submit_button(
             "🔔 Publicar alerta", type="primary", use_container_width=True
@@ -66,7 +79,11 @@ def render() -> None:
             else:
                 client_id = empresa_sel.strip().lower()
 
-            ok = add_alerta_sv(client_id, empresa_sel, titulo.strip(), descricao.strip(), prioridade, whatsapp)
+            novo_id = add_alerta_sv(client_id, empresa_sel, titulo.strip(), descricao.strip(),
+                                    prioridade, whatsapp, ativo_id.strip())
+            ok = bool(novo_id)
+            if ok and g_ini != "—" and u_ini != "—" and t_ini != "—":
+                update_alerta_gut(novo_id, g_ini, u_ini, t_ini)
             if ok:
                 numero = whatsapp.strip()
                 if numero:
@@ -130,6 +147,12 @@ def _render_card(row) -> None:
 
     cor = _PRIO_COR.get(prioridade, "#94A3B8")
 
+    gut_res  = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
+    gut_html = (
+        f"<span style='margin-left:4px;'>{status_badge(gut_res['prioridade'], 'gut')}</span>"
+        f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:4px;'>GUT {gut_res['score']}</span>"
+    ) if gut_res else ""
+
     col_info, col_del = st.columns([10, 0.7])
     with col_info:
         st.markdown(
@@ -146,6 +169,7 @@ def _render_card(row) -> None:
             f"<span style='background:#EFF6FF;color:#1E40AF;-webkit-text-fill-color:#1E40AF;"
             f"font-size:0.7rem;font-weight:600;padding:2px 10px;border-radius:10px;"
             f"border:1px solid #BFDBFE;'>🏢 {empresa}</span>"
+            f"{gut_html}"
             f"</div></div>"
             + (f"<p style='color:#475569;font-size:0.82rem;margin:0 0 4px;'>{descricao}</p>"
                if descricao else "")
@@ -166,3 +190,33 @@ def _render_card(row) -> None:
                 st.rerun()
             else:
                 st.toast("⚠️ Não foi possível remover.", icon="⚠️")
+
+    with st.expander(f"🎯 GUT — {titulo[:40]}", expanded=False):
+        st.caption(f"ℹ️ {GUT_DISCLAIMER}")
+        gc1, gc2, gc3 = st.columns(3)
+        g_atual = int(row.get("Gut_Gravidade") or 3)
+        u_atual = int(row.get("Gut_Urgencia") or 3)
+        t_atual = int(row.get("Gut_Tendencia") or 3)
+        with gc1:
+            g_novo = st.number_input("Gravidade", 1, 5, g_atual, key=f"_gut_g_al_{alerta_id}")
+        with gc2:
+            u_novo = st.number_input("Urgência", 1, 5, u_atual, key=f"_gut_u_al_{alerta_id}")
+        with gc3:
+            t_novo = st.number_input("Tendência", 1, 5, t_atual, key=f"_gut_t_al_{alerta_id}")
+        obs_novo = st.text_area(
+            "Observação técnica", value=str(row.get("Gut_Observacao", "")).strip(),
+            key=f"_gut_obs_al_{alerta_id}", height=68,
+        )
+        preview = calculate_gut(g_novo, u_novo, t_novo)
+        if preview:
+            st.markdown(
+                status_badge(preview["prioridade"], "gut")
+                + f" <span style='font-size:0.8rem;color:{COLOR_MUTED};'>Score {preview['score']}</span>",
+                unsafe_allow_html=True,
+            )
+        if st.button("💾 Salvar GUT", key=f"_gut_save_al_{alerta_id}"):
+            if update_alerta_gut(alerta_id, g_novo, u_novo, t_novo, obs_novo):
+                st.success("GUT atualizado.")
+                st.rerun()
+            else:
+                st.error("Não foi possível salvar o GUT deste alerta.")
