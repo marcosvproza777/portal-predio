@@ -341,7 +341,16 @@ def _render_card(row) -> None:
             st.rerun()
 
     # Confirmação publicar
-    if st.session_state.pop(f"_svrel_confirm_pub_{rep_id}", False):
+    # IMPORTANTE: usar .get() aqui, não .pop() — .pop() já remove a chave na
+    # hora de checar, então no rerun causado pelo clique em "Confirmar" (um
+    # segundo rerun, distinto do que abriu a confirmação) a chave já não
+    # existe mais e este bloco inteiro (com o botão "Confirmar" dentro) nem
+    # chega a ser executado, perdendo o clique silenciosamente — sintoma:
+    # "clico em confirmar e não acontece nada". A chave só deve ser limpa
+    # explicitamente ao cancelar ou ao concluir a ação (senão fica "presa"
+    # em True e a confirmação reaparece sozinha na próxima vez que o card
+    # for renderizado).
+    if st.session_state.get(f"_svrel_confirm_pub_{rep_id}", False):
         sev_delta = {
             "urgente": -25, "crítico": -15, "critico": -15,
             "atenção": -7, "atencao": -7, "normal": 2,
@@ -357,6 +366,7 @@ def _render_card(row) -> None:
                          use_container_width=True):
                 with st.spinner("Publicando..."):
                     result = publish_technical_report(rep_id, current_nome())
+                st.session_state.pop(f"_svrel_confirm_pub_{rep_id}", None)
                 if result.get("ok"):
                     msg = "Relatório publicado com sucesso."
                     if result.get("score_atualizado"):
@@ -373,27 +383,31 @@ def _render_card(row) -> None:
                     st.error(result.get("erro", "Erro ao publicar."))
         with col_no:
             if st.button("❌ Cancelar", key=f"_svrel_pubNO_{rep_id}", use_container_width=True):
+                st.session_state.pop(f"_svrel_confirm_pub_{rep_id}", None)
                 st.rerun()
 
-    # Confirmação arquivar
-    if st.session_state.pop(f"_svrel_confirm_arch_{rep_id}", False):
+    # Confirmação arquivar — mesmo motivo do .get() acima
+    if st.session_state.get(f"_svrel_confirm_arch_{rep_id}", False):
         col_ok2, col_no2, _ = st.columns([1, 1, 3])
         st.warning(f"Arquivar '{titulo}'? O cliente não poderá mais acessá-lo.")
         with col_ok2:
             if st.button("✅ Arquivar", key=f"_svrel_archOK_{rep_id}", type="primary",
                          use_container_width=True):
                 archive_technical_report(rep_id)
+                st.session_state.pop(f"_svrel_confirm_arch_{rep_id}", None)
                 from sheets import load_sheet as _ls
                 _ls.clear()
                 st.rerun()
         with col_no2:
             if st.button("❌ Cancelar", key=f"_svrel_archNO_{rep_id}", use_container_width=True):
+                st.session_state.pop(f"_svrel_confirm_arch_{rep_id}", None)
                 st.rerun()
 
     # Confirmação excluir — diferente de Rascunho, apagar um Publicado
     # também reverte o Score do ativo e remove chunks/timeline (ver
-    # delete_technical_report_full em sheets.py).
-    if st.session_state.pop(f"_svrel_confirm_del_{rep_id}", False):
+    # delete_technical_report_full em sheets.py). Mesmo motivo do .get()
+    # acima (não usar .pop() aqui).
+    if st.session_state.get(f"_svrel_confirm_del_{rep_id}", False):
         if status == "Publicado":
             st.error(
                 f"**Apagar '{titulo}' (PUBLICADO)?** O cliente pode já ter visto este "
@@ -408,6 +422,7 @@ def _render_card(row) -> None:
             if st.button("🗑️ Confirmar exclusão", key=f"_svrel_delOK_{rep_id}",
                          type="primary", use_container_width=True):
                 result = delete_technical_report_full(rep_id)
+                st.session_state.pop(f"_svrel_confirm_del_{rep_id}", None)
                 from sheets import load_sheet as _ls
                 _ls.clear()
                 if result.get("ok"):
@@ -417,6 +432,7 @@ def _render_card(row) -> None:
                     st.error(result.get("erro", "Erro ao excluir."))
         with col_no3:
             if st.button("❌ Cancelar", key=f"_svrel_delNO_{rep_id}", use_container_width=True):
+                st.session_state.pop(f"_svrel_confirm_del_{rep_id}", None)
                 st.rerun()
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -963,7 +979,11 @@ def _render_form(report: dict | None) -> None:
                 st.session_state["_svrel_confirm_del"] = True
                 st.rerun()
 
-    if st.session_state.pop("_svrel_confirm_del", False):
+    # .get(), não .pop() — ver comentário extenso em _render_card() sobre por
+    # que .pop() aqui faz o clique em "Confirmar exclusão" ser ignorado (a
+    # chave já teria sido removida no rerun anterior, antes deste botão
+    # sequer ser instanciado de novo).
+    if st.session_state.get("_svrel_confirm_del", False):
         rep_status = (report or {}).get("Status", "Rascunho")
         if rep_status == "Publicado":
             st.error(
@@ -979,6 +999,7 @@ def _render_form(report: dict | None) -> None:
             if st.button("✅ Confirmar exclusão", key="_svrel_delOK", type="primary",
                          use_container_width=True):
                 result = delete_technical_report_full(st.session_state.get(_KEY_REP_ID, ""))
+                st.session_state.pop("_svrel_confirm_del", None)
                 from sheets import load_sheet as _ls
                 _ls.clear()
                 if result.get("ok"):
@@ -989,4 +1010,5 @@ def _render_form(report: dict | None) -> None:
                     st.error(result.get("erro", "Erro ao excluir."))
         with col_no:
             if st.button("❌ Cancelar", key="_svrel_delNO", use_container_width=True):
+                st.session_state.pop("_svrel_confirm_del", None)
                 st.rerun()
