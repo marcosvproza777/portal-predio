@@ -684,12 +684,12 @@ def render() -> None:
             with bnav_cols[0]:
                 if st.button("⚙️ Ver Ativos", key="svdash_nav_ativos",
                              use_container_width=True):
-                    st.session_state["sv_view"] = "ativos"
+                    st.session_state["sv_view"] = "ativos_sv"
                     st.rerun()
             with bnav_cols[1]:
                 if st.button("📄 Relatórios", key="svdash_nav_rel",
                              use_container_width=True):
-                    st.session_state["sv_view"] = "relatorios"
+                    st.session_state["sv_view"] = "relatorios_sv"
                     st.rerun()
 
         with col_cham:
@@ -708,7 +708,7 @@ def render() -> None:
         _render_relatorios_recentes(d)
         if st.button("📄 Ver todos os relatórios →", key="svdash_nav_rel2",
                      use_container_width=True):
-            st.session_state["sv_view"] = "relatorios"
+            st.session_state["sv_view"] = "relatorios_sv"
             st.rerun()
 
         st.markdown(

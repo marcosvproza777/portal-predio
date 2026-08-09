@@ -2,8 +2,8 @@
 import streamlit as st
 from auth import require_staff
 from sheets import get_all_chamados, delete_chamado
-from ui import (sv_page_header, status_badge, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
-                COLOR_MUTED, COLOR_DANGER, STATUS_CFG, PRIORIDADE_CFG)
+from ui import (sv_page_header, status_badge, status_color, sv_metric_card, empty_state,
+                COLOR_NAVY, COLOR_BORDER, COLOR_CARD, COLOR_MUTED, COLOR_DANGER)
 from gut import calculate_gut, GUT_DISCLAIMER
 
 _TODOS_STATUS = [
@@ -111,23 +111,14 @@ def render() -> None:
         n_critico    = sum(1 for l in linhas if str(l["row"].get("Prioridade", "")).strip() == "Crítica")
         n_gut_critico = sum(1 for l in linhas if l["gut"] and l["gut"]["prioridade"] == "Crítica")
         mc = st.columns(4)
-        for col, (label, val, cor) in zip(mc, [
-            ("Total", len(linhas), COLOR_NAVY),
-            ("Abertos", n_aberto, "#EF4444"),
-            ("Prioridade Crítica", n_critico, "#7C3AED"),
-            ("Críticos por GUT", n_gut_critico, "#EF4444"),
+        for col, (icon, label, val, cor) in zip(mc, [
+            ("📋", "Total",               len(linhas),   COLOR_NAVY),
+            ("🔵", "Abertos",             n_aberto,      status_color("aberto", "chamado")),
+            ("🟣", "Prioridade Crítica",  n_critico,     status_color("crítica", "prioridade")),
+            ("🔴", "Críticos por GUT",    n_gut_critico, status_color("crítica", "gut")),
         ]):
             with col:
-                st.markdown(
-                    f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
-                    f"border-left:3px solid {cor};border-radius:8px;"
-                    f"padding:0.6rem 1rem;text-align:center;margin-bottom:0.5rem;'>"
-                    f"<p style='font-size:0.62rem;color:{COLOR_MUTED};margin:0 0 2px;"
-                    f"text-transform:uppercase;'>{label}</p>"
-                    f"<p style='font-size:1.4rem;font-weight:900;color:{cor};margin:0;'>{val}</p>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                sv_metric_card(icon, label, str(val), cor)
         st.caption(f"ℹ️ {GUT_DISCLAIMER}")
 
     st.markdown(
@@ -137,7 +128,7 @@ def render() -> None:
     )
 
     if not linhas:
-        st.info("Nenhum chamado encontrado com os filtros aplicados.")
+        empty_state("Nenhum chamado encontrado com os filtros aplicados.", icon="🔧")
         return
 
     for idx, l in enumerate(linhas):
@@ -163,8 +154,7 @@ def _render_card(row, idx: int, gut_r: dict | None = None) -> None:
     task_id     = str(row.get("Maintenance_Task_Id", "")).strip()
     alert_id    = str(row.get("Alert_Id",        "")).strip()
 
-    pr_bg, pr_tc = PRIORIDADE_CFG.get(prioridade.lower(), ("#94A3B8", "#fff"))
-    st_bg, st_tc = STATUS_CFG.get(status.lower(), ("#94A3B8", "#fff"))
+    pr_bg = status_color(prioridade, "prioridade")
 
     meta = []
     if empresa:    meta.append(f"🏢 {empresa}")
@@ -209,13 +199,9 @@ def _render_card(row, idx: int, gut_r: dict | None = None) -> None:
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:1rem;"
             f"line-height:1.3;'>{titulo}</span>"
             f"<div style='display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;'>"
-            f"<span style='background:{pr_bg};color:{pr_tc};-webkit-text-fill-color:{pr_tc};"
-            f"font-size:0.72rem;font-weight:700;padding:3px 12px;border-radius:20px;'>"
-            f"{prioridade}</span>"
-            f"<span style='background:{st_bg};color:{st_tc};-webkit-text-fill-color:{st_tc};"
-            f"font-size:0.72rem;font-weight:700;padding:3px 12px;border-radius:20px;'>"
-            f"{status}</span>"
-            f"{gut_badge_html}"
+            + status_badge(prioridade, "prioridade")
+            + status_badge(status, "chamado")
+            + f"{gut_badge_html}"
             f"</div></div>"
             + (f"<p style='color:#64748B;font-size:0.82rem;margin:0 0 6px;'>{meta_str}</p>"
                if meta_str else "")
@@ -228,15 +214,20 @@ def _render_card(row, idx: int, gut_r: dict | None = None) -> None:
             unsafe_allow_html=True,
         )
 
+        # Confirmar exclusão vira o único botão primary da linha — "Ver
+        # chamado" recua para secondary nesse estado, senão os dois
+        # competem por atenção lado a lado.
+        confirmar = st.session_state.get(f"_del_ch_{chamado_id}", False)
+
         col_esp, col_btn, col_del = st.columns([3, 1, 0.4])
         with col_btn:
             if st.button("👁️ Ver chamado", key=f"sv_ver_{idx}",
-                         use_container_width=True, type="primary"):
+                         use_container_width=True,
+                         type="secondary" if confirmar else "primary"):
                 st.session_state["sv_view"]       = "chamado_detalhe"
                 st.session_state["sv_chamado_id"] = chamado_id
                 st.rerun()
         with col_del:
-            confirmar = st.session_state.get(f"_del_ch_{chamado_id}", False)
             if not confirmar:
                 if st.button("🗑️", key=f"sv_del1_{idx}", help="Excluir chamado",
                              use_container_width=True):

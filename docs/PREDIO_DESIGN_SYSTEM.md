@@ -122,3 +122,59 @@ Sem lint/typecheck/build configurados no projeto (mesma situação da Etapa 1 �
 1. Aplicar o Design System nas ~7 telas restantes que ainda não foram tocadas por nenhuma das duas etapas (ex: `page_notificacoes_portal.py`, `page_preferencias_notificacao.py`, `page_assistente.py`, `page_sv_assistente.py`, `page_sv_homologacao.py`) — mesmo padrão de normalização de cor, se houver conflitos.
 2. Resolver a pendência crítica da Visão Executiva (Etapa 1) antes de subir novos clientes reais — é a prioridade mais alta do portal hoje, mais do que qualquer ajuste visual.
 3. Se o portal crescer, migrar `card_html()`/`status_badge()` para as páginas que ainda usam HTML de card totalmente manual, para reduzir duplicação de estilo.
+
+---
+
+## 11. Etapa 3 (2026-08-09) — polimento visual da Supervisão
+
+Pedido do usuário: "deixar o visual da Supervisão mais bonito e apresentável", sem novas features nem mudança de regra de negócio. Ao contrário das Etapas 1-2 (só cor), esta etapa também consolidou estrutura (badges duplicados, cards de métrica, empty states) nas páginas que a auditoria desta sessão mostrou como realmente inconsistentes — não só entre páginas, mas às vezes dentro do mesmo card.
+
+### 11.1 Header da Supervisão — bug de alinhamento corrigido
+
+`render_sv_topnav()` (`ui.py`): "Supervisão" (bloco HTML plano) e o bloco usuário/Sair (`st.columns([3,1])` aninhado + `st.button()` nativo) tinham profundidade de DOM diferente, então `align-items:center` na linha não bastava — cada lado ficava com uma altura intrínseca diferente. Corrigido fazendo **cada coluna** (não só a linha) virar um flex container com `align-items:center` e `min-height` fixa, e zerando a margem nativa do botão "Sair". Validado com um mockup HTML reproduzindo o DOM real do Streamlit (`stHorizontalBlock`/`column`/`stButton`) antes e depois da correção — captura de tela confirmou o alinhamento.
+
+CSS mobile (`pwa.py`, breakpoints 640px/480px): as regras que quebram colunas em 2/1 por linha só tinham exceção para `.portal-nav-marker` (cliente) — adicionada a mesma exceção para `.sv-topnav-marker`/`.sv-topnav-user-marker`, senão o header da Supervisão herdava regras pensadas pro portal do cliente.
+
+### 11.2 Badges/pills consolidados
+
+| Arquivo | O que mudou |
+|---|---|
+| `ui.py` | `STATUS_REGISTRY["saude_ativo"]` ganhou "em acompanhamento" (ciano) e as 4 faixas de criticidade (baixa/média/alta/crítica — mesma escala de cor de bom/atenção/crítico/urgente, vocabulário diferente). `STATUS_REGISTRY["manutencao"]` ganhou "cancelada". `STATUS_REGISTRY["relatorio"]` ganhou "disponível" (era um verde `#22c55e` fora do padrão em `page_sv_clientes.py`, virou `COLOR_SUCCESS`). Nova função `status_color(label, dominio)` — mesma resolução de `status_badge()`, mas devolve só o hex, para acentos de borda sem montar o badge inteiro. |
+| `page_sv_ativos.py` | `_STATUS`/`_CRITICIDADE` (10 campos de cor à mão) → `status_badge()`/`status_color()`. Ícone do status mantido só onde já era usado (cards de métrica do detalhe), badge da lista sem ícone (padrão do resto do portal). |
+| `page_sv_manutencao.py` | `_STATUS_BADGE`/`_PRIO_COLOR` → `status_badge(..., "manutencao")`/`status_badge(..., "prioridade")`. |
+| `page_sv_chamados.py` | Import direto de `STATUS_CFG`/`PRIORIDADE_CFG` (legado) → `status_badge()`. Isso corrigiu uma cor real fora do padrão: "Em análise" e "Aguardando cliente" tinham hex diferente do resto do portal (`STATUS_CFG` nunca tinha sido sincronizado com `STATUS_REGISTRY`). |
+| `page_sv_chamado_detalhe.py` | Mesmo `STATUS_CFG`/`PRIORIDADE_CFG` legado (closure `pill()`) → `status_badge()`/`badge()`. |
+| `page_sv_clientes.py` | Mesmo padrão no card-resumo de chamado (`_render_chamado_mini`); card-resumo de relatório tinha uma variável local chamada `status_color` que colidia com a nova função importada de `ui.py` — renomeado/removido o conflito ao migrar para `status_badge()`. |
+| `page_sv_alertas.py` | **Bug real corrigido**: badge de prioridade usava estilo translúcido (`{cor}22`/`{cor}55`) enquanto o badge de cliente ao lado, no mesmo card, era sólido — inconsistência dentro do próprio card, não só entre páginas. Agora os dois são sólidos (`status_badge`), como no resto da Supervisão. |
+
+**Não mexido**: `page_sv_biblioteca.py` mantém o estilo "chip translúcido" (mesma decisão da Etapa 2 — é uma variação de estilo intencional, não um bug) — só os empty states dessa página foram tocados (§11.4). `page_sv_assistente.py` e `page_sv_notificacoes.py` mantêm suas paletas locais de badge (conceitos muito específicos — confiança da IA, canal de notificação, avaliação de resposta — que não mapeiam 1:1 nos domínios existentes do registry); só os cards de métrica e os empty states dessas duas páginas foram migrados (§11.3/§11.4), não os badges.
+
+### 11.3 Cards de métrica consolidados em `sv_metric_card()`
+
+Substituídos tiles de métrica feitos à mão (`page_sv_chamados.py`, `page_sv_manutencao.py`) e widgets nativos `st.metric()`/`.metric()` (`page_sv_assistente.py`, `page_sv_notificacoes.py`) por `sv_metric_card()` — mesmo visual (ícone + label + valor + acento de cor) em vez de 3 estilos diferentes de "card de número" convivendo na mesma área.
+
+### 11.4 Empty states e alertas
+
+`st.info("Nenhum ... encontrado")` → `empty_state(mensagem, icon)` em `page_sv_clientes.py`, `page_sv_ativos.py`, `page_sv_manutencao.py`, `page_sv_chamados.py`, `page_sv_chamado_detalhe.py`, `page_sv_biblioteca.py`, `page_sv_assistente.py`, `page_sv_alertas.py`, `page_sv_notificacoes.py` — só nos casos de "lista vazia"; mensagens de validação de formulário (ex.: "Preencha pergunta e resposta antes de salvar") continuam nativas (`st.warning`/`st.error`), porque são feedback transitório de uma ação, não um estado de tela. Dois avisos persistentes de conteúdo viraram `app_alert()`: o banner de "Modo Teste Ativo" (bloqueio de envio externo, `page_sv_notificacoes.py`) e a nota sobre senha em branco no cadastro de cliente (`page_sv_clientes.py`).
+
+### 11.5 Hierarquia de botões
+
+`page_sv_chamados.py::_render_card`: "👁️ Ver chamado" e "✅ Confirmar" (exclusão) apareciam lado a lado como `type="primary"` quando o card entrava em modo de confirmação de exclusão — "Ver chamado" agora vira `secondary` nesse estado. `page_sv_chamado_detalhe.py`: o botão "💾 Salvar" do painel de edição virou `primary` (era o único `secondary` entre os 3 formulários principais da página, sem motivo aparente).
+
+### 11.6 O que não foi mexido (decisão de escopo desta etapa)
+
+- Estrutura/HTML de cada card não foi reescrita — só as chamadas de cor/badge/métrica/empty-state trocaram de fonte. Mesma filosofia da Etapa 2 (§7).
+- `page_sv_homologacao.py` e `page_sv_relatorio_executivo.py` ficaram de fora (uso interno raro / já auditadas antes). `page_sv_relatorios.py` também ficou de fora — foi mexida horas antes nesta mesma sessão por outro pedido (correção de bug de navegação + lixeira de relatórios).
+- A pendência crítica da Visão Executiva (Etapa 1) e as duplicatas de dados de clientes reais (RJR, Vigor Alimentos) continuam em aberto — não fazem parte de ajuste visual.
+
+### 11.7 Checks técnicos
+
+`py -m py_compile` + `import` real de todos os módulos tocados (11 arquivos `.py`) — sem erro. Sem lint/typecheck/build configurado (mesma situação das etapas anteriores). Verificação visual do header feita via mockup HTML estático reproduzindo o DOM do Streamlit (ver §11.1) — não foi feito login real na Supervisão para captura de tela das páginas, porque isso exigiria credenciais de um usuário real da planilha de produção.
+
+### 11.8 Confirmações
+
+- Não foi criada sidebar.
+- WhatsApp e e-mail não foram tocados (só o texto/estilo do aviso de bloqueio de envio, não a lógica).
+- Login, permissões e `client_id` não foram alterados.
+- GUT (cálculo/regra) não foi alterado — só o badge visual de prioridade GUT, que já existia.
+- Nenhuma feature nova — todas as adições (`status_color()` em `ui.py`, `delete_technical_report_full()` em `sheets.py` de um pedido anterior nesta mesma sessão) são helpers, não regras de negócio novas.

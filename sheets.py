@@ -2591,6 +2591,41 @@ def delete_technical_report(report_id: str) -> bool:
     return delete_row_by_id("TechnicalReports", "Id", report_id)
 
 
+def delete_technical_report_full(report_id: str) -> dict:
+    """Remove um relatório técnico em QUALQUER status (diferente de
+    delete_technical_report(), que só apaga Rascunho), com limpeza completa:
+
+    - Se estava Publicado: reverte o impacto no Score do ativo
+      (Score_Impacto) e remove o alerta interno gerado na publicação não é
+      feito aqui (alertas não guardam Report_Id — ficam no histórico normal).
+    - Remove os chunks indexados no Assistente Técnico (TechnicalReportChunks).
+    - Remove o(s) evento(s) da timeline do ativo (ReportTimeline).
+    - Remove a linha do relatório em si.
+
+    Não desfaz notificações já enviadas ao cliente (mensagem já entregue).
+    """
+    rep = get_technical_report_by_id(report_id)
+    if not rep:
+        return {"ok": False, "erro": "Relatório não encontrado."}
+
+    ativo_id = rep.get("Ativo_Id", "").strip()
+    if rep.get("Status", "").strip() == "Publicado" and ativo_id:
+        try:
+            delta = int(float(rep.get("Score_Impacto", "0") or "0"))
+        except Exception:
+            delta = 0
+        if delta:
+            current = _get_ativo_score(ativo_id)
+            if current is not None:
+                _update_ativo_score(ativo_id, max(5, min(100, current - delta)))
+
+    delete_chunks_relatorio(report_id)
+    delete_report_timeline_events(report_id)
+
+    ok = delete_row_by_id("TechnicalReports", "Id", report_id)
+    return {"ok": ok, "erro": "" if ok else "Falha ao remover o relatório."}
+
+
 # ── Timeline de Relatórios ───────────────────────────────────────────────────
 
 _HEADERS_REPORT_TIMELINE = [
@@ -2653,6 +2688,29 @@ def get_report_timeline_events(
     df["_s"] = df["Data"].apply(_dtkey)
     df = df.sort_values("_s", ascending=False).drop(columns=["_s"])
     return df.reset_index(drop=True)
+
+
+def delete_report_timeline_events(report_id: str) -> bool:
+    """Remove todos os eventos da timeline associados a um Report_Id
+    (usado ao apagar um relatório técnico por completo)."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("ReportTimeline")
+        headers = ws.row_values(1)
+        if "Report_Id" not in headers:
+            return True
+        col_idx = headers.index("Report_Id") + 1
+        all_vals = ws.col_values(col_idx)
+        to_delete = [
+            i + 1 for i, v in enumerate(all_vals)
+            if i > 0 and str(v).strip() == report_id.strip()
+        ]
+        for row_num in reversed(to_delete):
+            ws.delete_rows(row_num)
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
 
 
 # ── Planos e Tarefas de Manutenção ──────────────────────────────────────────
@@ -4080,6 +4138,30 @@ def get_chunks_relatorio(report_id: str, client_id: str = "") -> pd.DataFrame:
         df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
 
     return df.reset_index(drop=True)
+
+
+def delete_chunks_relatorio(report_id: str) -> bool:
+    """Remove todos os chunks indexados de um relatório técnico (usado ao
+    apagar o relatório por completo, para não deixar o Assistente respondendo
+    com base em um relatório que não existe mais)."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("TechnicalReportChunks")
+        headers = ws.row_values(1)
+        if "Report_Id" not in headers:
+            return True
+        col_idx = headers.index("Report_Id") + 1
+        all_vals = ws.col_values(col_idx)
+        to_delete = [
+            i + 1 for i, v in enumerate(all_vals)
+            if i > 0 and str(v).strip() == report_id.strip()
+        ]
+        for row_num in reversed(to_delete):
+            ws.delete_rows(row_num)
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

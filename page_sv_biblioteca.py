@@ -6,7 +6,7 @@ from sheets import (
     add_documento_tecnico, delete_documento_tecnico,
 )
 from ui import (
-    sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
+    sv_page_header, empty_state, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
     COLOR_MUTED, COLOR_BLUE,
 )
 from document_processor import STATUS_INDEXADO, STATUS_FALHOU, STATUS_PROCESSANDO, STATUS_NAO_INDEXADO
@@ -84,7 +84,7 @@ def render() -> None:
     df = get_documentos_tecnicos(staff=True)
 
     if df.empty:
-        st.info("Nenhum documento cadastrado. Use o formulário acima para adicionar.")
+        empty_state("Nenhum documento cadastrado. Use o formulário acima para adicionar.", icon="📚")
         return
 
     if filtro_tipo != "Todos":
@@ -102,7 +102,7 @@ def render() -> None:
         df = df[mask]
 
     if df.empty:
-        st.info("Nenhum documento encontrado com os filtros aplicados.")
+        empty_state("Nenhum documento encontrado com os filtros aplicados.", icon="📚")
         return
 
     st.markdown(

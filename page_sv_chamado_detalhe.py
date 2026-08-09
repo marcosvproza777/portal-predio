@@ -7,8 +7,8 @@ from sheets import (
     abrir_chamado_v2, get_all_clientes, get_ativos,
     update_chamado_gut,
 )
-from ui import (sv_page_header, status_badge, COLOR_NAVY, COLOR_BORDER, COLOR_CARD,
-                COLOR_MUTED, STATUS_CFG, PRIORIDADE_CFG)
+from ui import (sv_page_header, status_badge, status_color, badge, empty_state,
+                COLOR_NAVY, COLOR_BORDER, COLOR_CARD, COLOR_MUTED)
 from gut import calculate_gut, GUT_DISCLAIMER
 
 _STATUS_OPTS = [
@@ -185,16 +185,10 @@ def _render_header_card(chamado: dict) -> None:
     task_id    = str(chamado.get("Maintenance_Task_Id","")).strip()
     alert_id   = str(chamado.get("Alert_Id",    "")).strip()
 
-    pr_bg, pr_tc = PRIORIDADE_CFG.get(prioridade.lower(), ("#94A3B8", "#fff"))
-    st_bg, st_tc = STATUS_CFG.get(status.lower(), ("#94A3B8", "#fff"))
+    pr_bg = status_color(prioridade, "prioridade")
 
     gut_res = calculate_gut(chamado.get("Gut_Gravidade"), chamado.get("Gut_Urgencia"),
                             chamado.get("Gut_Tendencia"))
-
-    def pill(label, bg, tc):
-        return (f"<span style='background:{bg};color:{tc};-webkit-text-fill-color:{tc};"
-                f"font-size:0.75rem;font-weight:700;padding:3px 12px;border-radius:20px;'>"
-                f"{label}</span>")
 
     meta_items = [
         ("🏢", empresa), ("✉️", email),
@@ -220,8 +214,8 @@ def _render_header_card(chamado: dict) -> None:
         f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
         f"border-left:6px solid {pr_bg};border-radius:12px;padding:1.25rem 1.5rem;'>"
         f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:0.75rem;flex-wrap:wrap;'>"
-        f"{pill(prioridade, pr_bg, pr_tc)} {pill(status, st_bg, st_tc)}"
-        + (f" {pill(categoria,'#F1F5F9','#475569')}" if categoria else "")
+        f"{status_badge(prioridade, 'prioridade')} {status_badge(status, 'chamado')}"
+        + (f" {badge(categoria, '#F1F5F9', '#475569')}" if categoria else "")
         + (f" {status_badge(gut_res['prioridade'], 'gut')}"
            f"<span style='color:{COLOR_MUTED};font-size:0.7rem;margin-left:2px;'>GUT {gut_res['score']}</span>"
            if gut_res else "")
@@ -249,11 +243,7 @@ def _render_timeline(chamado_id: str) -> None:
     )
     msgs = get_mensagens_chamado(chamado_id)
     if msgs.empty:
-        st.markdown(
-            f"<p style='color:{COLOR_MUTED};font-size:0.88rem;'>"
-            "Nenhuma mensagem registrada ainda.</p>",
-            unsafe_allow_html=True,
-        )
+        empty_state("Nenhuma mensagem registrada ainda.", icon="💬")
         return
 
     for _, m in msgs.iterrows():
@@ -423,7 +413,7 @@ def _render_action_panel(chamado_id: str, chamado: dict) -> None:
             t_novo = st.number_input("Tendência", 1, 5, t_atual)
         obs_novo = st.text_area("Observação técnica GUT", value=obs_atual, height=68)
 
-        salvar = st.form_submit_button("💾 Salvar", use_container_width=True)
+        salvar = st.form_submit_button("💾 Salvar", use_container_width=True, type="primary")
 
     if salvar:
         campos      = {}

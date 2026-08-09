@@ -4,16 +4,11 @@ from auth import require_staff
 from sheets import (get_all_clientes, get_alertas_sv, add_alerta_sv,
                     delete_alerta_sv, update_alerta_gut)
 from assistant import send_whatsapp
-from ui import sv_page_header, status_badge, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
+from ui import (sv_page_header, status_badge, status_color, empty_state,
+                COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE)
 from gut import calculate_gut, GUT_DISCLAIMER
 
 _PRIO_OPTS = ["Crítica", "Alta", "Média", "Baixa"]
-_PRIO_COR  = {
-    "Crítica": "#EF4444",
-    "Alta":    "#F97316",
-    "Média":   "#F59E0B",
-    "Baixa":   "#64748B",
-}
 
 
 def render() -> None:
@@ -126,9 +121,10 @@ def render() -> None:
     df = get_alertas_sv()
 
     if df.empty:
-        st.info(
+        empty_state(
             "Nenhum alerta publicado ainda. "
-            "Use o formulário acima para criar pontos de atenção visíveis no portal de cada cliente."
+            "Use o formulário acima para criar pontos de atenção visíveis no portal de cada cliente.",
+            icon="🔔",
         )
         return
 
@@ -145,7 +141,7 @@ def _render_card(row) -> None:
     criado_em  = str(row.get("Criado_Em",  "")).strip()[:16]
     whatsapp   = str(row.get("Whatsapp",   "")).strip()
 
-    cor = _PRIO_COR.get(prioridade, "#94A3B8")
+    cor = status_color(prioridade, "prioridade")
 
     gut_res  = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
     gut_html = (
@@ -163,10 +159,8 @@ def _render_card(row) -> None:
             f"flex-wrap:wrap;gap:6px;margin-bottom:4px;'>"
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>{titulo}</span>"
             f"<div style='display:flex;gap:6px;flex-wrap:wrap;'>"
-            f"<span style='background:{cor}22;color:{cor};-webkit-text-fill-color:{cor};"
-            f"border:1px solid {cor}55;font-size:0.7rem;font-weight:700;"
-            f"padding:2px 10px;border-radius:10px;'>{prioridade}</span>"
-            f"<span style='background:#EFF6FF;color:#1E40AF;-webkit-text-fill-color:#1E40AF;"
+            + status_badge(prioridade, "prioridade")
+            + f"<span style='background:#EFF6FF;color:#1E40AF;-webkit-text-fill-color:#1E40AF;"
             f"font-size:0.7rem;font-weight:600;padding:2px 10px;border-radius:10px;"
             f"border:1px solid #BFDBFE;'>🏢 {empresa}</span>"
             f"{gut_html}"

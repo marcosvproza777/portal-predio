@@ -7,7 +7,9 @@ from sheets import (
     get_notificacoes, add_notificacao, update_notificacao_status,
     get_all_clientes, get_contatos_notificacao,
 )
-from ui import sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE
+from ui import (sv_page_header, sv_metric_card, empty_state, app_alert,
+                COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
+                COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_ACCENT, COLOR_INFO, COLOR_NEUTRAL)
 
 COLOR_GREEN = "#10B981"
 COLOR_WARN  = "#F59E0B"
@@ -689,14 +691,14 @@ def _render_tab_log() -> None:
     env     = len(df_f[df_f["Status"].astype(str).str.strip() == "Enviado"])
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total",     total)
-    m2.metric("Simulados", sim)
-    m3.metric("Pendentes", pend)
-    m4.metric("Enviados",  env)
+    with m1: sv_metric_card("📨", "Total",     str(total), COLOR_NAVY)
+    with m2: sv_metric_card("🧪", "Simulados", str(sim),   COLOR_ACCENT)
+    with m3: sv_metric_card("⏳", "Pendentes", str(pend),  COLOR_WARNING)
+    with m4: sv_metric_card("✅", "Enviados",  str(env),   COLOR_SUCCESS)
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
     if df_f.empty:
-        st.info("Nenhum registro encontrado com os filtros selecionados.")
+        empty_state("Nenhum registro encontrado com os filtros selecionados.", icon="📨")
         return
 
     for _, row in df_f.iterrows():
@@ -864,7 +866,7 @@ def _render_tab_portal() -> None:
         df = pd.DataFrame()
 
     if df.empty:
-        st.info("Nenhuma notificação de portal registrada ainda.")
+        empty_state("Nenhuma notificação de portal registrada ainda.", icon="📨")
         return
 
     # Normaliza colunas
@@ -901,15 +903,15 @@ def _render_tab_portal() -> None:
                if "Status" in df_f.columns else 0)
 
     m1, m2 = st.columns(2)
-    m1.metric("Total filtrado", total)
-    m2.metric("Não lidas",      nao_lid)
+    with m1: sv_metric_card("📨", "Total filtrado", str(total),   COLOR_NAVY)
+    with m2: sv_metric_card("🔵", "Não lidas",      str(nao_lid), COLOR_INFO)
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>",
         unsafe_allow_html=True,
     )
 
     if df_f.empty:
-        st.info("Nenhuma notificação com os filtros selecionados.")
+        empty_state("Nenhuma notificação com os filtros selecionados.", icon="📨")
         return
 
     for _, row in df_f.head(80).iterrows():
@@ -1138,7 +1140,7 @@ def _render_tab_templates() -> None:
                     st.rerun()
                 else:
                     st.info("Templates já existem ou não foi possível criar.")
-        st.info("Nenhum template cadastrado. Clique em 'Criar templates padrão' para começar.")
+        empty_state("Nenhum template cadastrado. Clique em 'Criar templates padrão' para começar.", icon="📄")
 
     # Formulário de criação
     with st.expander("➕ Novo template", expanded=df.empty):
@@ -1165,13 +1167,13 @@ def _render_tab_templates() -> None:
         df_f = df_f[df_f["Status"].str.strip() == f_st]
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total", len(df))
-    m2.metric("Ativos", len(df[df["Status"].str.strip() == "Ativo"]))
-    m3.metric("Rascunhos", len(df[df["Status"].str.strip() == "Rascunho"]))
+    with m1: sv_metric_card("📄", "Total",     str(len(df)),                                          COLOR_NAVY)
+    with m2: sv_metric_card("✅", "Ativos",     str(len(df[df["Status"].str.strip() == "Ativo"])),     COLOR_SUCCESS)
+    with m3: sv_metric_card("📝", "Rascunhos", str(len(df[df["Status"].str.strip() == "Rascunho"])),  COLOR_NEUTRAL)
     st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>", unsafe_allow_html=True)
 
     if df_f.empty:
-        st.info("Nenhum template com os filtros selecionados.")
+        empty_state("Nenhum template com os filtros selecionados.", icon="📄")
         return
 
     for _, row in df_f.iterrows():
@@ -1374,7 +1376,7 @@ def _render_tab_fila() -> None:
     df = get_notification_queue(client_id=cid_sel, limit=200)
 
     if df.empty:
-        st.info("Fila vazia. Use o Sandbox para simular notificações.")
+        empty_state("Fila vazia. Use o Sandbox para simular notificações.", icon="📬")
         return
 
     if f_st != "Todos":
@@ -1383,13 +1385,13 @@ def _render_tab_fila() -> None:
         df = df[df["Canal"].str.strip() == f_can]
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total", len(df))
-    m2.metric("Simulados", len(df[df["Status"].str.strip() == "Simulado"]))
-    m3.metric("Bloqueados", len(df[df["Status"].str.strip() == "Bloqueado"]))
+    with m1: sv_metric_card("📬", "Total",      str(len(df)),                                             COLOR_NAVY)
+    with m2: sv_metric_card("🧪", "Simulados",  str(len(df[df["Status"].str.strip() == "Simulado"])),    COLOR_ACCENT)
+    with m3: sv_metric_card("🚫", "Bloqueados", str(len(df[df["Status"].str.strip() == "Bloqueado"])),   COLOR_DANGER)
     st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.5rem 0 1rem;'/>", unsafe_allow_html=True)
 
     if df.empty:
-        st.info("Nenhum item com os filtros selecionados.")
+        empty_state("Nenhum item com os filtros selecionados.", icon="📬")
         return
 
     for _, row in df.tail(80).iterrows():
@@ -1463,11 +1465,11 @@ def _render_tab_sandbox() -> None:
     )
 
     block_info = check_external_send_blocked()
-    st.info(f"🔒 {block_info['mensagem']}")
+    app_alert(block_info['mensagem'], kind="info")
 
     df_tpl = get_notification_templates(status="Ativo")
     if df_tpl.empty:
-        st.warning("Nenhum template ativo. Crie e ative um template na aba Templates primeiro.")
+        empty_state("Nenhum template ativo. Crie e ative um template na aba Templates primeiro.", icon="📄")
         return
 
     tpl_opts = {

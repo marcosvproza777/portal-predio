@@ -6,7 +6,7 @@ from sheets import (get_all_ativos_sv, cadastrar_ativo_sv,
                     get_componentes_sv, cadastrar_componente_sv,
                     get_all_clientes, get_all_chamados,
                     delete_ativo_sv, update_ativo)
-from ui import (sv_page_header, sv_metric_card,
+from ui import (sv_page_header, sv_metric_card, status_badge, status_color, empty_state,
                 COLOR_NAVY, COLOR_BLUE, COLOR_BG, COLOR_CARD, COLOR_BORDER, COLOR_MUTED)
 
 # ── Routing keys ──────────────────────────────────────────────────────────────
@@ -14,22 +14,11 @@ _SV_ATIVO_ID  = "sv_ativo_id"
 _SV_ATIVO_NOM = "sv_ativo_nome"
 _SV_CLIE_ID   = "sv_ativo_cliente_id"
 
-# ── Status e criticidade ──────────────────────────────────────────────────────
-_STATUS = {
-    "bom":               {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46", "icon": "🟢"},
-    "atencao":           {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E", "icon": "🟡"},
-    "critico":           {"color": "#EF4444", "bg": "#FEF2F2", "border": "#FCA5A5", "text": "#991B1B", "icon": "🔴"},
-    "em acompanhamento": {"color": "#38BDF8", "bg": "#F0F9FF", "border": "#BAE6FD", "text": "#0C4A6E", "icon": "🔵"},
+# ── Ícone de status (só para o ícone dos cards de métrica — cor e badge vêm
+# do Design System central, ui.STATUS_REGISTRY["saude_ativo"]) ─────────────────
+_STATUS_ICON = {
+    "bom": "🟢", "atencao": "🟡", "critico": "🔴", "em acompanhamento": "🔵",
 }
-_STATUS_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569", "icon": "⚪"}
-
-_CRITICIDADE = {
-    "alta":    {"color": "#EF4444", "bg": "#FEF2F2", "border": "#FCA5A5", "text": "#991B1B"},
-    "critica": {"color": "#7C3AED", "bg": "#F5F3FF", "border": "#C4B5FD", "text": "#4C1D95"},
-    "media":   {"color": "#F59E0B", "bg": "#FFFBEB", "border": "#FCD34D", "text": "#92400E"},
-    "baixa":   {"color": "#10B981", "bg": "#F0FDF4", "border": "#86EFAC", "text": "#065F46"},
-}
-_CRIT_DEFAULT = {"color": "#94A3B8", "bg": "#F8FAFC", "border": "#CBD5E1", "text": "#475569"}
 
 # ── Mock data (fallback enquanto Ativos sheet estiver vazia) ──────────────────
 _MOCK_ATIVOS = [
@@ -106,12 +95,8 @@ def _norm(s: str) -> str:
     )
 
 
-def _scfg(status: str) -> dict:
-    return _STATUS.get(_norm(status), _STATUS_DEFAULT)
-
-
-def _ccfg(crit: str) -> dict:
-    return _CRITICIDADE.get(_norm(crit), _CRIT_DEFAULT)
+def _status_icon(status: str) -> str:
+    return _STATUS_ICON.get(_norm(status), "⚪")
 
 
 def _score_color(score) -> str:
@@ -228,7 +213,7 @@ def _render_lista() -> None:
     )
 
     if df.empty:
-        st.info("Nenhum ativo encontrado com os filtros selecionados.")
+        empty_state("Nenhum ativo encontrado com os filtros selecionados.", icon="⚙️")
         return
 
     for _, row in df.iterrows():
@@ -254,15 +239,14 @@ def _render_card_ativo(row) -> None:
     except (ValueError, TypeError):
         score = 0
 
-    cfg  = _scfg(status)
-    ccfg = _ccfg(crit)
+    status_accent = status_color(status, "saude_ativo")
     sc   = _score_color(score)
 
     col_info, col_ver, col_del = st.columns([8, 0.9, 0.7])
     with col_info:
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
-            f"border-left:5px solid {cfg['color']};border-radius:12px;"
+            f"border-left:5px solid {status_accent};border-radius:12px;"
             f"padding:14px 18px 12px;margin-bottom:4px;"
             f"box-shadow:0 1px 4px rgba(15,31,61,0.05);'>"
 
@@ -276,13 +260,9 @@ def _render_card_ativo(row) -> None:
             f"🏢 {empresa}</span>"
             f"</div>"
             f"<div style='display:flex;gap:6px;flex-wrap:wrap;'>"
-            f"<span style='background:{cfg['bg']};color:{cfg['text']};-webkit-text-fill-color:{cfg['text']};"
-            f"border:1px solid {cfg['border']};font-size:0.7rem;font-weight:700;"
-            f"padding:2px 12px;border-radius:20px;'>{cfg['icon']} {status}</span>"
-            f"<span style='background:{ccfg['bg']};color:{ccfg['text']};-webkit-text-fill-color:{ccfg['text']};"
-            f"border:1px solid {ccfg['border']};font-size:0.7rem;font-weight:700;"
-            f"padding:2px 12px;border-radius:20px;'>{crit}</span>"
-            f"</div></div>"
+            + status_badge(status, "saude_ativo")
+            + status_badge(crit, "saude_ativo")
+            + f"</div></div>"
 
             # Linha 2: meta
             f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:0 0 8px;'>"
@@ -373,9 +353,7 @@ def _render_detalhe() -> None:
     except (ValueError, TypeError):
         score = 0
 
-    cfg  = _scfg(status)
-    ccfg = _ccfg(crit)
-    sc   = _score_color(score)
+    sc = _score_color(score)
 
     sv_page_header(
         f"⚙️ {nome}",
@@ -390,11 +368,11 @@ def _render_detalhe() -> None:
     # ── Métricas ──────────────────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
     with c1:
-        sv_metric_card(cfg["icon"], "Status", status, cfg["color"])
+        sv_metric_card(_status_icon(status), "Status", status, status_color(status, "saude_ativo"))
     with c2:
         sv_metric_card("📊", "Score de Saúde", f"{score}/100", sc)
     with c3:
-        sv_metric_card("⚠️", "Criticidade", crit, ccfg["color"])
+        sv_metric_card("⚠️", "Criticidade", crit, status_color(crit, "saude_ativo"))
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
     col_vib, _ = st.columns([2, 4])
@@ -480,7 +458,7 @@ def _render_detalhe() -> None:
     df_comp, comp_mock = _load_componentes(ativo_id)
 
     if df_comp.empty:
-        st.info("Nenhum componente vinculado ainda. Clique em '+ Adicionar componente'.")
+        empty_state("Nenhum componente vinculado ainda. Clique em '+ Adicionar componente'.", icon="🧩")
     else:
         for _, comp in df_comp.iterrows():
             _render_componente_card(comp)
@@ -524,7 +502,7 @@ def _render_detalhe() -> None:
 
     df_cham = get_all_chamados({"cliente": empresa})
     if df_cham.empty or "Empresa" not in df_cham.columns:
-        st.info("Nenhum chamado registrado para este cliente.")
+        empty_state("Nenhum chamado registrado para este cliente.", icon="🔧")
     else:
         recentes = df_cham.head(5)
         for _, crow in recentes.iterrows():
@@ -682,21 +660,19 @@ def _render_componente_card(comp) -> None:
     except (ValueError, TypeError):
         score = 0
 
-    cfg = _scfg(status)
+    status_accent = status_color(status, "saude_ativo")
     sc  = _score_color(score)
 
     st.markdown(
-        f"<div style='background:{COLOR_BG};border:1px solid {cfg['border']};"
-        f"border-left:4px solid {cfg['color']};border-radius:10px;"
+        f"<div style='background:{COLOR_BG};border:1px solid {COLOR_BORDER};"
+        f"border-left:4px solid {status_accent};border-radius:10px;"
         f"padding:12px 16px;margin-bottom:8px;'>"
         f"<div style='display:flex;justify-content:space-between;align-items:center;"
         f"flex-wrap:wrap;gap:6px;margin-bottom:4px;'>"
         f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>{nome}</span>"
         f"<div style='display:flex;gap:5px;'>"
-        f"<span style='background:{cfg['bg']};color:{cfg['text']};-webkit-text-fill-color:{cfg['text']};"
-        f"border:1px solid {cfg['border']};font-size:0.68rem;font-weight:700;"
-        f"padding:2px 10px;border-radius:20px;'>{cfg['icon']} {status}</span>"
-        f"</div></div>"
+        + status_badge(status, "saude_ativo")
+        + f"</div></div>"
         f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:0 0 4px;'>"
         f"{tipo}"
         + (f"  ·  Modelo: {modelo}" if modelo else "")

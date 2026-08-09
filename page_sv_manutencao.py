@@ -9,7 +9,7 @@ from page_ativos import (
     _render_tarefa_card, _render_plano_manutencao,
 )
 from ui import (
-    sv_page_header, status_badge,
+    sv_page_header, status_badge, status_color, sv_metric_card, empty_state, app_alert,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
 from sheets import (
@@ -43,22 +43,6 @@ _ORIGENS = [
     "Chamado técnico", "Cadastro manual",
 ]
 
-_STATUS_BADGE = {
-    "em dia":                       ("#10B981", "#F0FDF4", "#86EFAC", "#065F46"),
-    "próxima do vencimento":        ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "proxima do vencimento":        ("#F59E0B", "#FFFBEB", "#FCD34D", "#92400E"),
-    "vencida":                      ("#EF4444", "#FEF2F2", "#FCA5A5", "#991B1B"),
-    "depende de análise preditiva": ("#38BDF8", "#F0F9FF", "#BAE6FD", "#0C4A6E"),
-    "depende de analise preditiva": ("#38BDF8", "#F0F9FF", "#BAE6FD", "#0C4A6E"),
-    "concluída":                    ("#64748B", "#F8FAFC", "#CBD5E1", "#475569"),
-    "concluida":                    ("#64748B", "#F8FAFC", "#CBD5E1", "#475569"),
-    "cancelada":                    ("#94A3B8", "#F8FAFC", "#CBD5E1", "#475569"),
-}
-_STATUS_DEFAULT = ("#94A3B8", "#F8FAFC", "#CBD5E1", "#475569")
-
-_PRIO_COLOR = {"baixa": "#94A3B8", "média": "#F59E0B", "media": "#F59E0B",
-               "alta": "#F97316", "crítica": "#EF4444", "critica": "#EF4444"}
-
 _NOTE_CONDICAO = (
     "⚠️ Intervenções pesadas (overhaul, desmontagem, troca de rolamento, kit revisão) "
     "não devem ser automáticas por horímetro. "
@@ -66,15 +50,6 @@ _NOTE_CONDICAO = (
     "análise de vibração, análise de óleo, termografia e avaliação técnica Pred.IO."
 )
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _status_cfg(status: str) -> tuple:
-    return _STATUS_BADGE.get(_norm(status), _STATUS_DEFAULT)
-
-
-def _prio_color(prio: str) -> str:
-    return _PRIO_COLOR.get(_norm(prio), "#94A3B8")
 
 
 def _do_save_horimetro(ativo_id: str) -> None:
@@ -171,7 +146,7 @@ def _render_tab_planos() -> None:
     )
 
     if df_plans.empty:
-        st.info("Nenhum plano cadastrado. Use '➕ Criar novo plano' acima.")
+        empty_state("Nenhum plano cadastrado. Use '➕ Criar novo plano' acima.", icon="📅")
         return
 
     for _, row in df_plans.iterrows():
@@ -486,7 +461,7 @@ def _render_lista_tarefas_sv() -> None:
     )
 
     if df_tasks.empty:
-        st.info("Nenhuma tarefa cadastrada com os filtros selecionados.")
+        empty_state("Nenhuma tarefa cadastrada com os filtros selecionados.", icon="🛠️")
         return
 
     # ── Enriquece com status e prioridade GUT para filtrar/ordenar ────────────
@@ -514,7 +489,7 @@ def _render_lista_tarefas_sv() -> None:
         enriched = [e for e in enriched if e["ativo_id"] == ativo_f]
 
     if not enriched:
-        st.info("Nenhuma tarefa encontrada com os filtros selecionados.")
+        empty_state("Nenhuma tarefa encontrada com os filtros selecionados.", icon="🛠️")
         return
 
     # Ordenação padrão: GUT Crítica → GUT Alta → vencidas → (ordem original)
@@ -548,8 +523,7 @@ def _render_task_card_sv(row, show_actions: bool = True) -> None:
     h_atual = _get_h(ativo_id) if ativo_id else 0
     status  = calc_task_status(row.to_dict(), h_atual)
 
-    sc, sb, sbo, st_ = _status_cfg(status)
-    pc = _prio_color(prio)
+    status_accent = status_color(status, "manutencao")
 
     gut_res  = calculate_gut(row.get("Gut_Gravidade"), row.get("Gut_Urgencia"), row.get("Gut_Tendencia"))
     gut_html = (
@@ -573,19 +547,16 @@ def _render_task_card_sv(row, show_actions: bool = True) -> None:
     with col_info:
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
-            f"border-left:4px solid {sc};border-radius:10px;"
+            f"border-left:4px solid {status_accent};border-radius:10px;"
             f"padding:0.7rem 1rem;margin-bottom:3px;'>"
             f"<div style='display:flex;justify-content:space-between;"
             f"align-items:flex-start;flex-wrap:wrap;gap:5px;'>"
             f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>"
             f"{icon} {nome}</span>"
             f"<div style='display:flex;gap:5px;'>"
-            f"<span style='background:{sb};color:{st_};-webkit-text-fill-color:{st_};"
-            f"border:1px solid {sbo};font-size:0.65rem;font-weight:700;"
-            f"padding:2px 8px;border-radius:10px;'>{status}</span>"
-            f"<span style='background:{pc};color:#fff;-webkit-text-fill-color:#fff;"
-            f"font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;'>"
-            f"{prio}</span>{gut_html}</div></div>"
+            + status_badge(status, "manutencao")
+            + status_badge(prio, "prioridade")
+            + f"{gut_html}</div></div>"
             f"<p style='color:{COLOR_MUTED};font-size:0.75rem;margin:3px 0 0;'>"
             f"{cat}" + (f"  ·  {detalhe}" if detalhe else "")
             + (f"  ·  ⚙️ {ativo_id}" if ativo_id else "")
@@ -676,7 +647,7 @@ def _render_tab_executar() -> None:
     )
 
     if df_tasks.empty:
-        st.info("Nenhuma tarefa encontrada. Cadastre tarefas na aba 'Tarefas'.")
+        empty_state("Nenhuma tarefa encontrada. Cadastre tarefas na aba 'Tarefas'.", icon="🛠️")
         return
 
     # Calcula status de cada tarefa para ordenação
@@ -854,11 +825,11 @@ def _render_tab_alertas() -> None:
             if count > 0:
                 st.success(f"✅ {count} alerta(s) gerado(s) na Central de Alertas.")
             else:
-                st.info("Nenhuma tarefa próxima ou vencida encontrada para gerar alertas.")
+                empty_state("Nenhuma tarefa próxima ou vencida encontrada para gerar alertas.", icon="🔔")
 
     df_tasks = get_maintenance_tasks(client_id=cid_f)
     if df_tasks.empty:
-        st.info("Nenhuma tarefa cadastrada.")
+        empty_state("Nenhuma tarefa cadastrada.", icon="🛠️")
         return
 
     vencidas = []
@@ -880,22 +851,13 @@ def _render_tab_alertas() -> None:
 
     # Métricas
     mc = st.columns(3)
-    for col, (label, val, cor) in zip(mc, [
-        ("Vencidas",        len(vencidas), "#EF4444"),
-        ("Próximas",        len(proximas), "#F59E0B"),
-        ("Por condição",    len(condicao), "#38BDF8"),
+    for col, (icon, label, val, cor) in zip(mc, [
+        ("🔴", "Vencidas",     len(vencidas), status_color("vencida", "manutencao")),
+        ("🟡", "Próximas",     len(proximas), status_color("próxima", "manutencao")),
+        ("🔵", "Por condição", len(condicao), status_color("por condição", "manutencao")),
     ]):
         with col:
-            st.markdown(
-                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
-                f"border-left:4px solid {cor};border-radius:10px;"
-                f"padding:0.75rem 1rem;text-align:center;'>"
-                f"<p style='font-size:0.68rem;color:{COLOR_MUTED};margin:0 0 4px;"
-                f"text-transform:uppercase;'>{label}</p>"
-                f"<p style='font-size:1.6rem;font-weight:900;color:{cor};margin:0;'>{val}</p>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+            sv_metric_card(icon, label, str(val), cor)
 
     st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
@@ -932,7 +894,7 @@ def _render_tab_alertas() -> None:
             _render_task_card_sv(row, show_actions=False)
 
     if not vencidas and not proximas and not condicao:
-        st.success("✅ Nenhuma tarefa vencida ou próxima do vencimento.")
+        app_alert("Nenhuma tarefa vencida ou próxima do vencimento.", kind="success")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

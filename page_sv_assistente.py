@@ -11,7 +11,9 @@ from sheets import (
     buscar_chunks,
 )
 from ui import (
-    sv_page_header, COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
+    sv_page_header, sv_metric_card, empty_state,
+    COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
+    COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_ACCENT,
 )
 from assistant_engine import query_assistant_audit
 
@@ -547,9 +549,10 @@ def _render_logs_tab() -> None:
     df = get_assistant_logs(limit=100)
 
     if df.empty:
-        st.info(
+        empty_state(
             "Nenhum log registrado ainda. "
-            "Use a aba 'Testar Assistente' para começar a auditar."
+            "Use a aba 'Testar Assistente' para começar a auditar.",
+            icon="🧪",
         )
         return
 
@@ -561,11 +564,11 @@ def _render_logs_tab() -> None:
         return int((df[AVAL_COL].str.strip() == val).sum())
 
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total",             len(df))
-    m2.metric("Aprovadas",         _cnt("Aprovada"))
-    m3.metric("Precisa melhorar",  _cnt("Precisa melhorar"))
-    m4.metric("Incorretas",        _cnt("Incorreta"))
-    m5.metric("Sem base",          _cnt("Sem base suficiente"))
+    with m1: sv_metric_card("📋", "Total",            str(len(df)),                    COLOR_NAVY)
+    with m2: sv_metric_card("✅", "Aprovadas",         str(_cnt("Aprovada")),           COLOR_SUCCESS)
+    with m3: sv_metric_card("⚠️", "Precisa melhorar",  str(_cnt("Precisa melhorar")),   COLOR_WARNING)
+    with m4: sv_metric_card("❌", "Incorretas",        str(_cnt("Incorreta")),          COLOR_DANGER)
+    with m5: sv_metric_card("❓", "Sem base",          str(_cnt("Sem base suficiente")), COLOR_ACCENT)
 
     st.markdown(
         "<hr style='border-color:#E2E8F0;margin:8px 0 10px;'/>",
@@ -598,7 +601,7 @@ def _render_logs_tab() -> None:
         ]
 
     if df_show.empty:
-        st.info("Nenhum log com esses filtros.")
+        empty_state("Nenhum log com esses filtros.", icon="🧪")
         return
 
     # Lista de logs
@@ -739,9 +742,10 @@ def _render_faq_tab() -> None:
         df_show = df
 
     if df_show.empty:
-        st.info(
+        empty_state(
             "Nenhuma pergunta frequente cadastrada ainda. "
-            "Aprove uma resposta no teste e clique em 'Criar Pergunta Frequente'."
+            "Aprove uma resposta no teste e clique em 'Criar Pergunta Frequente'.",
+            icon="❓",
         )
         return
 
@@ -809,9 +813,10 @@ def _render_metrics_tab() -> None:
     df_faq = get_assistant_faq()
 
     if df.empty:
-        st.info(
+        empty_state(
             "Nenhum dado de auditoria ainda. "
-            "Teste perguntas para começar a coletar métricas."
+            "Teste perguntas para começar a coletar métricas.",
+            icon="📊",
         )
         return
 
@@ -832,11 +837,11 @@ def _render_metrics_tab() -> None:
             return 0
         return int((df[AVAL_COL].str.strip() == val).sum())
 
-    g1.metric("Total de perguntas", total)
-    g2.metric("FAQs cadastradas",   len(df_faq) if not df_faq.empty else 0)
-    g3.metric("Aprovadas",          _cnt("Aprovada"))
-    g4.metric("Incorretas",         _cnt("Incorreta"))
-    g5.metric("Sem base",           _cnt("Sem base suficiente"))
+    with g1: sv_metric_card("💬", "Total de perguntas", str(total),                                    COLOR_NAVY)
+    with g2: sv_metric_card("📚", "FAQs cadastradas",   str(len(df_faq) if not df_faq.empty else 0),  COLOR_BLUE)
+    with g3: sv_metric_card("✅", "Aprovadas",           str(_cnt("Aprovada")),                        COLOR_SUCCESS)
+    with g4: sv_metric_card("❌", "Incorretas",          str(_cnt("Incorreta")),                       COLOR_DANGER)
+    with g5: sv_metric_card("❓", "Sem base",            str(_cnt("Sem base suficiente")),             COLOR_ACCENT)
 
     st.markdown(
         "<hr style='border-color:#E2E8F0;margin:12px 0;'/>",
@@ -947,10 +952,12 @@ def _render_web_search_tab() -> None:
 
     c1, c2, c3, c4 = st.columns(4)
     ativada = is_enabled()
-    c1.metric("Status",          "✅ Ativada" if ativada else "🔴 Desativada")
-    c2.metric("Provider",        WEB_SEARCH_PROVIDER or "—")
-    c3.metric("Máx. resultados", WEB_SEARCH_MAX_RESULTS)
-    c4.metric("API Key",         "✅ Configurada" if WEB_SEARCH_API_KEY else "⚠️ Ausente")
+    with c1: sv_metric_card("🔌", "Status", "Ativada" if ativada else "Desativada",
+                             COLOR_SUCCESS if ativada else COLOR_DANGER)
+    with c2: sv_metric_card("🌐", "Provider", WEB_SEARCH_PROVIDER or "—", COLOR_BLUE)
+    with c3: sv_metric_card("🔢", "Máx. resultados", str(WEB_SEARCH_MAX_RESULTS), COLOR_BLUE)
+    with c4: sv_metric_card("🔑", "API Key", "Configurada" if WEB_SEARCH_API_KEY else "Ausente",
+                             COLOR_SUCCESS if WEB_SEARCH_API_KEY else COLOR_WARNING)
 
     st.markdown(
         "<div style='background:#F8FAFF;border:1px solid #BFDBFE;border-radius:10px;"
@@ -1062,7 +1069,7 @@ Para essas perguntas o Assistente sempre sugere: _abrir chamado técnico_.
         df_wsl = None
 
     if df_wsl is None or (hasattr(df_wsl, "empty") and df_wsl.empty):
-        st.info("Nenhuma busca web registrada ainda.")
+        empty_state("Nenhuma busca web registrada ainda.", icon="🌐")
         return
 
     st.markdown(

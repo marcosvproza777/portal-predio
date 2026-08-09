@@ -35,6 +35,17 @@ STATUS_REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "crítico":  (COLOR_DANGER,  "#fff"),
         "critico":  (COLOR_DANGER,  "#fff"),
         "urgente":  (COLOR_URGENT,  "#fff"),
+        "em acompanhamento": (COLOR_CYAN, "#000"),
+        # Criticidade de ativo/componente usa a mesma escala de 4 níveis
+        # (verde/âmbar/vermelho/violeta) que saúde do ativo — só com outro
+        # vocabulário (baixa/média/alta/crítica em vez de bom/atenção/
+        # crítico/urgente) — reaproveita o mesmo domínio em vez de duplicar.
+        "baixa":    (COLOR_SUCCESS, "#fff"),
+        "média":    (COLOR_WARNING, "#000"),
+        "media":    (COLOR_WARNING, "#000"),
+        "alta":     (COLOR_DANGER,  "#fff"),
+        "crítica":  (COLOR_URGENT,  "#fff"),
+        "critica":  (COLOR_URGENT,  "#fff"),
     },
     "manutencao": {
         "em dia":            (COLOR_SUCCESS, "#fff"),
@@ -45,6 +56,7 @@ STATUS_REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "vencida":           (COLOR_DANGER,  "#fff"),
         "concluída":         (COLOR_NEUTRAL, "#fff"),
         "concluida":         (COLOR_NEUTRAL, "#fff"),
+        "cancelada":         (COLOR_NEUTRAL, "#fff"),
         "por condição":      (COLOR_CYAN,    "#000"),
         "por condicao":      (COLOR_CYAN,    "#000"),
         "depende de análise preditiva": (COLOR_CYAN, "#000"),
@@ -52,6 +64,8 @@ STATUS_REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
     },
     "relatorio": {
         "publicado":    (COLOR_SUCCESS, "#fff"),
+        "disponível":   (COLOR_SUCCESS, "#fff"),
+        "disponivel":   (COLOR_SUCCESS, "#fff"),
         "rascunho":     (COLOR_NEUTRAL, "#fff"),
         "em revisão":   (COLOR_WARNING, "#000"),
         "em revisao":   (COLOR_WARNING, "#000"),
@@ -108,6 +122,15 @@ def status_badge(label: str, dominio: str) -> str:
     cfg = STATUS_REGISTRY.get(dominio, {})
     bg, text = cfg.get(label.strip().lower(), (COLOR_NEUTRAL, "#fff"))
     return badge(label, bg, text)
+
+
+def status_color(label: str, dominio: str) -> str:
+    """Só a cor de fundo (hex) de um status do Design System — para usar em
+    acentos de borda/ícone sem montar o badge inteiro. Mesma resolução de
+    `status_badge()`; cai em COLOR_NEUTRAL se o label não estiver cadastrado.
+    """
+    bg, _ = STATUS_REGISTRY.get(dominio, {}).get(label.strip().lower(), (COLOR_NEUTRAL, "#fff"))
+    return bg
 
 
 TIPOS_LAUDOS = [
@@ -929,14 +952,21 @@ def render_sv_topnav() -> None:
     # não centraliza verticalmente colunas com alturas de conteúdo diferentes
     # (logo_col é uma única div; user_col tem um st.columns aninhado, com
     # espaçamento nativo próprio), o que fazia "Supervisão" e o bloco do
-    # usuário ficarem em alturas visualmente diferentes. gap consistente no
-    # lugar de padding-top manual. Mesmo padrão de marcador usado no topnav
-    # do cliente (linha ~540), agora também ativo em telas grandes.
+    # usuário ficarem em alturas visualmente diferentes. A correção real não
+    # é só align-items na linha (isso só centraliza as colunas *entre si*
+    # como blocos) — é fazer CADA coluna virar um flex container que
+    # centraliza o próprio conteúdo interno verticalmente, com uma
+    # min-height igual nas duas, independente do padding nativo que o
+    # Streamlit injeta em cada widget/bloco. Mesmo padrão de marcador usado
+    # no topnav do cliente (linha ~540), agora também ativo em telas grandes.
     st.markdown(
         "<div class='sv-topnav-marker'></div>"
         "<style>"
         "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
         "align-items:center!important;gap:1rem!important;}"
+        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']"
+        " > div[data-testid='column']{"
+        "display:flex!important;align-items:center!important;min-height:48px;}"
         "@media(max-width:768px){"
         "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
         "flex-wrap:nowrap!important;gap:6px!important;}"
@@ -965,11 +995,20 @@ def render_sv_topnav() -> None:
         # align-items:center também aqui — o nome+badge (bloco HTML) e o
         # botão "Sair" (widget nativo do Streamlit) precisam da mesma
         # centralização vertical entre si, não só logo_col vs user_col.
+        # Mesma correção da linha externa: cada coluna interna vira flex
+        # container com min-height própria, e o botão "Sair" tem sua margem
+        # nativa zerada — sem isso ele ficava deslocado por causa do espaço
+        # que o Streamlit reserva por padrão ao redor de todo st.button().
         st.markdown(
             "<div class='sv-topnav-user-marker'></div>"
             "<style>"
             "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
             "align-items:center!important;gap:0.75rem!important;}"
+            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
+            " > div[data-testid='column']{"
+            "display:flex!important;align-items:center!important;min-height:38px;}"
+            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
+            " div[data-testid='stButton']{margin:0!important;width:100%;}"
             "@media(max-width:768px){"
             "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
             "flex-wrap:nowrap!important;}"

@@ -5,8 +5,8 @@ from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     cadastrar_usuario, delete_usuario, update_usuario,
                     get_client_logo, save_client_logo, delete_ativos_por_cliente,
                     get_contagem_usuarios_global, get_usuarios_staff)
-from ui import (sv_page_header, sv_metric_card, COLOR_NAVY, COLOR_BLUE,
-                COLOR_BORDER, COLOR_CARD, STATUS_CFG, PRIORIDADE_CFG)
+from ui import (sv_page_header, sv_metric_card, status_badge, status_color, empty_state, app_alert,
+                COLOR_NAVY, COLOR_BLUE, COLOR_BORDER, COLOR_CARD)
 
 
 def _compress_logo(file_obj) -> str:
@@ -52,7 +52,7 @@ def _render_lista() -> None:
     staff = get_usuarios_staff()
 
     if clientes.empty and df_todos.empty:
-        st.info("Nenhum cliente encontrado.")
+        empty_state("Nenhum cliente encontrado.", icon="👥")
         return
 
     # Derivar lista de clientes dos chamados se a sheet Clientes estiver vazia
@@ -66,7 +66,7 @@ def _render_lista() -> None:
         empresas = clientes
 
     if empresas.empty:
-        st.info("Nenhum cliente encontrado.")
+        empty_state("Nenhum cliente encontrado.", icon="👥")
         return
 
     # Resumo de usuários cadastrados no sistema
@@ -288,14 +288,14 @@ def render_historico() -> None:
 
     with tab_cham:
         if chamados.empty:
-            st.info("Nenhum chamado registrado para este cliente.")
+            empty_state("Nenhum chamado registrado para este cliente.", icon="🔧")
         else:
             for _, row in chamados.iterrows():
                 _render_chamado_mini(row)
 
     with tab_rel:
         if relatorios.empty:
-            st.info("Nenhum relatório registrado para este cliente.")
+            empty_state("Nenhum relatório registrado para este cliente.", icon="📁")
         else:
             for _, row in relatorios.iterrows():
                 _render_relatorio_mini(row)
@@ -375,8 +375,7 @@ def _render_chamado_mini(row) -> None:
     status      = str(row.get("Status",      "Aberto")).strip()
     data_ab     = str(row.get("Data_Abertura","")).strip()[:10]
 
-    pr_bg, pr_tc = PRIORIDADE_CFG.get(prioridade.lower(), ("#94A3B8", "#fff"))
-    st_bg, st_tc = STATUS_CFG.get(status.lower(), ("#94A3B8", "#fff"))
+    pr_bg = status_color(prioridade, "prioridade")
 
     col_info, col_btn = st.columns([7, 1])
     with col_info:
@@ -388,11 +387,9 @@ def _render_chamado_mini(row) -> None:
             f"flex-wrap:wrap;gap:6px;'>"
             f"<span style='font-weight:600;color:{COLOR_NAVY};font-size:0.9rem;'>{titulo}</span>"
             f"<div style='display:flex;gap:5px;'>"
-            f"<span style='background:{pr_bg};color:{pr_tc};-webkit-text-fill-color:{pr_tc};"
-            f"font-size:0.7rem;font-weight:700;padding:2px 10px;border-radius:20px;'>{prioridade}</span>"
-            f"<span style='background:{st_bg};color:{st_tc};-webkit-text-fill-color:{st_tc};"
-            f"font-size:0.7rem;font-weight:700;padding:2px 10px;border-radius:20px;'>{status}</span>"
-            f"</div></div>"
+            + status_badge(prioridade, "prioridade")
+            + status_badge(status, "chamado")
+            + f"</div></div>"
             f"<div style='margin-top:4px;font-size:0.78rem;color:#64748B;'>"
             + (f"🏭 {planta}  " if planta else "")
             + (f"⚙️ {equipamento}  " if equipamento else "")
@@ -418,8 +415,6 @@ def _render_relatorio_mini(row) -> None:
     url     = str(row.get("Arquivo_Url",    "")).strip()
     status  = str(row.get("Status",         "Disponível")).strip()
 
-    status_color = "#22c55e" if status.lower() == "disponível" else "#94a3b8"
-
     col_info, col_btn = st.columns([7, 1])
     with col_info:
         st.markdown(
@@ -428,9 +423,8 @@ def _render_relatorio_mini(row) -> None:
             f"padding:10px 14px;margin-bottom:6px;'>"
             f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
             f"<span style='font-weight:600;color:{COLOR_NAVY};font-size:0.9rem;'>{titulo}</span>"
-            f"<span style='background:{status_color};color:#fff;-webkit-text-fill-color:#fff;"
-            f"font-size:0.7rem;font-weight:700;padding:2px 10px;border-radius:12px;'>{status}</span>"
-            f"</div>"
+            + status_badge(status, "relatorio")
+            + f"</div>"
             f"<div style='font-size:0.78rem;color:#64748B;margin-top:4px;'>"
             + (f"📋 {tipo}  " if tipo else "")
             + (f"📅 {data}  " if data else "")
@@ -491,13 +485,9 @@ def _form_novo_cliente_content(inline: bool = False) -> None:
                 help="Se não informada, o usuário definirá a senha no primeiro login.",
             )
 
-        st.markdown(
-            f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;"
-            f"border-radius:8px;padding:10px 14px;margin:0.5rem 0;'>"
-            f"<p style='color:#1E40AF;font-size:0.82rem;margin:0;'>"
-            f"ℹ️ Se a senha ficar em branco, o usuário vai cadastrar a própria senha "
-            f"no primeiro acesso ao portal.</p></div>",
-            unsafe_allow_html=True,
+        app_alert(
+            "Se a senha ficar em branco, o usuário vai cadastrar a própria senha "
+            "no primeiro acesso ao portal.", kind="info",
         )
 
         st.markdown(

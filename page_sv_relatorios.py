@@ -12,7 +12,7 @@ from sheets import (
     update_technical_report,
     publish_technical_report,
     archive_technical_report,
-    delete_technical_report,
+    delete_technical_report_full,
     update_report_gut,
     ORIGEM_UPLOAD_DIRETO,
     ORIGEM_GOOGLE_DRIVE,
@@ -336,6 +336,9 @@ def _render_card(row) -> None:
             if st.button("🗂️ Arquivar", key=f"_svrel_arch_{rep_id}", use_container_width=True):
                 st.session_state[f"_svrel_confirm_arch_{rep_id}"] = True
                 st.rerun()
+        if st.button("🗑️ Excluir", key=f"_svrel_del_{rep_id}", use_container_width=True):
+            st.session_state[f"_svrel_confirm_del_{rep_id}"] = True
+            st.rerun()
 
     # Confirmação publicar
     if st.session_state.pop(f"_svrel_confirm_pub_{rep_id}", False):
@@ -385,6 +388,35 @@ def _render_card(row) -> None:
                 st.rerun()
         with col_no2:
             if st.button("❌ Cancelar", key=f"_svrel_archNO_{rep_id}", use_container_width=True):
+                st.rerun()
+
+    # Confirmação excluir — diferente de Rascunho, apagar um Publicado
+    # também reverte o Score do ativo e remove chunks/timeline (ver
+    # delete_technical_report_full em sheets.py).
+    if st.session_state.pop(f"_svrel_confirm_del_{rep_id}", False):
+        if status == "Publicado":
+            st.error(
+                f"**Apagar '{titulo}' (PUBLICADO)?** O cliente pode já ter visto este "
+                f"relatório. Isso remove o relatório, os chunks indexados no Assistente "
+                f"Técnico e o evento no histórico do ativo, e reverte o impacto no Score. "
+                f"**Esta ação não pode ser desfeita.**"
+            )
+        else:
+            st.warning(f"Apagar '{titulo}' permanentemente? Esta ação não pode ser desfeita.")
+        col_ok3, col_no3, _ = st.columns([1, 1, 3])
+        with col_ok3:
+            if st.button("🗑️ Confirmar exclusão", key=f"_svrel_delOK_{rep_id}",
+                         type="primary", use_container_width=True):
+                result = delete_technical_report_full(rep_id)
+                from sheets import load_sheet as _ls
+                _ls.clear()
+                if result.get("ok"):
+                    st.success("Relatório excluído.")
+                    st.rerun()
+                else:
+                    st.error(result.get("erro", "Erro ao excluir."))
+        with col_no3:
+            if st.button("❌ Cancelar", key=f"_svrel_delNO_{rep_id}", use_container_width=True):
                 st.rerun()
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -927,24 +959,34 @@ def _render_form(report: dict | None) -> None:
 
     with col_del:
         if editing:
-            rep_status = (report or {}).get("Status", "Rascunho")
-            if rep_status == "Rascunho":
-                if st.button("🗑️ Excluir", use_container_width=True):
-                    st.session_state["_svrel_confirm_del"] = True
-                    st.rerun()
+            if st.button("🗑️ Excluir", use_container_width=True):
+                st.session_state["_svrel_confirm_del"] = True
+                st.rerun()
 
     if st.session_state.pop("_svrel_confirm_del", False):
-        st.warning("Excluir este rascunho permanentemente?")
+        rep_status = (report or {}).get("Status", "Rascunho")
+        if rep_status == "Publicado":
+            st.error(
+                "**Apagar este relatório PUBLICADO?** O cliente pode já ter visto. "
+                "Isso remove o relatório, os chunks indexados no Assistente Técnico "
+                "e o evento no histórico do ativo, e reverte o impacto no Score. "
+                "**Esta ação não pode ser desfeita.**"
+            )
+        else:
+            st.warning("Excluir este relatório permanentemente? Esta ação não pode ser desfeita.")
         col_ok, col_no, _ = st.columns([1, 1, 4])
         with col_ok:
             if st.button("✅ Confirmar exclusão", key="_svrel_delOK", type="primary",
                          use_container_width=True):
-                delete_technical_report(st.session_state.get(_KEY_REP_ID, ""))
-                st.session_state["sv_view"] = "relatorios_sv"
-                st.session_state.pop(_KEY_REP_ID, None)
+                result = delete_technical_report_full(st.session_state.get(_KEY_REP_ID, ""))
                 from sheets import load_sheet as _ls
                 _ls.clear()
-                st.rerun()
+                if result.get("ok"):
+                    st.session_state["sv_view"] = "relatorios_sv"
+                    st.session_state.pop(_KEY_REP_ID, None)
+                    st.rerun()
+                else:
+                    st.error(result.get("erro", "Erro ao excluir."))
         with col_no:
             if st.button("❌ Cancelar", key="_svrel_delNO", use_container_width=True):
                 st.rerun()
