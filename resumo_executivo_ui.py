@@ -22,8 +22,16 @@ import datetime as _dt
 import streamlit as st
 
 from auth import current_client_id, current_empresa, current_email, is_staff
-from ui import COLOR_NAVY, COLOR_MUTED, COLOR_BORDER
+from ui import (COLOR_NAVY, COLOR_MUTED, COLOR_BORDER, COLOR_CARD, COLOR_BLUE,
+                COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_URGENT,
+                sv_metric_card)
 import executive_summary as es
+
+_COR_SAUDE = {"Bom": COLOR_SUCCESS, "Atenção": COLOR_WARNING, "Crítico": COLOR_DANGER, "Urgente": COLOR_URGENT}
+_COR_GUT   = {"Baixa": COLOR_SUCCESS, "Moderada": COLOR_WARNING, "Alta": "#F97316", "Crítica": COLOR_DANGER}
+_COR_MANUT = {"Em dia": COLOR_SUCCESS, "Próximas": COLOR_WARNING, "Vencidas": COLOR_DANGER,
+             "Concluídas": COLOR_BLUE, "Por condição": "#8B5CF6"}
+_COR_SEV   = {"Normal": COLOR_SUCCESS, "Atenção": COLOR_WARNING, "Crítico": COLOR_DANGER, "Urgente": COLOR_URGENT}
 
 _PRESET_OPTIONS = [
     ("7d",           "Últimos 7 dias"),
@@ -216,13 +224,17 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
     resultado = st.session_state.get(f"{key_prefix}_resultado")
     if resultado:
         st.markdown(
-            f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>"
-            f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;'>📋 Preview</p>",
+            f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>",
             unsafe_allow_html=True,
         )
         _audit("resumo_executivo_visualizado", "permitido", client_id,
               recurso_id=resultado.get("summary_id", ""), ativo_id=resultado.get("ativo_id", ""))
-        st.code(resultado["texto"], language=None)
+
+        _render_preview_visual(resultado)
+
+        with st.expander("📄 Ver texto completo (para copiar)"):
+            st.code(resultado["texto"], language=None)
+            st.caption("Use o ícone de cópia no canto do bloco acima para copiar o texto do resumo.")
 
         col_a1, col_a2, col_a3 = st.columns(3)
         with col_a1:
@@ -265,7 +277,279 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
                 else:
                     st.error("Erro ao arquivar.")
 
-        st.caption("Use o ícone de cópia no canto do bloco acima para copiar o texto do resumo.")
+
+def _render_preview_visual(resultado: dict) -> None:
+    """Preview visual do resumo — cabeçalho, cards, gráficos, pontos para
+    gerência, ações prioritárias e histórico resumido. Estilo dashboard
+    executivo (Design System Pred.IO)."""
+    ind          = resultado["indicadores"]
+    charts       = resultado["charts"]
+    cliente_nome = resultado.get("cliente_nome", "")
+    ativo_nome   = resultado.get("ativo_nome", "")
+    p_ini        = resultado["periodo_inicio"].strftime("%d/%m/%Y")
+    p_fim        = resultado["periodo_fim"].strftime("%d/%m/%Y")
+    gerado_em    = resultado.get("gerado_em")
+    gerado_str   = gerado_em.strftime("%d/%m/%Y %H:%M") if gerado_em else ""
+
+    # ── Cabeçalho ────────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='background:linear-gradient(135deg,#08142B 0%,#1B2A6B 60%,#1E3A8A 100%);"
+        f"border-radius:16px;padding:1.5rem 1.75rem;margin-bottom:1rem;color:#fff;'>"
+        f"<p style='margin:0;font-size:0.7rem;font-weight:700;letter-spacing:0.18em;"
+        f"text-transform:uppercase;color:#93C5FD;'>Pred.IO</p>"
+        f"<p style='margin:2px 0 0.75rem;font-size:1.35rem;font-weight:800;'>"
+        f"Resumo Executivo de Confiabilidade</p>"
+        f"<div style='display:flex;flex-wrap:wrap;gap:1.75rem;font-size:0.82rem;'>"
+        f"<div><span style='color:#93C5FD;'>Cliente</span><br/><strong>{cliente_nome}</strong></div>"
+        f"<div><span style='color:#93C5FD;'>Período</span><br/><strong>{p_ini} a {p_fim}</strong></div>"
+        + (f"<div><span style='color:#93C5FD;'>Ativo</span><br/><strong>{ativo_nome}</strong></div>"
+           if ativo_nome else "")
+        + f"<div><span style='color:#93C5FD;'>Gerado em</span><br/><strong>{gerado_str}</strong></div>"
+        f"</div>"
+        f"<p style='margin:0.9rem 0 0;font-size:0.8rem;color:#CBD5E1;line-height:1.5;max-width:640px;'>"
+        f"Visão consolidada da condição dos ativos, prioridades de manutenção, relatórios técnicos, "
+        f"alertas e ações recomendadas no período.</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Cards gerenciais ─────────────────────────────────────────────────────
+    saude_cor = COLOR_SUCCESS if (ind["saude_media"] or 0) >= 70 else COLOR_WARNING
+    cards = [
+        ("⚙️", "Ativos Monitorados", ind["ativos_monitorados"], COLOR_NAVY),
+        ("💚", "Saúde Média", f"{ind['saude_media']}/100" if ind["saude_media"] is not None else "—", saude_cor),
+        ("🟡", "Ativos em Atenção", ind["ativos_atencao"], COLOR_WARNING),
+        ("🔴", "Ativos Críticos", ind["ativos_criticos"],
+         COLOR_DANGER if ind["ativos_criticos"] else COLOR_SUCCESS),
+        ("📅", "Manutenções Vencidas", ind["manutencoes_vencidas"],
+         COLOR_DANGER if ind["manutencoes_vencidas"] else COLOR_SUCCESS),
+        ("🎯", "Itens GUT Críticos", ind["itens_gut_criticos"],
+         COLOR_DANGER if ind["itens_gut_criticos"] else COLOR_SUCCESS),
+        ("🔔", "Alertas Críticos", ind["alertas_criticos"],
+         COLOR_DANGER if ind["alertas_criticos"] else COLOR_SUCCESS),
+        ("🔧", "Chamados Abertos", ind["chamados_abertos"],
+         COLOR_WARNING if ind["chamados_abertos"] else COLOR_SUCCESS),
+        ("📁", "Relatórios no Período", ind["relatorios_publicados"], COLOR_BLUE),
+    ]
+    cols = st.columns(3)
+    for i, (icon, title, value, color) in enumerate(cards):
+        with cols[i % 3]:
+            sv_metric_card(icon, title, value, color)
+            st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+
+    # ── Gráficos gerenciais ──────────────────────────────────────────────────
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0.75rem 0 0.5rem;'>"
+        f"📊 Indicadores gráficos</p>",
+        unsafe_allow_html=True,
+    )
+    g1, g2 = st.columns(2)
+    with g1:
+        _chart_saude_ativos(charts.get("saude_ativos", {}))
+    with g2:
+        _chart_gut_prioridade(charts.get("gut_prioridade", {}))
+
+    g3, g4 = st.columns(2)
+    with g3:
+        _chart_manutencoes_status(charts.get("manutencoes_status", {}))
+    with g4:
+        _chart_relatorios_severidade(charts.get("relatorios_severidade", {}))
+
+    _chart_score_evolucao(charts.get("score_evolucao", []))
+    _chart_top5_criticos(charts.get("top5_criticos", []))
+
+    # ── Principais pontos para gerência ──────────────────────────────────────
+    pontos = resultado.get("pontos_gerencia", [])
+    st.markdown(
+        f"<div style='background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;"
+        f"padding:1rem 1.25rem;margin-top:0.5rem;'>"
+        f"<p style='font-weight:800;color:#1E40AF;font-size:0.92rem;margin:0 0 0.6rem;'>"
+        f"🎯 Principais pontos para gerência</p>"
+        + "".join(
+            f"<div style='display:flex;gap:8px;padding:5px 0;'>"
+            f"<span style='color:#2563EB;'>•</span>"
+            f"<span style='font-size:0.85rem;color:#1E3A8A;line-height:1.5;'>{p}</span></div>"
+            for p in pontos
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Ações prioritárias ────────────────────────────────────────────────────
+    acoes = resultado.get("acoes_prioritarias", [])
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:1rem 0 0.5rem;'>"
+        f"⚡ Ações prioritárias</p>",
+        unsafe_allow_html=True,
+    )
+    if not acoes:
+        st.info("Nenhuma ação prioritária identificada no período.")
+    else:
+        _render_acoes_table(acoes)
+
+    # ── Histórico resumido do período ───────────────────────────────────────
+    timeline = resultado.get("timeline", [])
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:1rem 0 0.5rem;'>"
+        f"🕒 Histórico resumido do período</p>",
+        unsafe_allow_html=True,
+    )
+    if not timeline:
+        st.caption("Nenhum evento relevante registrado no período.")
+    else:
+        linhas = "".join(
+            f"<div style='display:flex;gap:10px;padding:6px 0;border-bottom:1px solid {COLOR_BORDER};'>"
+            f"<span style='font-size:0.72rem;color:{COLOR_MUTED};min-width:64px;flex-shrink:0;'>{data}</span>"
+            f"<span style='font-size:0.82rem;color:{COLOR_NAVY};'>{tipo} — {titulo}</span>"
+            f"</div>"
+            for data, tipo, titulo in timeline
+        )
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-radius:10px;padding:0.6rem 1rem;'>{linhas}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+# ── Gráficos individuais (plotly) ────────────────────────────────────────────
+
+def _chart_title(texto: str) -> None:
+    st.markdown(
+        f"<p style='font-weight:600;color:{COLOR_NAVY};font-size:0.85rem;margin:0 0 0.3rem;'>{texto}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def _chart_saude_ativos(dados: dict) -> None:
+    _chart_title("Saúde dos ativos")
+    if not dados:
+        st.caption("Dados insuficientes para este gráfico.")
+        return
+    import plotly.graph_objects as go
+    labels = list(dados.keys())
+    values = list(dados.values())
+    colors = [_COR_SAUDE.get(l, COLOR_MUTED) for l in labels]
+    fig = go.Figure(go.Pie(labels=labels, values=values, hole=0.55,
+                           marker=dict(colors=colors), textinfo="label+value"))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=230, showlegend=False)
+    st.plotly_chart(fig, use_container_width=True, key="chart_saude_ativos")
+
+
+def _chart_gut_prioridade(dados: dict) -> None:
+    _chart_title("GUT por prioridade")
+    if not dados:
+        st.caption("Nenhum item com GUT calculado no período.")
+        return
+    import plotly.graph_objects as go
+    ordem  = ["Baixa", "Moderada", "Alta", "Crítica"]
+    values = [dados.get(l, 0) for l in ordem]
+    colors = [_COR_GUT[l] for l in ordem]
+    fig = go.Figure(go.Bar(x=ordem, y=values, marker_color=colors, text=values, textposition="outside"))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=230,
+                      yaxis=dict(visible=False), xaxis=dict(tickfont=dict(size=11)))
+    st.plotly_chart(fig, use_container_width=True, key="chart_gut_prioridade")
+
+
+def _chart_manutencoes_status(dados: dict) -> None:
+    _chart_title("Manutenções por status")
+    if not dados:
+        st.caption("Nenhuma manutenção no período.")
+        return
+    import plotly.graph_objects as go
+    ordem  = ["Em dia", "Próximas", "Vencidas", "Concluídas", "Por condição"]
+    labels = [l for l in ordem if dados.get(l)]
+    values = [dados[l] for l in labels]
+    colors = [_COR_MANUT[l] for l in labels]
+    fig = go.Figure(go.Bar(x=labels, y=values, marker_color=colors, text=values, textposition="outside"))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=230,
+                      yaxis=dict(visible=False), xaxis=dict(tickfont=dict(size=10)))
+    st.plotly_chart(fig, use_container_width=True, key="chart_manutencoes_status")
+
+
+def _chart_relatorios_severidade(dados: dict) -> None:
+    _chart_title("Relatórios por severidade")
+    if not dados:
+        st.caption("Nenhum relatório no período.")
+        return
+    import plotly.graph_objects as go
+    ordem  = ["Normal", "Atenção", "Crítico", "Urgente"]
+    labels = [l for l in ordem if dados.get(l)]
+    values = [dados[l] for l in labels]
+    colors = [_COR_SEV[l] for l in labels]
+    fig = go.Figure(go.Bar(x=labels, y=values, marker_color=colors, text=values, textposition="outside"))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=230,
+                      yaxis=dict(visible=False))
+    st.plotly_chart(fig, use_container_width=True, key="chart_relatorios_severidade")
+
+
+def _chart_score_evolucao(pontos: list) -> None:
+    _chart_title("Evolução do score de saúde")
+    if len(pontos) < 2:
+        st.caption("Dados insuficientes para esta série no período (é necessário histórico de mais de uma data).")
+        return
+    import plotly.graph_objects as go
+    xs = [p[0] for p in pontos]
+    ys = [p[1] for p in pontos]
+    fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines+markers",
+                               line=dict(color=COLOR_BLUE, width=3), marker=dict(size=7)))
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=220, yaxis=dict(range=[0, 100]))
+    st.plotly_chart(fig, use_container_width=True, key="chart_score_evolucao")
+
+
+def _chart_top5_criticos(itens: list) -> None:
+    _chart_title("Top 5 ativos mais críticos")
+    if not itens:
+        st.caption("Nenhum ativo no período.")
+        return
+    linhas = ""
+    for it in itens:
+        score     = it.get("score")
+        gut_score = it.get("gut_score")
+        prio      = it.get("gut_prioridade", "—")
+        cor       = _COR_GUT.get(prio, COLOR_MUTED)
+        linhas += (
+            f"<div style='display:flex;justify-content:space-between;align-items:center;gap:8px;"
+            f"padding:6px 0;border-bottom:1px solid {COLOR_BORDER};flex-wrap:wrap;'>"
+            f"<span style='font-size:0.83rem;color:{COLOR_NAVY};flex:1;min-width:120px;'>{it.get('ativo','')}</span>"
+            f"<span style='font-size:0.75rem;color:{COLOR_MUTED};'>Score: {score if score is not None else '—'}</span>"
+            f"<span style='background:{cor}22;color:{cor};border:1px solid {cor}55;border-radius:6px;"
+            f"padding:2px 8px;font-size:0.72rem;font-weight:700;white-space:nowrap;'>"
+            f"GUT {gut_score if gut_score is not None else '—'} · {prio}</span>"
+            f"</div>"
+        )
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:0.6rem 1rem;'>{linhas}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+_RANK_LABEL = {1: "GUT Crítica", 2: "GUT Alta", 3: "Manutenção Vencida",
+              4: "Alerta Crítico", 5: "Recomendação por Condição"}
+
+
+def _render_acoes_table(acoes: list) -> None:
+    linhas = ""
+    for a in acoes:
+        cor = _COR_GUT.get(a.get("prioridade", ""), COLOR_MUTED)
+        prazo = str(a.get("prazo", ""))[:16]
+        linhas += (
+            f"<div style='display:flex;gap:10px;align-items:center;padding:7px 0;"
+            f"border-bottom:1px solid {COLOR_BORDER};flex-wrap:wrap;'>"
+            f"<span style='background:{cor};color:#fff;font-size:0.62rem;font-weight:700;"
+            f"padding:2px 8px;border-radius:6px;white-space:nowrap;'>{_RANK_LABEL.get(a['rank'], '')}</span>"
+            f"<span style='font-size:0.83rem;color:{COLOR_NAVY};font-weight:600;flex:1;min-width:140px;'>"
+            f"{a.get('acao', '')}</span>"
+            f"<span style='font-size:0.72rem;color:{COLOR_MUTED};min-width:80px;'>{a.get('ativo_id','') or '—'}</span>"
+            f"<span style='font-size:0.72rem;color:{COLOR_MUTED};min-width:90px;'>{prazo}</span>"
+            f"<span style='font-size:0.72rem;color:{COLOR_MUTED};min-width:70px;'>{a.get('status','') or '—'}</span>"
+            f"</div>"
+        )
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:0.6rem 1rem;'>{linhas}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _slug(titulo: str) -> str:

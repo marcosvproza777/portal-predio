@@ -14,6 +14,10 @@ from sheets import (
     archive_technical_report,
     delete_technical_report,
     update_report_gut,
+    ORIGEM_UPLOAD_DIRETO,
+    ORIGEM_GOOGLE_DRIVE,
+    ORIGEM_APP_RELATORIOS,
+    ORIGEM_UPLOAD_MANUAL_VIBRACAO,
 )
 from ui import (
     sv_page_header, status_badge,
@@ -46,13 +50,82 @@ _SEV_COLOR = {
 _SEV_DEFAULT = ("#94A3B8", "#F8FAFC", "#CBD5E1", "#475569")
 
 _STATUS_COLOR = {
-    "rascunho":  ("#94A3B8", "#F8FAFC", "#CBD5E1"),
-    "publicado": ("#10B981", "#F0FDF4", "#86EFAC"),
-    "arquivado": ("#64748B", "#F1F5F9", "#CBD5E1"),
+    "rascunho":    ("#94A3B8", "#F8FAFC", "#CBD5E1"),
+    "em revisão":  ("#7C3AED", "#F5F3FF", "#C4B5FD"),
+    "publicado":   ("#10B981", "#F0FDF4", "#86EFAC"),
+    "arquivado":   ("#64748B", "#F1F5F9", "#CBD5E1"),
 }
+# Status que ainda podem ser publicados pela Supervisão — Rascunho (criado
+# no Portal) e Em revisão (chegou publicado direto pelo App Relatórios,
+# Etapa 3) usam o mesmo botão "Publicar".
+_STATUS_PUBLICAVEIS = ("Rascunho", "Em revisão", "")
 _STATUS_DEFAULT = ("#94A3B8", "#F8FAFC", "#CBD5E1")
 
 _KEY_REP_ID = "_svrel_rep_id"
+
+# Prefill de sessão consumido uma única vez ao abrir um relatório NOVO — usado
+# pelo botão "Adicionar Relatório de Vibração" (lista de relatórios e detalhe
+# do ativo) pra já abrir o formulário com tipo/origem/status/cliente/ativo
+# certos, sem duplicar o formulário genérico.
+_KEY_PREFILL_TIPO       = "_svrel_prefill_tipo"
+_KEY_PREFILL_ORIGEM     = "_svrel_prefill_origem"
+_KEY_PREFILL_STATUS     = "_svrel_prefill_status_inicial"
+_KEY_PREFILL_CLIENTE_ID = "_svrel_prefill_cliente_id"
+_KEY_PREFILL_ATIVO_ID   = "_svrel_prefill_ativo_id"
+
+_ORIGEM_OPTS = [
+    (ORIGEM_UPLOAD_DIRETO,          "📤 Upload direto (PDF do computador)"),
+    (ORIGEM_UPLOAD_MANUAL_VIBRACAO, "📳 Vibração — Upload Manual"),
+    (ORIGEM_GOOGLE_DRIVE,           "🔗 Google Drive / URL"),
+    (ORIGEM_APP_RELATORIOS,         "🔌 App Relatórios Pred.IO (em breve)"),
+]
+
+
+_WIDGET_KEYS_NOVO_RELATORIO = (
+    "_svrel_f_cliente", "_svrel_f_cliente_id", "_svrel_f_ativo",
+    "_svrel_f_tipo_serv", "_svrel_f_origem", "_svrel_f_pdf", "_svrel_f_url",
+)
+
+
+def _clear_prefill() -> None:
+    for k in (_KEY_PREFILL_TIPO, _KEY_PREFILL_ORIGEM, _KEY_PREFILL_STATUS,
+              _KEY_PREFILL_CLIENTE_ID, _KEY_PREFILL_ATIVO_ID):
+        st.session_state.pop(k, None)
+
+
+def abrir_novo_relatorio_vibracao(cliente_id: str = "", ativo_id: str = "") -> None:
+    """Prepara e navega para o formulário de Novo Relatório já configurado
+    como Relatório de Vibração — usada pelo botão na lista de Relatórios e
+    pelo botão no detalhe do ativo (que já manda cliente_id/ativo_id).
+
+    Limpa o estado dos campos do formulário antes de preencher de novo —
+    sem isso, um cliente/ativo escolhido numa sessão de "Novo Relatório"
+    anterior ficaria "grudado" no formulário (widgets com key fixa só
+    respeitam um novo valor default se a key ainda não existir)."""
+    for k in _WIDGET_KEYS_NOVO_RELATORIO:
+        st.session_state.pop(k, None)
+    st.session_state.pop(_KEY_REP_ID, None)
+    st.session_state[_KEY_PREFILL_TIPO]       = "Análise de Vibração"
+    st.session_state[_KEY_PREFILL_ORIGEM]     = ORIGEM_UPLOAD_MANUAL_VIBRACAO
+    st.session_state[_KEY_PREFILL_STATUS]     = "Em revisão"
+    st.session_state[_KEY_PREFILL_CLIENTE_ID] = cliente_id
+    st.session_state[_KEY_PREFILL_ATIVO_ID]   = ativo_id
+    st.session_state["sv_view"] = "relatorio_novo"
+
+
+def _origem_default(report: dict | None) -> str:
+    """Origem padrão ao abrir o formulário — infere pelo conteúdo já salvo
+    para relatórios antigos que não têm a coluna Origem preenchida."""
+    if not report:
+        prefill = st.session_state.get(_KEY_PREFILL_ORIGEM, "")
+        return prefill or ORIGEM_UPLOAD_DIRETO
+    origem = (report.get("Origem") or "").strip()
+    if origem in (ORIGEM_UPLOAD_DIRETO, ORIGEM_GOOGLE_DRIVE, ORIGEM_APP_RELATORIOS,
+                  ORIGEM_UPLOAD_MANUAL_VIBRACAO):
+        return origem
+    if (report.get("Storage_Path") or "").strip():
+        return ORIGEM_UPLOAD_DIRETO
+    return ORIGEM_GOOGLE_DRIVE
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -80,10 +153,15 @@ def _render_lista() -> None:
         "Gerencie, publique e acompanhe os relatórios técnicos dos clientes.",
     )
 
-    col_btn, col_resumo, _ = st.columns([1.4, 1.8, 2.2])
+    col_btn, col_vib, col_resumo = st.columns([1.4, 1.8, 1.8])
     with col_btn:
         if st.button("➕ Novo Relatório", use_container_width=True, type="primary"):
+            _clear_prefill()
             st.session_state["sv_view"] = "relatorio_novo"
+            st.rerun()
+    with col_vib:
+        if st.button("📳 Adicionar Relatório de Vibração", use_container_width=True):
+            abrir_novo_relatorio_vibracao()
             st.rerun()
     with col_resumo:
         from resumo_executivo_ui import render_resumo_executivo_button
@@ -95,7 +173,7 @@ def _render_lista() -> None:
     with st.expander("🔍 Filtros", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            status_opts = ["Todos", "Rascunho", "Publicado", "Arquivado"]
+            status_opts = ["Todos", "Rascunho", "Em revisão", "Publicado", "Arquivado"]
             f_status = st.selectbox("Status", status_opts, key="_svrel_f_status")
         with c2:
             sev_opts = ["Todas"] + _SEVERIDADES
@@ -249,7 +327,7 @@ def _render_card(row) -> None:
             st.session_state[_KEY_REP_ID] = rep_id
             st.session_state["sv_view"]   = "relatorio_editar"
             st.rerun()
-        if status == "Rascunho":
+        if status in _STATUS_PUBLICAVEIS:
             if st.button("📢 Publicar", key=f"_svrel_pub_{rep_id}", use_container_width=True,
                          type="primary"):
                 st.session_state[f"_svrel_confirm_pub_{rep_id}"] = True
@@ -282,18 +360,8 @@ def _render_card(row) -> None:
                         msg += f" Score do ativo ajustado em {result['score_delta']:+d} pts."
                     if result.get("alerta"):
                         msg += " Alerta interno gerado."
-                    try:
-                        from sheets import get_technical_report_by_id, index_relatorio_tecnico
-                        _rep = get_technical_report_by_id(rep_id)
-                        if _rep:
-                            index_relatorio_tecnico(
-                                rep_id,
-                                _rep.get("Cliente_Id", ""),
-                                _rep.get("Ativo_Id",   ""),
-                                _rep,
-                            )
-                    except Exception:
-                        pass
+                    # indexação para o Assistente Técnico já roda dentro de
+                    # publish_technical_report() (Etapa 5) — nada a fazer aqui.
                     st.success(msg)
                     from sheets import load_sheet as _ls
                     _ls.clear()
@@ -331,9 +399,23 @@ def _render_form(report: dict | None) -> None:
     label   = "✏️ Editar Relatório" if editing else "➕ Novo Relatório Técnico"
     sv_page_header(label, back_label="Voltar à lista", back_view="relatorios_sv")
 
-    # Defaults
+    # Defaults — para relatório novo, Cliente/Ativo/Tipo consultam o prefill
+    # de sessão (abrir_novo_relatorio_vibracao) antes de cair no default.
+    _PREFILL_MAP = {
+        "Cliente_Id":   _KEY_PREFILL_CLIENTE_ID,
+        "Ativo_Id":     _KEY_PREFILL_ATIVO_ID,
+        "Tipo_Servico": _KEY_PREFILL_TIPO,
+    }
+
     def _d(k: str, default="") -> str:
-        return (report.get(k, "") or "") if editing else default
+        if editing:
+            return report.get(k, "") or ""
+        prefill_key = _PREFILL_MAP.get(k)
+        if prefill_key:
+            v = st.session_state.get(prefill_key, "")
+            if v:
+                return v
+        return default
 
     # ── Selects de contexto ───────────────────────────────────────────────────
     try:
@@ -408,6 +490,61 @@ def _render_form(report: dict | None) -> None:
         tipo_sel = st.selectbox("Tipo de Serviço *", _TIPOS_SERVICO, index=tipo_idx,
                                 key="_svrel_f_tipo_serv")
 
+    # ── Origem do relatório ───────────────────────────────────────────────────
+    st.markdown(
+        f"<p style='font-size:0.75rem;color:{COLOR_MUTED};margin:0.75rem 0 0.25rem;"
+        f"font-weight:700;text-transform:uppercase;letter-spacing:.08em;'>Origem *</p>",
+        unsafe_allow_html=True,
+    )
+    origem_labels = {v: l for v, l in _ORIGEM_OPTS}
+    origem_keys   = [v for v, _ in _ORIGEM_OPTS]
+    origem_sel = st.radio(
+        "Origem *", origem_keys, index=origem_keys.index(_origem_default(report)),
+        format_func=lambda v: origem_labels[v], key="_svrel_f_origem",
+        horizontal=True, label_visibility="collapsed",
+    )
+
+    if origem_sel == ORIGEM_APP_RELATORIOS:
+        st.info(
+            "🔌 A integração automática com o App Relatórios Pred.IO está "
+            "planejada (Etapa 1 do projeto de integração), mas ainda não foi "
+            "implementada. Escolha **Upload direto** ou **Google Drive / URL** "
+            "por enquanto."
+        )
+        return
+
+    arquivo_bytes: bytes | None = None
+    arquivo_nome_upload = ""
+    arquivo_url = ""
+    if origem_sel in (ORIGEM_UPLOAD_DIRETO, ORIGEM_UPLOAD_MANUAL_VIBRACAO):
+        cur_storage_path = _d("Storage_Path")
+        cur_arquivo_nome = _d("Arquivo_Nome")
+        if cur_storage_path:
+            col_atual, col_ver = st.columns([3, 1.4])
+            with col_atual:
+                st.caption(f"📎 Arquivo atual: {cur_arquivo_nome or 'relatorio.pdf'}")
+            with col_ver:
+                try:
+                    from drive_storage import get_report_pdf_url
+                    _view_url = get_report_pdf_url(cur_storage_path)
+                    st.link_button("👁️ Visualizar PDF atual", _view_url, use_container_width=True)
+                except Exception:
+                    st.caption("Link indisponível no momento.")
+        up = st.file_uploader(
+            "Substituir PDF" if cur_storage_path else "Selecionar PDF *",
+            type=["pdf"], key="_svrel_f_pdf",
+            help="Arquivo enviado do computador. Fica em storage privado — "
+                 "só é acessível por quem tem permissão para este cliente.",
+        )
+        if up is not None:
+            arquivo_bytes = up.read()
+            arquivo_nome_upload = up.name
+    else:
+        arquivo_url = st.text_input(
+            "Link do PDF (Google Drive / URL) *",
+            value=_d("Arquivo_Url"), key="_svrel_f_url",
+        )
+
     c3, c4 = st.columns(2)
     with c3:
         sev_idx = _SEVERIDADES.index(_d("Severidade")) if _d("Severidade") in _SEVERIDADES else 0
@@ -428,18 +565,100 @@ def _render_form(report: dict | None) -> None:
     with c6:
         equipamento = st.text_input("Equipamento", value=_d("Equipamento"), key="_svrel_f_equip")
 
+    tecnico = st.text_input(
+        "Técnico responsável", value=_d("Tecnico") or current_nome(),
+        key="_svrel_f_tecnico",
+    )
+
     resumo = st.text_area(
-        "Resumo (visível ao cliente) *",
+        "Resumo / Diagnóstico (visível ao cliente) *",
         value=_d("Resumo"), height=120, key="_svrel_f_resumo",
+    )
+    conclusao = st.text_area(
+        "Conclusão (visível ao cliente)",
+        value=_d("Conclusao"), height=90, key="_svrel_f_conclusao",
     )
     recomendacoes = st.text_area(
         "Recomendações (visível ao cliente)",
         value=_d("Recomendacoes"), height=120, key="_svrel_f_rec",
     )
-    arquivo_url = st.text_input(
-        "Link do PDF (Google Drive / URL pública)",
-        value=_d("Arquivo_Url"), key="_svrel_f_url",
-    )
+
+    # ── Dados de Vibração (opcional) ──────────────────────────────────────────
+    # Pontos de medição — reaproveita a mesma coluna Medicoes_Json já usada
+    # pelo App Relatórios (Etapa 4), só que preenchida manualmente aqui. Só
+    # aparece pra Tipo de Serviço "Análise de Vibração" e nunca é obrigatório.
+    vib_pontos: list[dict] = []
+    if tipo_sel == "Análise de Vibração":
+        _rep_key_load = report.get("Id", "") if editing else "novo"
+        if st.session_state.get("_svrel_vib_loaded_for") != _rep_key_load:
+            pontos_iniciais = []
+            if editing:
+                import json as _json
+                raw = (report or {}).get("Medicoes_Json", "")
+                if raw:
+                    try:
+                        parsed = _json.loads(raw)
+                        if isinstance(parsed, list):
+                            pontos_iniciais = parsed
+                    except Exception:
+                        pontos_iniciais = []
+            for p in pontos_iniciais:
+                p.setdefault("_uid", st.session_state.get("_svrel_vib_next_id", 0))
+                st.session_state["_svrel_vib_next_id"] = st.session_state.get("_svrel_vib_next_id", 0) + 1
+            st.session_state["_svrel_vib_pontos"]     = pontos_iniciais
+            st.session_state["_svrel_vib_loaded_for"] = _rep_key_load
+
+        vib_pontos = st.session_state.get("_svrel_vib_pontos", [])
+        _sev_pontos_opts = ["", "Normal", "Atenção", "Crítico", "Urgente"]
+
+        with st.expander("📈 Dados de Vibração (opcional)", expanded=bool(vib_pontos)):
+            st.caption(
+                "Pontos de medição do relatório — todos os campos são opcionais. "
+                "Adicione quantos pontos precisar."
+            )
+            _remover_idx = None
+            for i, p in enumerate(vib_pontos):
+                uid = p["_uid"]
+                st.markdown(f"**Ponto {i + 1}**")
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1:
+                    p["ponto"]   = st.text_input("Ponto de medição", value=p.get("ponto", ""), key=f"_vib_ponto_{uid}")
+                    p["direcao"] = st.text_input("Direção", value=p.get("direcao", ""), key=f"_vib_direcao_{uid}")
+                with pc2:
+                    p["posicao"]      = st.text_input("Posição", value=p.get("posicao", ""), key=f"_vib_posicao_{uid}")
+                    p["valor_global"] = st.text_input("Valor global", value=p.get("valor_global", ""), key=f"_vib_valor_{uid}")
+                with pc3:
+                    p["unidade"] = st.text_input("Unidade", value=p.get("unidade", "mm/s"), key=f"_vib_unidade_{uid}")
+                    p["frequencia_dominante"] = st.text_input(
+                        "Frequência dominante", value=p.get("frequencia_dominante", ""), key=f"_vib_freq_{uid}",
+                    )
+                pc4, pc5 = st.columns([2, 1])
+                with pc4:
+                    _sev_idx = _sev_pontos_opts.index(p.get("severidade", "")) if p.get("severidade", "") in _sev_pontos_opts else 0
+                    p["severidade"] = st.selectbox(
+                        "Severidade do ponto", _sev_pontos_opts, index=_sev_idx, key=f"_vib_sev_{uid}",
+                    )
+                with pc5:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    if st.button("🗑️ Remover", key=f"_vib_del_{uid}", use_container_width=True):
+                        _remover_idx = i
+                p["diagnostico"] = st.text_area(
+                    "Diagnóstico do ponto", value=p.get("diagnostico", ""), key=f"_vib_diag_{uid}", height=60,
+                )
+                p["recomendacao"] = st.text_area(
+                    "Recomendação do ponto", value=p.get("recomendacao", ""), key=f"_vib_rec_{uid}", height=60,
+                )
+                st.markdown("<hr style='margin:4px 0'/>", unsafe_allow_html=True)
+
+            if _remover_idx is not None:
+                vib_pontos.pop(_remover_idx)
+                st.rerun()
+
+            if st.button("➕ Adicionar ponto de medição", key="_vib_add_ponto"):
+                novo_uid = st.session_state.get("_svrel_vib_next_id", 0)
+                st.session_state["_svrel_vib_next_id"] = novo_uid + 1
+                vib_pontos.append({"_uid": novo_uid})
+                st.rerun()
 
     with st.expander("🔒 Observações internas (não visível ao cliente)"):
         obs_interna = st.text_area(
@@ -503,7 +722,7 @@ def _render_form(report: dict | None) -> None:
     col_save, col_pub, col_del, _ = st.columns([1.2, 1.2, 1, 2])
 
     def _dados() -> dict:
-        return {
+        dados = {
             "cliente_id":    sel_cid,
             "ativo_id":      sel_aid,
             "titulo":        titulo.strip(),
@@ -514,9 +733,31 @@ def _render_form(report: dict | None) -> None:
             "equipamento":   equipamento.strip(),
             "resumo":        resumo.strip(),
             "recomendacoes": recomendacoes.strip(),
+            "conclusao":     conclusao.strip(),
             "arquivo_url":   arquivo_url.strip(),
             "obs_interna":   obs_interna.strip(),
+            "origem":        origem_sel,
+            "tecnico":       tecnico.strip(),
         }
+        # Medições de vibração só são tocadas quando o tipo é "Análise de
+        # Vibração" — pra não sobrescrever Medicoes_Json de outro tipo (ex.
+        # relatório vindo do App Relatórios) ao editar campos não relacionados.
+        if tipo_sel == "Análise de Vibração":
+            # "unidade" tem valor default (mm/s) mesmo num ponto em branco —
+            # só conta como preenchido se algum campo além dela tiver conteúdo,
+            # senão um ponto adicionado e deixado vazio vira lixo no JSON.
+            _campos_relevantes = (
+                "ponto", "posicao", "direcao", "valor_global",
+                "frequencia_dominante", "severidade", "diagnostico", "recomendacao",
+            )
+            pontos_limpos = []
+            for p in vib_pontos:
+                if not any(str(p.get(c, "")).strip() for c in _campos_relevantes):
+                    continue
+                pontos_limpos.append({k: v for k, v in p.items() if k != "_uid" and str(v).strip()})
+            import json as _json
+            dados["medicoes_json"] = _json.dumps(pontos_limpos, ensure_ascii=False) if pontos_limpos else ""
+        return dados
 
     # add_technical_report() espera chaves em snake_case (dados["cliente_id"]...),
     # mas update_technical_report() só grava campos cujo nome bate exatamente
@@ -531,87 +772,157 @@ def _render_form(report: dict | None) -> None:
         "tipo_servico": "Tipo_Servico", "severidade": "Severidade",
         "data_relatorio": "Data_Relatorio", "planta": "Planta",
         "equipamento": "Equipamento", "resumo": "Resumo",
-        "recomendacoes": "Recomendacoes", "arquivo_url": "Arquivo_Url",
-        "obs_interna": "Obs_Interna",
+        "recomendacoes": "Recomendacoes", "conclusao": "Conclusao",
+        "arquivo_url": "Arquivo_Url", "obs_interna": "Obs_Interna",
+        "origem": "Origem", "tecnico": "Tecnico",
+        "medicoes_json": "Medicoes_Json",
     }
 
     def _dados_sheet() -> dict:
         return {_DADOS_TO_SHEET_COL[k]: v for k, v in _dados().items()}
 
+    _ORIGENS_COM_UPLOAD = (ORIGEM_UPLOAD_DIRETO, ORIGEM_UPLOAD_MANUAL_VIBRACAO)
+
+    def _validar_upload_direto() -> str | None:
+        """Regra dos fluxos de upload de PDF (upload direto e vibração
+        manual): ativo é obrigatório e precisa haver um PDF (o já salvo, ou
+        um novo selecionado agora)."""
+        if origem_sel not in _ORIGENS_COM_UPLOAD:
+            return None
+        if not sel_aid:
+            return "Selecione o ativo vinculado — obrigatório para enviar o PDF."
+        if not _d("Storage_Path") and arquivo_bytes is None:
+            return "Selecione o arquivo PDF do relatório."
+        return None
+
+    def _persistir_upload(rep_id: str) -> str | None:
+        """Se um novo PDF foi selecionado nesta submissão, envia ao storage
+        privado (clientes/{cliente}/relatorios/[vibracao/]{ativo}/{report}/
+        relatorio.pdf) e grava Storage_Path/Arquivo_Nome no relatório.
+        Retorna mensagem de erro em caso de falha, ou None em sucesso/
+        sem-arquivo-novo."""
+        if origem_sel not in _ORIGENS_COM_UPLOAD or arquivo_bytes is None:
+            return None
+        try:
+            from drive_storage import upload_report_pdf
+            subpasta = "vibracao" if origem_sel == ORIGEM_UPLOAD_MANUAL_VIBRACAO else ""
+            storage_path = upload_report_pdf(
+                arquivo_bytes, sel_cid, sel_aid, rep_id, arquivo_nome_upload,
+                subpasta=subpasta,
+            )
+        except Exception as exc:
+            return f"Falha ao enviar o PDF: {exc}"
+        update_technical_report(rep_id, {
+            "Storage_Path": storage_path,
+            "Arquivo_Nome": arquivo_nome_upload,
+            "Arquivo_Url":  "",
+            "Origem":       origem_sel,
+        })
+        return None
+
+    _btn_salvar_label = (
+        "📤 Enviar relatório"
+        if (not editing and origem_sel in _ORIGENS_COM_UPLOAD)
+        else "💾 Salvar Rascunho"
+    )
+
     with col_save:
-        if st.button("💾 Salvar Rascunho", use_container_width=True):
+        if st.button(_btn_salvar_label, use_container_width=True):
+            _erro_upload = _validar_upload_direto()
             if not sel_cid:
                 st.error("Selecione um cliente.")
             elif not titulo.strip():
                 st.error("Informe o título do relatório.")
             elif not resumo.strip():
                 st.error("O resumo é obrigatório.")
+            elif _erro_upload:
+                st.error(_erro_upload)
             else:
                 dados = _dados()
                 if editing:
-                    ok = update_technical_report(
-                        st.session_state.get(_KEY_REP_ID, ""), _dados_sheet()
-                    )
-                    if ok:
-                        st.success("Rascunho atualizado com sucesso!")
+                    rep_id = st.session_state.get(_KEY_REP_ID, "")
+                    ok = update_technical_report(rep_id, _dados_sheet())
+                    if not ok:
+                        st.error(
+                            "Erro ao salvar. Verifique se o ativo selecionado "
+                            "pertence ao cliente."
+                        )
+                    else:
+                        _erro_pdf = _persistir_upload(rep_id)
+                        # Relatório já publicado sendo editado — conteúdo mudou,
+                        # reindexa pro Assistente Técnico não ficar com chunk
+                        # desatualizado (Etapa 5). Rascunho/Em revisão não
+                        # passam no guard de reindex_technical_report().
+                        if (report or {}).get("Status", "").strip() == "Publicado":
+                            from sheets import reindex_technical_report
+                            reindex_technical_report(rep_id)
                         from sheets import load_sheet as _ls
                         _ls.clear()
-                    else:
-                        st.error("Erro ao salvar. Tente novamente.")
+                        if _erro_pdf:
+                            st.warning(f"Rascunho salvo, mas {_erro_pdf.lower()}")
+                        else:
+                            st.success("Rascunho atualizado com sucesso!")
+                        st.rerun()
                 else:
+                    _status_inicial = st.session_state.get(_KEY_PREFILL_STATUS, "")
+                    if _status_inicial:
+                        dados["status"] = _status_inicial
                     new_id = add_technical_report(dados, current_nome())
-                    if new_id:
-                        st.success(f"Relatório criado! ID: {new_id}")
+                    if not new_id:
+                        st.error(
+                            "Erro ao criar relatório. Verifique se o ativo "
+                            "selecionado pertence ao cliente."
+                        )
+                    else:
+                        _erro_pdf = _persistir_upload(new_id)
                         st.session_state[_KEY_REP_ID] = new_id
                         st.session_state["sv_view"]   = "relatorio_editar"
                         from sheets import load_sheet as _ls
                         _ls.clear()
+                        if _erro_pdf:
+                            st.warning(f"Relatório criado (ID: {new_id}), mas {_erro_pdf.lower()}")
+                        else:
+                            st.success(f"Relatório criado! ID: {new_id}")
                         st.rerun()
-                    else:
-                        st.error("Erro ao criar relatório.")
 
     with col_pub:
-        can_pub = editing and (report or {}).get("Status", "Rascunho") in ("Rascunho", "")
+        can_pub = editing and (report or {}).get("Status", "Rascunho") in _STATUS_PUBLICAVEIS
         if can_pub:
             if st.button("📢 Publicar", use_container_width=True, type="primary"):
+                _erro_upload = _validar_upload_direto()
                 if not sel_cid:
                     st.error("Selecione um cliente.")
                 elif not titulo.strip():
                     st.error("Informe o título.")
                 elif not resumo.strip():
                     st.error("O resumo é obrigatório.")
+                elif _erro_upload:
+                    st.error(_erro_upload)
                 else:
-                    # Salva campos antes de publicar
-                    update_technical_report(
-                        st.session_state.get(_KEY_REP_ID, ""), _dados_sheet()
-                    )
                     _pub_rep_id = st.session_state.get(_KEY_REP_ID, "")
-                    with st.spinner("Publicando..."):
-                        result = publish_technical_report(_pub_rep_id, current_nome())
-                    if result.get("ok"):
+                    # Salva campos e eventual novo PDF antes de publicar
+                    update_technical_report(_pub_rep_id, _dados_sheet())
+                    _erro_pdf = _persistir_upload(_pub_rep_id)
+                    if _erro_pdf:
+                        st.error(f"Não foi possível publicar: {_erro_pdf}")
+                        result = None
+                    else:
+                        with st.spinner("Publicando..."):
+                            result = publish_technical_report(_pub_rep_id, current_nome())
+                    if result and result.get("ok"):
                         msg = "✅ Relatório publicado!"
                         if result.get("score_atualizado"):
                             msg += f" Score do ativo: {result['score_delta']:+d} pts."
                         if result.get("alerta"):
                             msg += " Alerta interno gerado."
-                        try:
-                            from sheets import get_technical_report_by_id, index_relatorio_tecnico
-                            _rep = get_technical_report_by_id(_pub_rep_id)
-                            if _rep:
-                                index_relatorio_tecnico(
-                                    _pub_rep_id,
-                                    _rep.get("Cliente_Id", ""),
-                                    _rep.get("Ativo_Id",   ""),
-                                    _rep,
-                                )
-                        except Exception:
-                            pass
+                        # indexação para o Assistente Técnico já roda dentro de
+                        # publish_technical_report() (Etapa 5) — nada a fazer aqui.
                         st.success(msg)
                         from sheets import load_sheet as _ls
                         _ls.clear()
                         st.session_state["sv_view"] = "relatorios_sv"
                         st.rerun()
-                    else:
+                    elif result:
                         st.error(result.get("erro", "Erro ao publicar."))
 
     with col_del:

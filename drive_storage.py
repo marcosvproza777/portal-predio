@@ -160,3 +160,104 @@ def upload_pdf(
         raise RuntimeError(f"Arquivo enviado, mas falha ao gerar URL: {exc}") from exc
 
     return url
+
+
+# ── Upload privado — Relatórios Técnicos (Etapa 2) ─────────────────────────────
+#
+# Diferente de upload_pdf() acima (URL assinada de 10 anos, tratada como
+# praticamente pública), relatórios técnicos ficam em um caminho privado e só
+# recebem uma URL assinada de curta duração, gerada sob demanda, depois que o
+# chamador já validou (via sheets.get_technical_reports) que o usuário tem
+# permissão para ver aquele relatório especificamente.
+
+_REPORT_SIGNED_URL_MINUTES = 30
+
+
+def _safe_path_segment(value: str, fallback: str) -> str:
+    safe = "".join(c for c in (value or "") if c.isalnum() or c in "-_").strip().lower()
+    return safe or fallback
+
+
+def upload_report_pdf(
+    file_bytes: bytes,
+    cliente_id: str,
+    ativo_id: str,
+    report_id: str,
+    arquivo_nome: str = "",
+    subpasta: str = "",
+) -> str:
+    """
+    Faz upload do PDF de um relatório técnico para um caminho privado no GCS:
+    clientes/{cliente_id}/relatorios/{ativo_id}/{report_id}/relatorio.pdf
+
+    `subpasta`, se informado, entra entre "relatorios" e o ativo — ex.:
+    subpasta="vibracao" -> clientes/{cliente_id}/relatorios/vibracao/{ativo_id}/{report_id}/relatorio.pdf
+    (usado pelo fluxo de Relatório de Vibração manual). Vazio por padrão —
+    não muda o caminho dos fluxos existentes (Upload Direto, App Relatórios).
+
+    Retorna o storage_path (não uma URL) — o objeto não é público.
+    Para visualizar/baixar, gere uma URL assinada temporária com
+    get_report_pdf_url() somente depois de validar que o usuário pode
+    acessar aquele relatório.
+
+    Lança ValueError para arquivo/parâmetros inválidos, RuntimeError para
+    falha de storage.
+    """
+    if not file_bytes:
+        raise ValueError("Arquivo vazio.")
+    if len(file_bytes) > _MAX_SIZE_BYTES:
+        mb = len(file_bytes) // (1024 * 1024)
+        raise ValueError(
+            f"Arquivo muito grande ({mb} MB). Envie um PDF de até 50 MB."
+        )
+    if file_bytes[:5] != b"%PDF-":
+        raise ValueError("Arquivo não é um PDF válido. Envie um arquivo .pdf.")
+    if not cliente_id or not report_id:
+        raise ValueError("cliente_id e report_id são obrigatórios.")
+
+    cli    = _safe_path_segment(cliente_id, "sem-cliente")
+    ativo  = _safe_path_segment(ativo_id, "sem-ativo")
+    rep    = _safe_path_segment(report_id, "sem-id")
+    sub    = _safe_path_segment(subpasta, "")
+    prefixo = f"clientes/{cli}/relatorios/" + (f"{sub}/" if sub else "")
+    blob_name = f"{prefixo}{ativo}/{rep}/relatorio.pdf"
+
+    try:
+        client = _get_client()
+    except ImportError:
+        raise RuntimeError(
+            "Dependência google-cloud-storage não instalada. "
+            "Aguarde o próximo deploy e tente novamente."
+        )
+
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
+
+    try:
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(io.BytesIO(file_bytes), content_type="application/pdf")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao enviar arquivo para o GCS: {exc}") from exc
+
+    return blob_name
+
+
+def get_report_pdf_url(storage_path: str, expiration_minutes: int = _REPORT_SIGNED_URL_MINUTES) -> str:
+    """
+    Gera uma URL assinada de curta duração para visualizar/baixar um
+    relatório técnico armazenado em storage_path.
+
+    O CHAMADOR é responsável por já ter validado que o usuário atual pode
+    acessar este relatório (cliente dono, ou equipe Pred.IO) antes de chamar
+    esta função — ela não faz nenhuma checagem de permissão por si só.
+    """
+    if not storage_path:
+        raise ValueError("storage_path vazio.")
+
+    client = _get_client()
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
+    blob = bucket.blob(storage_path)
+    return blob.generate_signed_url(
+        expiration=timedelta(minutes=expiration_minutes),
+        method="GET",
+        version="v2",
+    )

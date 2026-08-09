@@ -47,8 +47,13 @@ def _load_sv_data() -> dict:
         "cham_list":          [],
 
         # Relatórios
-        "rel_publicados_mes": 0,
-        "rel_rascunhos":      0,
+        "rel_publicados_mes":        0,
+        "rel_rascunhos":             0,
+        "rel_criticos":              0,  # publicados com severidade crítica/urgente
+        "ativos_relatorio_critico":  0,  # ativos distintos com relatório crítico/urgente
+        "rel_gut_alto":              0,  # publicados com GUT Alta/Crítica
+        "rel_recomendacoes":         0,  # publicados com recomendação preenchida
+        "rel_recentes":              [],  # últimos publicados (já ordenados por data)
 
         # Manutenção
         "manut_vencidas_total": 0,
@@ -171,12 +176,47 @@ def _load_sv_data() -> dict:
                 d["rel_rascunhos"] = int(ras_mask.sum())
 
                 if d_col:
-                    pub_df = df_rel[pub_mask & (
-                        df_rel[d_col].astype(str).str[:7] == hoje_mes
-                    )]
+                    # BUG ENCONTRADO NA HOMOLOGAÇÃO (Etapa 6): Data_Relatorio é
+                    # gravado como DD/MM/YYYY (ex.: "08/08/2026"), mas o filtro
+                    # comparava os 5 primeiros caracteres direto com "YYYY-MM"
+                    # — nunca batia, então "Relatórios no Mês" sempre dava 0.
+                    # Corrigido fazendo o parse de verdade antes de comparar.
+                    datas = pd.to_datetime(
+                        df_rel[d_col].astype(str), dayfirst=True, errors="coerce"
+                    )
+                    pub_df = df_rel[pub_mask & (datas.dt.strftime("%Y-%m") == hoje_mes)]
                     d["rel_publicados_mes"] = len(pub_df)
                 else:
                     d["rel_publicados_mes"] = int(pub_mask.sum())
+
+                # Etapa 5 — severidade/GUT/recomendações entre os PUBLICADOS
+                # (rascunho e "Em revisão" nunca entram nestes indicadores).
+                df_pub = df_rel[pub_mask]
+                if not df_pub.empty:
+                    sev_col = _col(df_pub, "Severidade")
+                    if sev_col:
+                        crit_mask = df_pub[sev_col].str.strip().str.lower().isin(
+                            ["crítico", "critico", "urgente"]
+                        )
+                        d["rel_criticos"] = int(crit_mask.sum())
+                        at_col = _col(df_pub, "Ativo_Id")
+                        if at_col:
+                            d["ativos_relatorio_critico"] = int(
+                                df_pub.loc[crit_mask, at_col].replace("", pd.NA).dropna().nunique()
+                            )
+
+                    gut_col = _col(df_pub, "Gut_Prioridade")
+                    if gut_col:
+                        d["rel_gut_alto"] = int(
+                            df_pub[gut_col].str.strip().isin(["Alta", "Crítica"]).sum()
+                        )
+
+                    rec_col = _col(df_pub, "Recomendacoes")
+                    if rec_col:
+                        d["rel_recomendacoes"] = int(df_pub[rec_col].str.strip().str.len().gt(0).sum())
+
+                    # já vem ordenado por Data_Relatorio desc (get_technical_reports)
+                    d["rel_recentes"] = df_pub.head(6).to_dict("records")
     except Exception:
         pass
 
@@ -349,6 +389,29 @@ def _render_metrics_grid(d: dict) -> None:
         sv_metric_card("🤖", "Respostas Marcadas", n_marcados, cor,
                        "Incorreto/precisa melhorar")
 
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # Linha 4 (Etapa 5): severidade/GUT/recomendações dos relatórios publicados
+    # — nunca considera rascunho nem "Em revisão" (calculado só sobre
+    # df_pub em _load_sv_data).
+    st.markdown(
+        f"<p style='font-size:0.75rem;text-transform:uppercase;letter-spacing:.07em;"
+        f"color:{COLOR_MUTED};font-weight:700;margin:0 0 6px;'>Relatórios — Severidade &amp; GUT</p>",
+        unsafe_allow_html=True,
+    )
+    c13, c14, c15 = st.columns(3)
+    with c13:
+        cor = "#EF4444" if d["rel_criticos"] > 0 else "#10B981"
+        sv_metric_card("🌡️", "Relatórios Críticos", d["rel_criticos"], cor,
+                       f"{d['ativos_relatorio_critico']} ativo(s) distinto(s)")
+    with c14:
+        cor = "#7C3AED" if d["rel_gut_alto"] > 0 else "#94A3B8"
+        sv_metric_card("🎯", "GUT Alto (Relatórios)", d["rel_gut_alto"], cor,
+                       "Prioridade Alta ou Crítica")
+    with c15:
+        sv_metric_card("💡", "Recomendações Geradas", d["rel_recomendacoes"], "#059669",
+                       "Relatórios publicados com recomendação")
+
 
 def _render_ativos_criticos_lista(d: dict) -> None:
     lista = d["ativos_criticos_lista"]
@@ -449,6 +512,58 @@ def _render_chamados_recentes(d: dict) -> None:
                     st.session_state["sv_chamado_id"] = chamado_id
                     st.rerun()
             st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+
+_SEV_COR_DASH = {
+    "normal": "#10B981", "atenção": "#F59E0B", "atencao": "#F59E0B",
+    "crítico": "#EF4444", "critico": "#EF4444", "urgente": "#7C3AED",
+}
+
+
+def _render_relatorios_recentes(d: dict) -> None:
+    """Últimos relatórios técnicos publicados (qualquer origem, inclusive
+    App Relatórios) — Etapa 5."""
+    lista = d["rel_recentes"]
+
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:1rem;margin:1.25rem 0 0.75rem;'>"
+        f"📄 Últimos Relatórios Publicados</p>",
+        unsafe_allow_html=True,
+    )
+
+    if not lista:
+        st.info("Nenhum relatório publicado ainda.")
+        return
+
+    for row in lista:
+        titulo     = str(row.get("Titulo", "")).strip() or "Sem título"
+        cliente_id = str(row.get("Cliente_Id", "")).strip()
+        tipo       = str(row.get("Tipo_Servico", "")).strip()
+        sev        = str(row.get("Severidade", "Normal")).strip()
+        data_rel   = str(row.get("Data_Relatorio", "")).strip()
+        origem     = str(row.get("Origem", "")).strip()
+
+        cor = _SEV_COR_DASH.get(sev.lower(), "#94A3B8")
+        meta = []
+        if cliente_id: meta.append(f"🏢 {cliente_id}")
+        if tipo:       meta.append(f"📋 {tipo}")
+        if data_rel:   meta.append(f"📅 {data_rel}")
+        if origem == "app_relatorios": meta.append("📲 App Relatórios")
+        meta_str = "   ·   ".join(meta)
+
+        st.markdown(
+            f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+            f"border-left:5px solid {cor};border-radius:10px;"
+            f"padding:10px 14px;margin-bottom:6px;'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;'>"
+            f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.88rem;'>{titulo}</span>"
+            f"<span style='background:{cor};color:#fff;-webkit-text-fill-color:#fff;"
+            f"font-size:0.66rem;font-weight:700;padding:2px 9px;border-radius:10px;'>{sev}</span>"
+            f"</div>"
+            f"<p style='color:{COLOR_MUTED};font-size:0.76rem;margin:4px 0 0;'>{meta_str}</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _render_assistente_recentes(d: dict) -> None:
@@ -583,6 +698,18 @@ def render() -> None:
                          use_container_width=True):
                 st.session_state["sv_view"] = "chamados"
                 st.rerun()
+
+        st.markdown(
+            f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0;'/>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Últimos relatórios publicados (Etapa 5) ───────────────────────────
+        _render_relatorios_recentes(d)
+        if st.button("📄 Ver todos os relatórios →", key="svdash_nav_rel2",
+                     use_container_width=True):
+            st.session_state["sv_view"] = "relatorios"
+            st.rerun()
 
         st.markdown(
             f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0;'/>",

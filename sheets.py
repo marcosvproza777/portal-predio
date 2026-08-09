@@ -2177,7 +2177,67 @@ _HEADERS_TECH_REPORTS = [
     # GUT da recomendação técnica — ver _HEADERS_GUT / gut.py
     "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
     "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
+    # Etapa 2 — upload direto de PDF (integração App Relatórios, ver
+    # docs/PREDIO_INTEGRACAO_APP_RELATORIOS_ETAPA_1.md). Colunas adicionadas
+    # de forma não-destrutiva por _ensure_extra_cols em add_technical_report.
+    "Origem", "Arquivo_Nome", "Storage_Path", "Tecnico", "Conclusao",
+    "Status_Indexacao", "Quantidade_Chunks", "Uso_Pela_Ia",
+    # Etapa 3 — publicação direta do App Relatórios (integration_api.py).
+    # App_Report_Id é o report.id do App (Firestore/IndexedDB) — usado para
+    # idempotência: reenviar o mesmo report_id atualiza em vez de duplicar.
+    "App_Report_Id", "Medicoes_Json", "Sincronizado_Em",
 ]
+
+# Origem do relatório — usado pelo seletor na Supervisão e pela integração.
+ORIGEM_UPLOAD_DIRETO          = "upload_direto"
+ORIGEM_GOOGLE_DRIVE           = "google_drive_url"
+ORIGEM_APP_RELATORIOS         = "app_relatorios"
+ORIGEM_UPLOAD_MANUAL_VIBRACAO = "upload_manual_vibracao"
+
+
+def _ativo_pertence_cliente(ativo_id: str, cliente_id: str) -> bool:
+    """Valida no backend que o ativo pertence ao cliente informado.
+
+    NUNCA confiar apenas no front-end — o seletor de ativo já filtra por
+    cliente, mas esta checagem é a garantia real contra um ativo_id de
+    outro cliente sendo enviado (ex.: manipulação de formulário).
+    Ativo é opcional em relatórios legados: ativo_id vazio é válido.
+    """
+    ativo_id   = (ativo_id or "").strip()
+    cliente_id = (cliente_id or "").strip().lower()
+    if not ativo_id:
+        return True
+    if not cliente_id:
+        return False
+    df = load_sheet("Ativos")
+    if df.empty or "Id" not in df.columns:
+        return False
+    match = df[df["Id"].astype(str).str.strip() == ativo_id]
+    if match.empty:
+        return False
+    row = match.iloc[0]
+    empresa    = str(row.get("Empresa", "")).strip().lower()
+    ativo_cli  = str(row.get("Client_Id", "")).strip().lower()
+    return cliente_id in (empresa, ativo_cli) and bool(empresa or ativo_cli)
+
+
+# Alias público — usado por integration_api.py (Etapa 3), fora deste módulo.
+# Mesma função de _ativo_pertence_cliente, só com nome sem "_" para uso externo.
+ativo_pertence_cliente = _ativo_pertence_cliente
+
+
+def get_ativo_by_id(ativo_id: str) -> dict | None:
+    """Retorna dict do ativo pelo Id, ou None se não existir. Uso: integration_api.py."""
+    ativo_id = (ativo_id or "").strip()
+    if not ativo_id:
+        return None
+    df = load_sheet("Ativos")
+    if df.empty or "Id" not in df.columns:
+        return None
+    match = df[df["Id"].astype(str).str.strip() == ativo_id]
+    if match.empty:
+        return None
+    return {col: str(match.iloc[0].get(col, "")).strip() for col in df.columns}
 
 _TIPO_SERVICO_TO_TIMELINE = {
     "análise de vibração": "analise_vibracao",
@@ -2203,16 +2263,27 @@ def _calc_new_score(current: int, severidade: str) -> int:
 
 
 def add_technical_report(dados: dict, created_by: str = "") -> str | None:
-    """Cria relatório técnico em rascunho. cliente_id DEVE vir da sessão."""
-    if not dados.get("cliente_id"):
+    """Cria relatório técnico em rascunho. cliente_id DEVE vir da sessão.
+
+    SEGURANÇA: valida no backend que ativo_id (se informado) pertence a
+    cliente_id — nunca confia apenas no filtro do seletor no front-end.
+    """
+    cliente_id = dados.get("cliente_id", "")
+    ativo_id   = dados.get("ativo_id", "")
+    if not cliente_id:
+        return None
+    if not _ativo_pertence_cliente(ativo_id, cliente_id):
         return None
     _ensure_tab_headers("TechnicalReports", _HEADERS_TECH_REPORTS)
+    # Aba pode já existir com o cabeçalho antigo (sem as colunas da Etapa 2) —
+    # garante as colunas novas ao final, sem apagar/reordenar as existentes.
+    _ensure_extra_cols("TechnicalReports", _HEADERS_TECH_REPORTS)
     rep_id = _gerar_id("REP")
     now    = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     ok = append_row("TechnicalReports", [
         rep_id,
-        dados.get("cliente_id", ""),
-        dados.get("ativo_id", ""),
+        cliente_id,
+        ativo_id,
         dados.get("titulo", ""),
         dados.get("tipo_servico", ""),
         dados.get("severidade", "Normal"),
@@ -2223,13 +2294,41 @@ def add_technical_report(dados: dict, created_by: str = "") -> str | None:
         dados.get("recomendacoes", ""),
         dados.get("arquivo_url", ""),
         "",
-        "Rascunho",
+        dados.get("status", "Rascunho"),
         dados.get("obs_interna", ""),
         created_by,
         now,
         now,
+        "", "", "", "", "", "",  # Gut_* — definidos depois via update_report_gut
+        dados.get("origem", ORIGEM_UPLOAD_DIRETO),
+        dados.get("arquivo_nome", ""),
+        dados.get("storage_path", ""),
+        dados.get("tecnico", created_by),
+        dados.get("conclusao", ""),
+        "", "", "",  # Status_Indexacao, Quantidade_Chunks, Uso_Pela_Ia
+        dados.get("app_report_id", ""),
+        dados.get("medicoes_json", ""),
+        dados.get("sincronizado_em", ""),
     ])
     return rep_id if ok else None
+
+
+def get_technical_report_by_app_id(app_report_id: str) -> dict | None:
+    """Busca relatório técnico pelo report_id de origem do App Relatórios
+    (App_Report_Id) — usado por integration_api.py para idempotência:
+    reenviar o mesmo report_id atualiza o relatório existente em vez de
+    criar um duplicado."""
+    app_report_id = (app_report_id or "").strip()
+    if not app_report_id:
+        return None
+    df = load_sheet("TechnicalReports")
+    if df.empty or "App_Report_Id" not in df.columns:
+        return None
+    match = df[df["App_Report_Id"].astype(str).str.strip() == app_report_id]
+    if match.empty:
+        return None
+    row = match.iloc[0]
+    return {col: str(row.get(col, "")).strip() for col in _HEADERS_TECH_REPORTS}
 
 
 def get_technical_reports(
@@ -2278,7 +2377,12 @@ def get_technical_report_by_id(report_id: str) -> dict | None:
 
 
 def update_technical_report(report_id: str, campos: dict) -> bool:
-    """Atualiza campos de um relatório técnico."""
+    """Atualiza campos de um relatório técnico.
+
+    SEGURANÇA: se Ativo_Id estiver sendo alterado, valida no backend que o
+    ativo pertence ao Cliente_Id efetivo do relatório (o informado em
+    `campos`, ou o já salvo caso não esteja sendo trocado nesta chamada).
+    """
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet("TechnicalReports")
@@ -2289,6 +2393,12 @@ def update_technical_report(report_id: str, campos: dict) -> bool:
         cell   = ws.find(report_id, in_column=id_col)
         if not cell:
             return False
+        if campos.get("Ativo_Id"):
+            cliente_id_efetivo = campos.get("Cliente_Id", "")
+            if not cliente_id_efetivo and "Cliente_Id" in headers:
+                cliente_id_efetivo = ws.cell(cell.row, headers.index("Cliente_Id") + 1).value or ""
+            if not _ativo_pertence_cliente(campos["Ativo_Id"], cliente_id_efetivo):
+                return False
         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         campos.setdefault("Updated_At", now)
         for campo, valor in campos.items():
@@ -2354,6 +2464,8 @@ def publish_technical_report(report_id: str, published_by: str = "") -> dict:
     tipo_servico = rep.get("Tipo_Servico", "")
     planta       = rep.get("Planta", "")
     equipamento  = rep.get("Equipamento", "")
+    resumo       = rep.get("Resumo", "")
+    recomend     = rep.get("Recomendacoes", "")
 
     actions: dict = {
         "ok": True,
@@ -2382,14 +2494,19 @@ def publish_technical_report(report_id: str, published_by: str = "") -> dict:
 
     update_technical_report(report_id, campos_upd)
 
-    # Evento na timeline
+    # Evento na timeline — resumo/recomendações entram como texto curto no
+    # histórico do ativo (nunca o PDF inteiro, só a referência ao relatório).
     ev_tipo_key = tipo_servico.strip().lower()
     ev_tipo = _TIPO_SERVICO_TO_TIMELINE.get(ev_tipo_key, "relatorio_publicado")
-    descr   = f"{tipo_servico} — {titulo}."
+    descr   = f"{tipo_servico} — {titulo}. Severidade: {severidade}."
     if equipamento:
         descr += f" Equipamento: {equipamento}."
     if actions["score_delta"]:
         descr += f" Score impactado em {actions['score_delta']:+d} pontos."
+    if resumo.strip():
+        descr += f" Resumo: {resumo.strip()[:220]}{'…' if len(resumo.strip()) > 220 else ''}"
+    if recomend.strip():
+        descr += f" Recomendação: {recomend.strip()[:220]}{'…' if len(recomend.strip()) > 220 else ''}"
     add_report_timeline_event({
         "ativo_id":        ativo_id or cliente_id,
         "cliente_id":      cliente_id,
@@ -2450,6 +2567,13 @@ def publish_technical_report(report_id: str, published_by: str = "") -> dict:
         actions["notificado"] = len(notifs) > 0
     except Exception:
         pass
+
+    # Indexa para o Assistente Técnico — centralizado aqui (Etapa 5) para que
+    # NUNCA fique dependendo de quem chamou publish_technical_report() lembrar
+    # de indexar depois. index_relatorio_tecnico() só é chamada quando o
+    # Status já está "Publicado" (linha acima) — rascunho/Em revisão nunca
+    # passam por aqui.
+    actions["indexado"] = reindex_technical_report(report_id).get("ok", False)
 
     return actions
 
@@ -3825,6 +3949,7 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
     equip     = str(dados.get("Equipamento",    "")).strip() or ativo_id
     resumo    = str(dados.get("Resumo",         "")).strip()
     recomend  = str(dados.get("Recomendacoes",  "")).strip()
+    conclusao = str(dados.get("Conclusao",      "")).strip()
 
     chunks_to_insert: list[list] = []
 
@@ -3848,6 +3973,12 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
         chunks_to_insert.append([
             _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
             "2", "Recomendações", recomend, f"recomendacoes,acao,{tipo}", agora,
+        ])
+
+    if conclusao:
+        chunks_to_insert.append([
+            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
+            "3", "Conclusão", conclusao, f"conclusao,{sev},{tipo}", agora,
         ])
 
     try:
@@ -3880,9 +4011,53 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
             ws.append_row(chunk_row)
 
         load_sheet.clear()
+
+        # Etapa 2 — marca o relatório como preparado para o Assistente Técnico.
+        # Indexação hoje é só dos campos de texto (Resumo/Recomendações/Conclusão);
+        # extração do conteúdo do PDF em si fica para uma etapa futura.
+        try:
+            _ensure_extra_cols("TechnicalReports", _HEADERS_TECH_REPORTS)
+            update_technical_report(report_id, {
+                "Status_Indexacao":  "Indexado (texto)",
+                "Quantidade_Chunks": str(len(chunks_to_insert)),
+                "Uso_Pela_Ia":       "true",
+            })
+        except Exception:
+            pass
+
         return True
     except Exception:
         return False
+
+
+def reindex_technical_report(report_id: str) -> dict:
+    """
+    Recria os chunks de um relatório técnico para o Assistente Técnico a
+    partir do conteúdo atual salvo (Resumo/Recomendações/Conclusão).
+
+    SEGURANÇA: só indexa relatórios com Status == "Publicado". Rascunho e
+    "Em revisão" nunca entram no índice — mesmo que esta função seja chamada
+    para eles (ex.: por engano), o guard abaixo bloqueia. Esta é a única
+    porta de entrada para (re)indexação — publish_technical_report() chama
+    isto na primeira publicação; quem atualizar o CONTEÚDO de um relatório
+    já publicado (edição na Supervisão, reenvio do App Relatórios) deve
+    chamar de novo para os chunks não ficarem desatualizados.
+
+    Idempotente: index_relatorio_tecnico() sempre apaga os chunks antigos do
+    mesmo report_id antes de inserir os novos — nunca duplica.
+    """
+    rep = get_technical_report_by_id(report_id)
+    if not rep:
+        return {"ok": False, "erro": "Relatório não encontrado."}
+    if rep.get("Status", "").strip() != "Publicado":
+        return {"ok": False, "erro": "Só relatórios publicados são indexados."}
+    ok = index_relatorio_tecnico(
+        report_id,
+        rep.get("Cliente_Id", ""),
+        rep.get("Ativo_Id", ""),
+        rep,
+    )
+    return {"ok": ok}
 
 
 @st.cache_data(ttl=60)

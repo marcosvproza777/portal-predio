@@ -184,6 +184,343 @@ def _coletar_dados(cliente_id: str, ativo_id: str, ini: _dt.date, fim: _dt.date,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ANALYTICS — indicadores, gráficos, pontos para gerência, ações, timeline
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _sem_acento(s: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", str(s).lower().strip())
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def _status_ativo_norm(raw: str) -> str:
+    s = _sem_acento(raw)
+    if s in ("bom", "verde", "normal", "ok"):
+        return "Bom"
+    if s in ("atencao", "amarelo", "alerta"):
+        return "Atenção"
+    if s in ("critico", "critica", "vermelho"):
+        return "Crítico"
+    if s == "urgente":
+        return "Urgente"
+    return "—"
+
+
+def compute_indicadores(dados: dict) -> dict:
+    """Indicadores gerenciais em número — para os cards do resumo."""
+    df_ativos = dados.get("ativos")
+    df_rel    = dados.get("relatorios")
+    df_mex    = dados.get("manutencoes_executadas")
+    df_mpend  = dados.get("manutencoes_pendentes")
+    df_al     = dados.get("alertas")
+    df_cham   = dados.get("chamados")
+    gut_itens = dados.get("gut_itens", [])
+
+    n_ativos = len(df_ativos) if df_ativos is not None else 0
+    score_medio = None
+    n_atencao = n_critico = n_urgente = 0
+    if df_ativos is not None and not df_ativos.empty:
+        if "Score" in df_ativos.columns:
+            scores = pd.to_numeric(df_ativos["Score"], errors="coerce").dropna()
+            if len(scores):
+                score_medio = round(scores.mean(), 1)
+        if "Status" in df_ativos.columns:
+            st_norm = df_ativos["Status"].astype(str).apply(_status_ativo_norm)
+            n_atencao = int((st_norm == "Atenção").sum())
+            n_critico = int((st_norm == "Crítico").sum())
+            n_urgente = int((st_norm == "Urgente").sum())
+
+    n_manut_vencidas = 0
+    if df_mpend is not None and not df_mpend.empty and "Status" in df_mpend.columns:
+        n_manut_vencidas = int(df_mpend["Status"].astype(str).str.lower().str.contains("vencid|atraso").sum())
+
+    n_alertas_criticos = 0
+    if df_al is not None and not df_al.empty and "Prioridade" in df_al.columns:
+        n_alertas_criticos = int(df_al["Prioridade"].astype(str).str.lower().isin(["crítica", "critica", "urgente"]).sum())
+
+    n_chamados_abertos = 0
+    if df_cham is not None and not df_cham.empty and "Status" in df_cham.columns:
+        n_chamados_abertos = int((df_cham["Status"].astype(str).str.lower() != "concluído").sum())
+
+    n_gut_criticos = sum(1 for i in gut_itens if i.get("prioridade") == "Crítica")
+
+    return {
+        "ativos_monitorados": n_ativos,
+        "saude_media": score_medio,
+        "ativos_atencao": n_atencao,
+        "ativos_criticos": n_critico + n_urgente,
+        "manutencoes_vencidas": n_manut_vencidas,
+        "itens_gut_criticos": n_gut_criticos,
+        "alertas_criticos": n_alertas_criticos,
+        "chamados_abertos": n_chamados_abertos,
+        "relatorios_publicados": len(df_rel) if df_rel is not None else 0,
+        "manutencoes_executadas": len(df_mex) if df_mex is not None else 0,
+    }
+
+
+def compute_chart_data(dados: dict) -> dict:
+    """Dados agregados prontos para gráfico (dict de labels->valor, ou lista
+    de pontos). Chaves com dado insuficiente ficam com valor "falsy" (dict
+    vazio / lista vazia) — quem renderiza deve mostrar estado amigável
+    nesses casos, nunca um gráfico vazio."""
+    df_ativos = dados.get("ativos")
+    df_rel    = dados.get("relatorios")
+    df_mpend  = dados.get("manutencoes_pendentes")
+    df_mex    = dados.get("manutencoes_executadas")
+    gut_itens = dados.get("gut_itens", [])
+
+    # ── 1. Saúde dos ativos ─────────────────────────────────────────────────
+    saude_ativos: dict = {}
+    if df_ativos is not None and not df_ativos.empty and "Status" in df_ativos.columns:
+        st_norm = df_ativos["Status"].astype(str).apply(_status_ativo_norm)
+        for label in ("Bom", "Atenção", "Crítico", "Urgente"):
+            n = int((st_norm == label).sum())
+            if n:
+                saude_ativos[label] = n
+
+    # ── 2. Evolução do score de saúde (aproximada por Score_Impacto dos
+    #      relatórios publicados no período, ancorada na saúde média atual;
+    #      só é exibida se houver pelo menos 2 pontos de data distintos) ────
+    score_evolucao: list = []
+    if df_rel is not None and not df_rel.empty and "Score_Impacto" in df_rel.columns \
+            and "Data_Relatorio" in df_rel.columns and df_ativos is not None and not df_ativos.empty:
+        try:
+            tmp = df_rel[["Data_Relatorio", "Score_Impacto"]].copy()
+            tmp["_dt"]  = pd.to_datetime(tmp["Data_Relatorio"], dayfirst=True, errors="coerce")
+            tmp["_imp"] = pd.to_numeric(tmp["Score_Impacto"], errors="coerce").fillna(0)
+            tmp = tmp.dropna(subset=["_dt"]).sort_values("_dt")
+            if tmp["_dt"].nunique() >= 2:
+                scores_atuais = pd.to_numeric(df_ativos.get("Score", pd.Series(dtype=float)), errors="coerce").dropna()
+                score_final = float(scores_atuais.mean()) if len(scores_atuais) else 75.0
+                # Caminha de trás para frente: score no ponto = final - soma dos impactos posteriores
+                impactos_pos = tmp["_imp"][::-1].cumsum()[::-1]
+                pontos = []
+                for (_, row), impacto_acumulado in zip(tmp.iterrows(), impactos_pos):
+                    valor = max(0, min(100, score_final - impacto_acumulado + row["_imp"]))
+                    pontos.append((row["_dt"].strftime("%d/%m"), round(valor, 1)))
+                pontos.append((_dt.date.today().strftime("%d/%m"), round(score_final, 1)))
+                score_evolucao = pontos
+        except Exception:
+            score_evolucao = []
+
+    # ── 3. GUT por prioridade ────────────────────────────────────────────────
+    gut_prioridade: dict = {}
+    for label in ("Baixa", "Moderada", "Alta", "Crítica"):
+        n = sum(1 for i in gut_itens if i.get("prioridade") == label)
+        if n:
+            gut_prioridade[label] = n
+
+    # ── 4. Manutenções por status ────────────────────────────────────────────
+    manut_status: dict = {}
+    if df_mpend is not None and not df_mpend.empty and "Status" in df_mpend.columns:
+        s_norm = df_mpend["Status"].astype(str).apply(_sem_acento)
+        tipo_norm = df_mpend.get("Tipo_Manutencao", pd.Series(dtype=str)).astype(str).apply(_sem_acento)
+        n_condicao = int((tipo_norm == "condicao").sum())
+        n_vencidas = int((s_norm.str.contains("vencid|atraso") & (tipo_norm != "condicao")).sum())
+        n_proximas = int((s_norm.str.contains("proxim") & (tipo_norm != "condicao")).sum())
+        n_em_dia   = int(len(df_mpend)) - n_condicao - n_vencidas - n_proximas
+        for label, n in [("Em dia", max(n_em_dia, 0)), ("Próximas", n_proximas),
+                         ("Vencidas", n_vencidas), ("Por condição", n_condicao)]:
+            if n:
+                manut_status[label] = n
+    if df_mex is not None and not df_mex.empty:
+        manut_status["Concluídas"] = len(df_mex)
+
+    # ── 5. Top 5 ativos mais críticos (score baixo / maior GUT) ─────────────
+    top5_criticos: list = []
+    if df_ativos is not None and not df_ativos.empty:
+        gut_por_ativo: dict = {}
+        for i in gut_itens:
+            aid = i.get("ativo_id", "")
+            if aid and (aid not in gut_por_ativo or i["score"] > gut_por_ativo[aid]["score"]):
+                gut_por_ativo[aid] = i
+        id_col   = "Id" if "Id" in df_ativos.columns else df_ativos.columns[0]
+        nome_col = "Tag" if "Tag" in df_ativos.columns else id_col
+        linhas = []
+        for _, row in df_ativos.iterrows():
+            aid   = str(row.get(id_col, "")).strip()
+            score = pd.to_numeric(row.get("Score", None), errors="coerce")
+            score = float(score) if pd.notna(score) else None
+            gut_i = gut_por_ativo.get(aid)
+            linhas.append({
+                "ativo": str(row.get(nome_col, aid)).strip() or aid,
+                "score": score,
+                "gut_score": gut_i["score"] if gut_i else None,
+                "gut_prioridade": gut_i["prioridade"] if gut_i else "—",
+            })
+        linhas.sort(key=lambda r: (r["gut_score"] or 0, -(r["score"] or 100)), reverse=True)
+        top5_criticos = linhas[:5]
+
+    # ── 6. Relatórios por severidade ────────────────────────────────────────
+    rel_severidade: dict = {}
+    if df_rel is not None and not df_rel.empty and "Severidade" in df_rel.columns:
+        for label in ("Normal", "Atenção", "Crítico", "Urgente"):
+            n = int(df_rel["Severidade"].astype(str).str.strip().eq(label).sum())
+            if n:
+                rel_severidade[label] = n
+
+    return {
+        "saude_ativos":         saude_ativos,
+        "score_evolucao":       score_evolucao,
+        "gut_prioridade":       gut_prioridade,
+        "manutencoes_status":   manut_status,
+        "top5_criticos":        top5_criticos,
+        "relatorios_severidade": rel_severidade,
+    }
+
+
+def principais_pontos_gerencia(dados: dict, indicadores: dict) -> list:
+    """Até 5 pontos objetivos para levar à reunião — frases curtas, sem
+    parágrafos longos. A última linha (segurança/transparência) é sempre
+    incluída quando há espaço, espelhando a regra de nunca indicar
+    overhaul/rolamento automaticamente."""
+    pontos: list = []
+    df_ativos = dados.get("ativos")
+    gut_itens = dados.get("gut_itens", [])
+    df_rel    = dados.get("relatorios")
+
+    # Ativo com pior score fora de "Bom"
+    if df_ativos is not None and not df_ativos.empty and "Score" in df_ativos.columns:
+        tmp = df_ativos.copy()
+        tmp["_score"] = pd.to_numeric(tmp["Score"], errors="coerce")
+        tmp = tmp.dropna(subset=["_score"])
+        tmp = tmp[tmp["Status"].astype(str).apply(_status_ativo_norm) != "Bom"] if "Status" in tmp.columns else tmp
+        if not tmp.empty:
+            pior = tmp.sort_values("_score").iloc[0]
+            nome_col = "Tag" if "Tag" in tmp.columns else tmp.columns[0]
+            status_lbl = _status_ativo_norm(pior.get("Status", "")) if "Status" in tmp.columns else "atenção"
+            pontos.append(f"{pior.get(nome_col, 'Ativo')} permanece em {status_lbl.lower()}, com score {int(pior['_score'])}.")
+
+    # Item GUT de maior prioridade
+    top_gut = sorted(gut_itens, key=lambda i: i.get("score", 0), reverse=True)
+    if top_gut and top_gut[0].get("prioridade") in ("Alta", "Crítica"):
+        i = top_gut[0]
+        pontos.append(f"{i.get('titulo','Item')} possui prioridade GUT {i.get('prioridade','').lower()}.")
+
+    # Manutenções vencidas
+    n_venc = indicadores.get("manutencoes_vencidas", 0)
+    if n_venc:
+        plural = "estão vencidas" if n_venc > 1 else "está vencida"
+        pontos.append(f"{n_venc} manutenç{'ões' if n_venc > 1 else 'ão'} {plural}.")
+
+    # Recomendação de relatório de maior severidade
+    if df_rel is not None and not df_rel.empty:
+        sev_rank = {"Urgente": 0, "Crítico": 1, "Atenção": 2, "Normal": 3}
+        tmp = df_rel.copy()
+        tmp["_r"] = tmp.get("Severidade", "Normal").map(sev_rank).fillna(9)
+        pior_rel = tmp.sort_values("_r").iloc[0]
+        rec = str(pior_rel.get("Recomendacoes", "")).strip()
+        if rec and rec.lower() not in ("nan", ""):
+            titulo = str(pior_rel.get("Titulo", "Relatório")).strip()
+            pontos.append(f"O relatório «{titulo}» recomenda: {rec[:100]}.")
+
+    # Linha fixa de transparência — sempre por último quando há espaço
+    pontos.append("Não há indicação automática de overhaul ou troca de rolamento no período.")
+
+    return pontos[:5]
+
+
+_RANK_ORIGEM = {"manutencao_vencida": 3, "alerta_critico": 4}
+
+
+def acoes_prioritarias(dados: dict, limite: int = 8) -> list:
+    """Lista ordenada: 1) GUT crítica, 2) GUT alta, 3) manutenção vencida
+    sem GUT, 4) alerta crítico sem GUT, 5) recomendação por condição.
+    Cada item: {rank, acao, ativo_id, origem, prioridade, prazo, status}."""
+    gut_itens = dados.get("gut_itens", [])
+    df_mpend  = dados.get("manutencoes_pendentes")
+    df_al     = dados.get("alertas")
+
+    usados_ids = set()
+    acoes: list = []
+
+    for i in gut_itens:
+        if i.get("prioridade") == "Crítica":
+            acoes.append({"rank": 1, "acao": i.get("titulo", ""), "ativo_id": i.get("ativo_id", ""),
+                          "origem": i.get("origem", ""), "prioridade": "Crítica",
+                          "prazo": i.get("created_at", ""), "status": i.get("status", "")})
+            usados_ids.add(i.get("id", ""))
+    for i in gut_itens:
+        if i.get("prioridade") == "Alta":
+            acoes.append({"rank": 2, "acao": i.get("titulo", ""), "ativo_id": i.get("ativo_id", ""),
+                          "origem": i.get("origem", ""), "prioridade": "Alta",
+                          "prazo": i.get("created_at", ""), "status": i.get("status", "")})
+            usados_ids.add(i.get("id", ""))
+
+    if df_mpend is not None and not df_mpend.empty and "Status" in df_mpend.columns:
+        venc = df_mpend[df_mpend["Status"].astype(str).str.lower().str.contains("vencid|atraso")]
+        for _, row in venc.iterrows():
+            if str(row.get("Id", "")) in usados_ids:
+                continue
+            acoes.append({"rank": 3, "acao": str(row.get("Nome_Tarefa", "Manutenção")).strip(),
+                          "ativo_id": str(row.get("Ativo_Id", "")).strip(), "origem": "manutencao",
+                          "prioridade": str(row.get("Prioridade", "")).strip(),
+                          "prazo": str(row.get("Proxima_Execucao_Data", "")).strip(),
+                          "status": str(row.get("Status", "")).strip()})
+
+    if df_al is not None and not df_al.empty and "Prioridade" in df_al.columns:
+        criticos = df_al[df_al["Prioridade"].astype(str).str.lower().isin(["crítica", "critica", "urgente"])]
+        for _, row in criticos.iterrows():
+            if str(row.get("Id", "")) in usados_ids:
+                continue
+            acoes.append({"rank": 4, "acao": str(row.get("Titulo", "Alerta")).strip(),
+                          "ativo_id": str(row.get("Ativo_Id", "")).strip(), "origem": "alerta",
+                          "prioridade": str(row.get("Prioridade", "")).strip(),
+                          "prazo": str(row.get("Criado_Em", "")).strip(), "status": ""})
+
+    for i in gut_itens:
+        if i.get("subtipo") == "Condição" and i.get("id", "") not in usados_ids \
+                and i.get("prioridade") not in ("Crítica", "Alta"):
+            acoes.append({"rank": 5, "acao": i.get("titulo", ""), "ativo_id": i.get("ativo_id", ""),
+                          "origem": "recomendacao_condicao", "prioridade": i.get("prioridade", ""),
+                          "prazo": i.get("created_at", ""), "status": i.get("status", "")})
+
+    acoes.sort(key=lambda a: a["rank"])
+    return acoes[:limite]
+
+
+def timeline_periodo(dados: dict, limite: int = 8) -> list:
+    """Eventos relevantes do período, mais recentes primeiro — não é o
+    histórico bruto, só os eventos que importam para a reunião."""
+    eventos: list = []
+
+    df_rel = dados.get("relatorios")
+    if df_rel is not None and not df_rel.empty:
+        for _, r in df_rel.iterrows():
+            eventos.append((str(r.get("Data_Relatorio", "")).strip(), "📁 Relatório publicado",
+                            str(r.get("Titulo", "")).strip()))
+
+    df_mex = dados.get("manutencoes_executadas")
+    if df_mex is not None and not df_mex.empty:
+        for _, m in df_mex.iterrows():
+            eventos.append((str(m.get("Executado_Em", "")).strip(), "🔧 Manutenção executada",
+                            str(m.get("Descricao_Execucao", "")).strip()[:80]))
+
+    df_al = dados.get("alertas")
+    if df_al is not None and not df_al.empty and "Prioridade" in df_al.columns:
+        relevantes = df_al[df_al["Prioridade"].astype(str).str.lower().isin(["crítica", "critica", "alta", "urgente"])]
+        for _, a in relevantes.iterrows():
+            eventos.append((str(a.get("Criado_Em", "")).strip(), "🔔 Alerta",
+                            str(a.get("Titulo", "")).strip()))
+
+    df_cham = dados.get("chamados")
+    if df_cham is not None and not df_cham.empty and "Prioridade" in df_cham.columns:
+        relevantes = df_cham[df_cham["Prioridade"].astype(str).str.lower().isin(["crítica", "critica", "alta", "urgente"])]
+        for _, c in relevantes.iterrows():
+            eventos.append((str(c.get("Aberto_Em", "")).strip(), "🎫 Chamado",
+                            str(c.get("Titulo", "")).strip()))
+
+    def _key(ev):
+        d = pd.to_datetime(ev[0], dayfirst=True, errors="coerce")
+        return d if pd.notna(d) else pd.Timestamp.min
+
+    eventos.sort(key=_key, reverse=True)
+    return eventos[:limite]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MONTAGEM DO TEXTO
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -447,11 +784,22 @@ def generate_executive_summary(
         tipo_resumo=tipo_resumo, modo=modo, dados=dados,
     )
 
+    indicadores = compute_indicadores(dados)
+    charts      = compute_chart_data(dados)
+    pontos      = principais_pontos_gerencia(dados, indicadores)
+    acoes       = acoes_prioritarias(dados)
+    timeline    = timeline_periodo(dados)
+
     resultado = {
         "ok": True, "titulo": titulo, "texto": texto, "dados": dados,
-        "cliente_id": cliente_id, "ativo_id": ativo_id,
+        "cliente_id": cliente_id, "cliente_nome": cliente_nome,
+        "ativo_id": ativo_id, "ativo_nome": ativo_nome,
         "periodo_inicio": periodo_inicio, "periodo_fim": periodo_fim,
         "modo": modo, "tipo_resumo": tipo_resumo,
+        "indicadores": indicadores, "charts": charts,
+        "pontos_gerencia": pontos, "acoes_prioritarias": acoes,
+        "timeline": timeline,
+        "gerado_em": _dt.datetime.now(),
     }
 
     if salvar:
@@ -472,82 +820,315 @@ def generate_executive_summary(
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXPORTAÇÃO — WORD (.docx)
 # ═══════════════════════════════════════════════════════════════════════════════
-# Reaproveita apenas python-docx (já em requirements.txt — ver
-# report_word_generator.py). Não há biblioteca de geração de PDF no projeto
-# (pdfplumber/PyPDF2 só leem PDF); exportar PDF nesta primeira versão exigiria
-# instalar uma dependência nova, o que o pedido explicitamente pede para evitar
-# — por isso a exportação desta etapa é Word + copiar texto, conforme o
-# projeto já suporta.
+# Reaproveita python-docx (já em requirements.txt — mesma lib de
+# report_word_generator.py) para texto/tabelas editáveis, e matplotlib
+# (também já em requirements.txt) só para renderizar os gráficos como
+# imagens PNG embutidas — não há biblioteca de geração de PDF no projeto
+# (pdfplumber/PyPDF2 só leem PDF); instalar uma nova para isso contrariaria
+# o pedido explícito de evitar dependência pesada, então a exportação desta
+# etapa continua Word + copiar texto, conforme o projeto já suporta.
 
 _NAVY  = "0F1F3D"
 _BLUE  = "2563EB"
 _MUTED = "64748B"
 
+_COR_HEX = {
+    "Bom": "10B981", "Atenção": "F59E0B", "Crítico": "EF4444", "Urgente": "7C3AED",
+    "Baixa": "10B981", "Moderada": "F59E0B", "Alta": "F97316", "Crítica": "EF4444",
+    "Em dia": "10B981", "Próximas": "F59E0B", "Vencidas": "EF4444",
+    "Concluídas": "2563EB", "Por condição": "8B5CF6",
+    "Normal": "10B981",
+}
+
+
+def _mpl_bar_png(labels: list, values: list, cores: list, altura: float = 2.6) -> bytes | None:
+    if not labels:
+        return None
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(5.6, altura), dpi=150)
+    bars = ax.bar(labels, values, color=[f"#{c}" for c in cores])
+    for b, v in zip(bars, values):
+        ax.text(b.get_x() + b.get_width() / 2, b.get_height(), str(v),
+               ha="center", va="bottom", fontsize=9, color="#334155")
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    ax.tick_params(axis="x", labelsize=9, colors="#334155")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _mpl_pizza_png(labels: list, values: list, cores: list) -> bytes | None:
+    if not labels:
+        return None
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(4.2, 3.4), dpi=150)
+    ax.pie(values, labels=[f"{l} ({v})" for l, v in zip(labels, values)],
+          colors=[f"#{c}" for c in cores], startangle=90,
+          textprops={"fontsize": 9, "color": "#334155"})
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _mpl_linha_png(pontos: list) -> bytes | None:
+    if len(pontos) < 2:
+        return None
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    xs = [p[0] for p in pontos]
+    ys = [p[1] for p in pontos]
+    fig, ax = plt.subplots(figsize=(5.6, 2.4), dpi=150)
+    ax.plot(xs, ys, marker="o", color="#2563EB", linewidth=2)
+    ax.set_ylim(0, 100)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.tick_params(labelsize=8, colors="#334155")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=True)
+    plt.close(fig)
+    return buf.getvalue()
+
 
 def gerar_resumo_executivo_word(resultado: dict) -> bytes:
-    """Gera o .docx do resumo executivo a partir do texto já montado por
-    generate_executive_summary(). Retorna bytes do arquivo."""
+    """Gera o .docx do resumo executivo — capa profissional, cards de
+    indicadores, gráficos (imagens), ações prioritárias, principais pontos
+    e conclusão. Texto e tabelas continuam editáveis; gráficos são imagens
+    incorporadas (matplotlib, sem dependência nova)."""
     try:
         from docx import Document
-        from docx.shared import Pt, RGBColor
+        from docx.shared import Pt, RGBColor, Inches
         from docx.enum.text import WD_ALIGN_PARAGRAPH
     except ImportError:
         raise ImportError("python-docx não instalado. Verifique requirements.txt.")
-    import io
+    import io, os
 
     def _rgb(h: str) -> "RGBColor":
         return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
+    def _heading(doc, texto, tamanho=13, cor=_BLUE):
+        p = doc.add_paragraph()
+        r = p.add_run(texto)
+        r.bold = True
+        r.font.size = Pt(tamanho)
+        r.font.color.rgb = _rgb(cor)
+        return p
+
+    ind      = resultado.get("indicadores", {})
+    charts   = resultado.get("charts", {})
+    pontos   = resultado.get("pontos_gerencia", [])
+    acoes    = resultado.get("acoes_prioritarias", [])
+    timeline = resultado.get("timeline", [])
+    p_ini    = resultado["periodo_inicio"].strftime("%d/%m/%Y")
+    p_fim    = resultado["periodo_fim"].strftime("%d/%m/%Y")
+    gerado   = resultado.get("gerado_em")
+    gerado_str = gerado.strftime("%d/%m/%Y %H:%M") if gerado else ""
+
     doc = Document()
+
+    # ── Capa ──────────────────────────────────────────────────────────────
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if os.path.exists(logo_path):
+        try:
+            p_logo = doc.add_paragraph()
+            p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_logo.add_run().add_picture(logo_path, width=Inches(1.3))
+        except Exception:
+            pass
+
+    marca = doc.add_paragraph()
+    marca.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_marca = marca.add_run("PRED.IO")
+    r_marca.bold = True
+    r_marca.font.size = Pt(11)
+    r_marca.font.color.rgb = _rgb(_MUTED)
 
     titulo_p = doc.add_paragraph()
     titulo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = titulo_p.add_run(resultado.get("titulo", "Resumo Executivo Pred.IO"))
+    run = titulo_p.add_run("Resumo Executivo de Confiabilidade")
     run.bold = True
-    run.font.size = Pt(18)
+    run.font.size = Pt(22)
     run.font.color.rgb = _rgb(_NAVY)
 
     sub_p = doc.add_paragraph()
     sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     sub_run = sub_p.add_run(
-        f"Período: {resultado['periodo_inicio'].strftime('%d/%m/%Y')} a "
-        f"{resultado['periodo_fim'].strftime('%d/%m/%Y')}  ·  Tipo: {resultado.get('tipo_resumo','')}"
+        f"Cliente: {resultado.get('cliente_nome','')}"
+        + (f"  ·  Ativo: {resultado.get('ativo_nome')}" if resultado.get("ativo_nome") else "")
+        + f"\nPeríodo: {p_ini} a {p_fim}  ·  Gerado em {gerado_str}"
     )
     sub_run.italic = True
-    sub_run.font.size = Pt(10)
+    sub_run.font.size = Pt(11)
     sub_run.font.color.rgb = _rgb(_MUTED)
+
+    intro_p = doc.add_paragraph()
+    intro_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    intro_run = intro_p.add_run(
+        "Visão consolidada da condição dos ativos, prioridades de manutenção, "
+        "relatórios técnicos, alertas e ações recomendadas no período."
+    )
+    intro_run.font.size = Pt(10)
+    intro_run.font.color.rgb = _rgb(_MUTED)
+
+    doc.add_page_break()
+
+    # ── Indicadores principais (tabela) ──────────────────────────────────────
+    _heading(doc, "Indicadores Principais", 15, _NAVY)
+    cards = [
+        ("Ativos monitorados", ind.get("ativos_monitorados", 0)),
+        ("Saúde média", f"{ind.get('saude_media')}/100" if ind.get("saude_media") is not None else "—"),
+        ("Ativos em atenção", ind.get("ativos_atencao", 0)),
+        ("Ativos críticos", ind.get("ativos_criticos", 0)),
+        ("Manutenções vencidas", ind.get("manutencoes_vencidas", 0)),
+        ("Itens GUT críticos", ind.get("itens_gut_criticos", 0)),
+        ("Alertas críticos", ind.get("alertas_criticos", 0)),
+        ("Chamados abertos", ind.get("chamados_abertos", 0)),
+        ("Relatórios no período", ind.get("relatorios_publicados", 0)),
+    ]
+    tbl = doc.add_table(rows=0, cols=4)
+    tbl.style = "Light Grid Accent 1"
+    for i in range(0, len(cards), 2):
+        row = tbl.add_row().cells
+        row[0].text = cards[i][0]
+        row[1].text = str(cards[i][1])
+        if i + 1 < len(cards):
+            row[2].text = cards[i + 1][0]
+            row[3].text = str(cards[i + 1][1])
+    doc.add_paragraph()
+
+    # ── Gráficos ──────────────────────────────────────────────────────────
+    _heading(doc, "Indicadores Gráficos", 15, _NAVY)
+
+    saude = charts.get("saude_ativos", {})
+    if saude:
+        doc.add_paragraph("Saúde dos ativos").runs[0].bold = True
+        png = _mpl_pizza_png(list(saude.keys()), list(saude.values()),
+                             [_COR_HEX.get(l, "94A3B8") for l in saude.keys()])
+        if png:
+            doc.add_picture(io.BytesIO(png), width=Inches(3.2))
+
+    gut_p = charts.get("gut_prioridade", {})
+    if gut_p:
+        ordem = ["Baixa", "Moderada", "Alta", "Crítica"]
+        vals  = [gut_p.get(l, 0) for l in ordem]
+        doc.add_paragraph("GUT por prioridade").runs[0].bold = True
+        png = _mpl_bar_png(ordem, vals, [_COR_HEX[l] for l in ordem])
+        if png:
+            doc.add_picture(io.BytesIO(png), width=Inches(5.6))
+
+    manut = charts.get("manutencoes_status", {})
+    if manut:
+        ordem = [l for l in ["Em dia", "Próximas", "Vencidas", "Concluídas", "Por condição"] if manut.get(l)]
+        vals  = [manut[l] for l in ordem]
+        doc.add_paragraph("Manutenções por status").runs[0].bold = True
+        png = _mpl_bar_png(ordem, vals, [_COR_HEX[l] for l in ordem])
+        if png:
+            doc.add_picture(io.BytesIO(png), width=Inches(5.6))
+
+    sev = charts.get("relatorios_severidade", {})
+    if sev:
+        ordem = [l for l in ["Normal", "Atenção", "Crítico", "Urgente"] if sev.get(l)]
+        vals  = [sev[l] for l in ordem]
+        doc.add_paragraph("Relatórios por severidade").runs[0].bold = True
+        png = _mpl_bar_png(ordem, vals, [_COR_HEX[l] for l in ordem])
+        if png:
+            doc.add_picture(io.BytesIO(png), width=Inches(5.6))
+
+    evolucao = charts.get("score_evolucao", [])
+    png_evol = _mpl_linha_png(evolucao)
+    if png_evol:
+        doc.add_paragraph("Evolução do score de saúde").runs[0].bold = True
+        doc.add_picture(io.BytesIO(png_evol), width=Inches(5.6))
+
+    top5 = charts.get("top5_criticos", [])
+    if top5:
+        doc.add_paragraph("Top 5 ativos mais críticos").runs[0].bold = True
+        t5 = doc.add_table(rows=1, cols=4)
+        t5.style = "Light Grid Accent 1"
+        hdr = t5.rows[0].cells
+        hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = "Ativo", "Score", "GUT", "Prioridade"
+        for it in top5:
+            row = t5.add_row().cells
+            row[0].text = str(it.get("ativo", ""))
+            row[1].text = str(it.get("score", "—"))
+            row[2].text = str(it.get("gut_score", "—"))
+            row[3].text = str(it.get("gut_prioridade", "—"))
+
+    doc.add_page_break()
+
+    # ── Principais pontos para gerência ──────────────────────────────────────
+    _heading(doc, "Principais Pontos para Gerência", 15, _NAVY)
+    for p in pontos:
+        para = doc.add_paragraph(style="List Bullet")
+        para.add_run(p)
 
     doc.add_paragraph()
 
+    # ── Ações prioritárias ────────────────────────────────────────────────────
+    _heading(doc, "Ações Prioritárias", 15, _NAVY)
+    if acoes:
+        rank_label = {1: "GUT Crítica", 2: "GUT Alta", 3: "Manutenção Vencida",
+                     4: "Alerta Crítico", 5: "Recomendação por Condição"}
+        ta = doc.add_table(rows=1, cols=5)
+        ta.style = "Light Grid Accent 1"
+        hdr = ta.rows[0].cells
+        for i, h in enumerate(["Prioridade", "Ação", "Ativo", "Prazo/Data", "Status"]):
+            hdr[i].text = h
+        for a in acoes:
+            row = ta.add_row().cells
+            row[0].text = rank_label.get(a["rank"], "")
+            row[1].text = str(a.get("acao", ""))
+            row[2].text = str(a.get("ativo_id", "") or "—")
+            row[3].text = str(a.get("prazo", ""))[:16]
+            row[4].text = str(a.get("status", "") or "—")
+    else:
+        doc.add_paragraph("Nenhuma ação prioritária identificada no período.")
+
+    doc.add_paragraph()
+
+    # ── Histórico resumido ────────────────────────────────────────────────────
+    _heading(doc, "Histórico Resumido do Período", 15, _NAVY)
+    if timeline:
+        for data, tipo, titulo_ev in timeline:
+            doc.add_paragraph(f"{data} — {tipo} — {titulo_ev}", style="List Bullet")
+    else:
+        doc.add_paragraph("Nenhum evento relevante registrado no período.")
+
+    doc.add_page_break()
+
+    # ── Conclusão (reaproveita a seção 10 do texto já montado) ────────────────
+    _heading(doc, "Conclusão para Reunião", 15, _NAVY)
     texto = resultado.get("texto", "")
-    for linha in texto.split("\n"):
-        stripped = linha.strip()
-        if not stripped:
-            doc.add_paragraph()
-            continue
-        # Cabeçalho de seção: "1. SUMÁRIO EXECUTIVO" (dígito + ponto + maiúsculas)
-        if len(stripped) > 2 and stripped[0].isdigit() and stripped.split(".", 1)[0].isdigit() \
-                and stripped.upper() == stripped and any(c.isalpha() for c in stripped):
-            p = doc.add_paragraph()
-            r = p.add_run(stripped)
-            r.bold = True
-            r.font.size = Pt(13)
-            r.font.color.rgb = _rgb(_BLUE)
-            continue
-        if stripped.startswith("•"):
-            p = doc.add_paragraph(style="List Bullet")
-            p.add_run(stripped.lstrip("• ").strip())
-            continue
-        if stripped == "RESUMO EXECUTIVO PRED.IO" or stripped.startswith("Cliente:"):
-            continue  # título/subtítulo já renderizados acima
-        if stripped == TEXTO_OBRIGATORIO:
-            p = doc.add_paragraph()
-            r = p.add_run(stripped)
-            r.italic = True
-            r.font.size = Pt(9)
-            r.font.color.rgb = _rgb(_MUTED)
-            continue
-        doc.add_paragraph(stripped)
+    if "10. CONCLUSÃO PARA REUNIÃO" in texto:
+        bloco = texto.split("10. CONCLUSÃO PARA REUNIÃO", 1)[1]
+        for linha in bloco.split("\n"):
+            s = linha.strip()
+            if not s or s == "Fonte: Pred.IO":
+                continue
+            if s.startswith("•"):
+                doc.add_paragraph(s.lstrip("• ").strip(), style="List Bullet")
+            else:
+                doc.add_paragraph(s)
+
+    rodape = doc.add_paragraph()
+    rodape.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_rodape = rodape.add_run(TEXTO_OBRIGATORIO + "\n\nFonte: Pred.IO")
+    r_rodape.italic = True
+    r_rodape.font.size = Pt(9)
+    r_rodape.font.color.rgb = _rgb(_MUTED)
 
     buf = io.BytesIO()
     doc.save(buf)

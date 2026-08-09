@@ -924,13 +924,19 @@ def render_sv_topnav() -> None:
     perfil_label = "Admin" if perfil == "admin" else "Funcionário"
 
     # ── Linha 1: Logo + título | Usuário + Sair ───────────────────────────
-    # Marcador CSS — sem isso, a regra global de mobile (que quebra todo
-    # st.columns em 2 linhas de 50%) empilhava logo e usuário/Sair um sobre
-    # o outro no celular. Mesmo padrão usado no topnav do cliente (linha
-    # ~540) para manter a barra numa linha só.
+    # Marcador CSS aplicado SEMPRE (não só no mobile): força align-items:center
+    # no stHorizontalBlock gerado pelo st.columns() — por padrão o Streamlit
+    # não centraliza verticalmente colunas com alturas de conteúdo diferentes
+    # (logo_col é uma única div; user_col tem um st.columns aninhado, com
+    # espaçamento nativo próprio), o que fazia "Supervisão" e o bloco do
+    # usuário ficarem em alturas visualmente diferentes. gap consistente no
+    # lugar de padding-top manual. Mesmo padrão de marcador usado no topnav
+    # do cliente (linha ~540), agora também ativo em telas grandes.
     st.markdown(
         "<div class='sv-topnav-marker'></div>"
         "<style>"
+        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
+        "align-items:center!important;gap:1rem!important;}"
         "@media(max-width:768px){"
         "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
         "flex-wrap:nowrap!important;gap:6px!important;}"
@@ -946,19 +952,24 @@ def render_sv_topnav() -> None:
         _logo = load_image_b64("logo.jpg")
         if _logo:
             st.markdown(
-                f"<div style='display:flex;align-items:center;gap:10px;padding-top:4px;'>"
+                f"<div style='display:flex;align-items:center;gap:10px;'>"
                 f"<img src='data:image/jpeg;base64,{_logo}' "
-                f"style='height:44px;object-fit:contain;' />"
+                f"style='height:44px;object-fit:contain;display:block;' />"
                 f"<span style='font-size:0.68rem;font-weight:700;letter-spacing:0.14em;"
-                f"text-transform:uppercase;color:{COLOR_MUTED};'>Supervisão</span>"
+                f"text-transform:uppercase;color:{COLOR_MUTED};line-height:44px;'>Supervisão</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
     with user_col:
+        # align-items:center também aqui — o nome+badge (bloco HTML) e o
+        # botão "Sair" (widget nativo do Streamlit) precisam da mesma
+        # centralização vertical entre si, não só logo_col vs user_col.
         st.markdown(
             "<div class='sv-topnav-user-marker'></div>"
             "<style>"
+            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
+            "align-items:center!important;gap:0.75rem!important;}"
             "@media(max-width:768px){"
             "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
             "flex-wrap:nowrap!important;}"
@@ -974,9 +985,10 @@ def render_sv_topnav() -> None:
                 f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end;'>"
                 f"<div>"
                 f"<p style='margin:0;font-size:0.78rem;font-weight:700;"
-                f"color:{COLOR_NAVY};text-align:right;'>{nome}</p>"
-                f"<p style='margin:0;font-size:0.68rem;color:{COLOR_MUTED};text-align:right;'>"
-                f"{perfil_label}</p>"
+                f"color:{COLOR_NAVY};text-align:right;line-height:1.3;white-space:nowrap;"
+                f"overflow:hidden;text-overflow:ellipsis;'>{nome}</p>"
+                f"<p style='margin:0;font-size:0.68rem;color:{COLOR_MUTED};text-align:right;"
+                f"line-height:1.3;'>{perfil_label}</p>"
                 f"</div>"
                 f"<div style='width:30px;height:30px;border-radius:50%;flex-shrink:0;"
                 f"background:linear-gradient(135deg,#38BDF8,#2563EB);"

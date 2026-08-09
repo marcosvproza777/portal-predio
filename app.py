@@ -48,6 +48,21 @@ def main() -> None:
                     nome         = session.get("nome", session["empresa"]),
                 )
                 st.rerun()
+            else:
+                # Token salvo no navegador é inválido/expirado/revogado —
+                # limpa o localStorage e não tenta de novo nesta navegação.
+                from session_persist import inject_session_clear
+                inject_session_clear()
+                st.query_params["nosess"] = "1"
+        elif not st.query_params.get("nosess"):
+            # Sem ?sid= na URL e ainda não verificamos o navegador nesta
+            # navegação — checa localStorage antes de mostrar login, para
+            # não pedir login de novo em quem já tem sessão válida no
+            # mesmo dispositivo (só fecha e reabre o navegador).
+            from session_persist import inject_session_restore_check, render_loading_screen
+            render_loading_screen()
+            inject_session_restore_check()
+            st.stop()
 
     # ── Não autenticado → tela de login ───────────────────────────────────────
     if not st.session_state.get("logged_in"):
@@ -55,6 +70,10 @@ def main() -> None:
         remove_bottom_nav()
         st.session_state.pop("_clogo_loaded", None)
         st.session_state.pop("client_logo_b64", None)
+        if st.query_params.get("loggedout"):
+            from session_persist import inject_session_clear
+            inject_session_clear()
+            st.query_params.pop("loggedout", None)
         inject_login_bg(bg_b64)
         import page_login
         page_login.render(logo_b64)
@@ -63,6 +82,11 @@ def main() -> None:
     # ── Autenticado → bifurcar por perfil ────────────────────────────────────
     empresa  = st.session_state.get("empresa", "")
     telefone = st.session_state.get("telefone", "")
+
+    # Mantém o localStorage sincronizado com o token de sessão válido atual
+    # — sobrevive a fechar/reabrir o navegador no mesmo dispositivo.
+    from session_persist import inject_session_save
+    inject_session_save(_sid)
     nome     = current_nome()
     perfil   = current_perfil()
 

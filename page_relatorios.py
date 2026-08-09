@@ -131,6 +131,17 @@ def _render_card_tech(row) -> None:
     resumo     = str(row.get("Resumo",         "")).strip()
     recomend   = str(row.get("Recomendacoes",  "")).strip()
     url        = str(row.get("Arquivo_Url",    "")).strip()
+    storage_path = str(row.get("Storage_Path", "")).strip()
+
+    # Upload direto: sem link permanente — gera URL assinada de curta duração
+    # sob demanda. Só chega aqui depois que get_technical_reports(staff=False)
+    # já filtrou por Cliente_Id da sessão + Status=='Publicado'.
+    if not url and storage_path and storage_path.lower() not in ("", "nan"):
+        try:
+            from drive_storage import get_report_pdf_url
+            url = get_report_pdf_url(storage_path)
+        except Exception:
+            url = ""
 
     sc, sb, sbo, st_ = _SEV_COLOR.get(sev.strip().lower(), ("#94A3B8","#F8FAFC","#CBD5E1","#475569"))
 

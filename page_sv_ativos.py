@@ -396,6 +396,14 @@ def _render_detalhe() -> None:
     with c3:
         sv_metric_card("⚠️", "Criticidade", crit, ccfg["color"])
 
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    col_vib, _ = st.columns([2, 4])
+    with col_vib:
+        if st.button("📳 Adicionar Relatório de Vibração", use_container_width=True):
+            from page_sv_relatorios import abrir_novo_relatorio_vibracao
+            abrir_novo_relatorio_vibracao(cliente_id=client_id, ativo_id=ativo_id)
+            st.rerun()
+
     st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
     # ── Dados técnicos ────────────────────────────────────────────────────────

@@ -9,3 +9,31 @@ services:
         sync: false
       - key: N8N_ASSISTANT_WEBHOOK_URL
         sync: false
+
+  # Etapa 3 — recebe relatórios publicados pelo App Relatórios Pred.IO.
+  # Serviço separado porque o Streamlit acima não serve rotas HTTP próprias;
+  # reaproveita o mesmo repositório e o mesmo sheets.py/drive_storage.py —
+  # não é um backend novo, só um segundo processo falando o mesmo backend.
+  # Ver docs/PREDIO_INTEGRACAO_APP_RELATORIOS_ETAPA_1.md.
+  - type: web
+    name: portal-predio-integrations-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn integration_api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Mesmo valor já usado no serviço portal-predio acima — a API precisa
+      # ler/escrever a mesma planilha e o mesmo bucket.
+      - key: GCP_CREDENTIALS_JSON
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      # Segredo NOVO — gerar uma string aleatória longa (ex.: openssl rand -hex 32)
+      # e usar o MESMO valor aqui e na constante do App Relatórios. Nunca reaproveitar
+      # nenhuma credencial do Google (Sheets/GCS) para este token.
+      - key: INTEGRATION_API_TOKEN
+        sync: false
+      # Opcional — restringe CORS ao domínio do App Relatórios (ex.:
+      # https://app-relatorios.predio.workers.dev). Sem definir, aceita qualquer
+      # origem; o token continua sendo a barreira real de autenticação.
+      - key: INTEGRATION_ALLOWED_ORIGINS
+        sync: false

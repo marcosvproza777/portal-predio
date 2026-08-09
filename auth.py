@@ -121,18 +121,21 @@ def login(empresa: str, telefone: str,
         from sheets import save_session
         save_session(token, empresa, email, telefone, client_id, perfil, nome)
         st.query_params["sid"] = token
+        st.query_params.pop("nosess", None)
     except Exception:
         pass
 
 
 def logout() -> None:
-    """Encerra sessão e invalida token."""
+    """Encerra sessão, invalida token e sinaliza para limpar a persistência
+    local (localStorage) — impede entrada automática após o logout."""
     try:
         sid = st.query_params.get("sid", "")
         if sid:
             from sheets import delete_session
             delete_session(sid)
         st.query_params.clear()
+        st.query_params["loggedout"] = "1"
     except Exception:
         pass
     for key in list(st.session_state.keys()):
