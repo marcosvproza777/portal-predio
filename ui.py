@@ -591,28 +591,37 @@ def render_client_topnav(logo_b64: str, empresa: str, telefone: str,
         unsafe_allow_html=True,
     )
 
-    # ── Marcador CSS — âncora para estilizar as colunas de nav abaixo ──────────
-    # No mobile: barra de nav scrollável horizontalmente (bottom nav substitui)
+    # ── Navegação + logout ─────────────────────────────────────────────────────
+    # Usa st.container(key=...) em vez do antigo marcador <div> + seletor de
+    # irmão adjacente/geral ("div.marker + div[...]", "div.marker ~ div[...]").
+    # O truque dependia do stHorizontalBlock do st.columns() ser irmão HTML
+    # do marcador — o Streamlit passou a envolver st.markdown/st.columns em
+    # wrappers extras (stElementContainer, stMarkdown, etc.), então nem o
+    # irmão adjacente nem o geral nunca alcançavam o bloco de colunas de
+    # verdade, e a barra de nav nunca ficava scrollável no mobile (quebrava
+    # em colunas empilhadas, mesmo bug do header da Supervisão — ver
+    # comentário extenso em render_sv_topnav()). Além disso, o data-testid
+    # da coluna nesta versão do Streamlit é 'stColumn', não 'column'.
     st.markdown(
-        "<div class='portal-nav-marker'></div>"
         "<style>"
         "@media(max-width:768px){"
-        "div.portal-nav-marker+div[data-testid='stHorizontalBlock'],"
-        "div.portal-nav-marker~div[data-testid='stHorizontalBlock']{"
+        ".st-key-portal_nav_row div[data-testid='stHorizontalBlock']{"
         "overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;"
         "scrollbar-width:none!important;flex-wrap:nowrap!important;"
         "padding-bottom:4px;gap:4px!important;}"
-        "div.portal-nav-marker+div[data-testid='stHorizontalBlock']::-webkit-scrollbar{"
+        ".st-key-portal_nav_row div[data-testid='stHorizontalBlock']::-webkit-scrollbar{"
         "display:none!important;}"
-        "div.portal-nav-marker+div[data-testid='stHorizontalBlock']"
-        " [data-testid='column']{min-width:52px!important;max-width:80px!important;}"
+        ".st-key-portal_nav_row div[data-testid='stColumn']{"
+        "min-width:52px!important;width:max-content!important;}"
+        ".st-key-portal_nav_row .stButton>button{white-space:nowrap!important;width:auto!important;}"
+        ".st-key-portal_nav_row div[data-testid='stButton']{"
+        "width:auto!important;display:inline-flex!important;}"
         "}"
         "</style>",
         unsafe_allow_html=True,
     )
-
-    # ── Navegação + logout ─────────────────────────────────────────────────────
-    nav_cols = st.columns([1] * len(PORTAL_NAV_ITEMS) + [0.7])
+    _portal_nav_row = st.container(key="portal_nav_row")
+    nav_cols = _portal_nav_row.columns([1] * len(PORTAL_NAV_ITEMS) + [0.7])
 
     for col, (key, icon, label) in zip(nav_cols[:-1], PORTAL_NAV_ITEMS):
         is_active = (
@@ -947,36 +956,53 @@ def render_sv_topnav() -> None:
     perfil_label = "Admin" if perfil == "admin" else "Funcionário"
 
     # ── Linha 1: Logo + título | Usuário + Sair ───────────────────────────
-    # Marcador CSS aplicado SEMPRE (não só no mobile): força align-items:center
-    # no stHorizontalBlock gerado pelo st.columns() — por padrão o Streamlit
-    # não centraliza verticalmente colunas com alturas de conteúdo diferentes
-    # (logo_col é uma única div; user_col tem um st.columns aninhado, com
-    # espaçamento nativo próprio), o que fazia "Supervisão" e o bloco do
-    # usuário ficarem em alturas visualmente diferentes. A correção real não
-    # é só align-items na linha (isso só centraliza as colunas *entre si*
-    # como blocos) — é fazer CADA coluna virar um flex container que
-    # centraliza o próprio conteúdo interno verticalmente, com uma
-    # min-height igual nas duas, independente do padding nativo que o
-    # Streamlit injeta em cada widget/bloco. Mesmo padrão de marcador usado
-    # no topnav do cliente (linha ~540), agora também ativo em telas grandes.
+    # Header quebrava em 2-3 linhas empilhadas no mobile ("torto") por DOIS
+    # bugs de versão do Streamlit sobrepostos, nenhum deles um bug nosso de
+    # lógica:
+    #  1) O truque antigo de CSS usava um <div> "marcador" + seletor de
+    #     irmão adjacente ("div.marker + div[...]") apostando que o
+    #     stHorizontalBlock do st.columns() seguinte seria o irmão HTML
+    #     imediato do marcador. Streamlit passou a envolver cada
+    #     st.markdown/st.columns em wrappers extras (stElementContainer,
+    #     stMarkdown, etc.) — o irmão adjacente do marcador nunca era o
+    #     bloco de colunas (só a <style> interna), então a regra nunca era
+    #     aplicada. Resolvido usando st.container(key=...): gera uma classe
+    #     estável (st-key-<key>) que envolve tudo dentro do `with`, então um
+    #     seletor descendente comum (sem depender de posição de irmão)
+    #     sempre alcança o stHorizontalBlock, com qualquer nível de wrapper.
+    #  2) Mesmo corrigido (1), a coluna continuava sem quebrar: o
+    #     data-testid do <div> de cada coluna do st.columns() mudou de
+    #     "column" para "stColumn" nesta versão do Streamlit — todo seletor
+    #     `[data-testid='column']` (usado aqui e em várias regras do
+    #     pwa.py) vinha combinando com NADA, então o próprio CSS nativo do
+    #     Streamlit (que força min-width:calc(100%-Npx) por coluna em
+    #     telas estreitas, pensado para fazer colunas empilharem) sempre
+    #     "ganhava" por padrão — não por cascata, só porque o nosso nunca
+    #     entrava na disputa. Corrigido usando `[data-testid='stColumn']`.
+    # logo_col (first-child) fica com sua largura natural de conteúdo em vez
+    # de forçar 50/50 — em telas bem estreitas (~360px, largura comum de
+    # Android), a divisão rígida 50/50 fazia o rótulo "SUPERVISÃO" não caber
+    # nos ~160px da coluna e sobrepor visualmente o bloco do usuário ao
+    # lado. user_col (last-child) fica flexível e cede espaço primeiro (o
+    # nome dentro dela já trunca com ellipsis).
     st.markdown(
-        "<div class='sv-topnav-marker'></div>"
         "<style>"
-        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
-        "align-items:center!important;gap:1rem!important;}"
-        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']"
-        " > div[data-testid='column']{"
+        ".st-key-sv_topnav_row div[data-testid='stHorizontalBlock']{"
+        "align-items:center!important;gap:1rem!important;flex-wrap:nowrap!important;}"
+        ".st-key-sv_topnav_row div[data-testid='stColumn']{"
         "display:flex!important;align-items:center!important;min-height:48px;}"
+        ".st-key-sv_topnav_row div[data-testid='stColumn']:first-child{"
+        "flex:0 0 auto!important;min-width:0!important;}"
+        ".st-key-sv_topnav_row div[data-testid='stColumn']:last-child{"
+        "flex:1 1 auto!important;min-width:0!important;}"
         "@media(max-width:768px){"
-        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']{"
-        "flex-wrap:nowrap!important;gap:6px!important;}"
-        "div.sv-topnav-marker+div[data-testid='stHorizontalBlock']"
-        " [data-testid='column']{min-width:0!important;}"
+        ".st-key-sv_topnav_row div[data-testid='stHorizontalBlock']{gap:6px!important;}"
         "}"
         "</style>",
         unsafe_allow_html=True,
     )
-    logo_col, user_col = st.columns([2, 2])
+    _sv_topnav_row = st.container(key="sv_topnav_row")
+    logo_col, user_col = _sv_topnav_row.columns([2, 2])
 
     with logo_col:
         _logo = load_image_b64("logo.jpg")
@@ -999,26 +1025,29 @@ def render_sv_topnav() -> None:
         # container com min-height própria, e o botão "Sair" tem sua margem
         # nativa zerada — sem isso ele ficava deslocado por causa do espaço
         # que o Streamlit reserva por padrão ao redor de todo st.button().
+        # data-testid da coluna é 'stColumn', não 'column' — ver comentário
+        # extenso em sv_topnav_row acima.
+        # A coluna do botão "Sair" (last-child) ganha largura mínima fixa em
+        # vez de seguir a proporção [3,1] à risca — em telas estreitas, 1/4
+        # da largura já reduzida de user_col não sobra espaço para o texto
+        # "Sair" e ele quebra letra por letra. A coluna do nome (first-child)
+        # é quem cede espaço (o nome já tem text-overflow:ellipsis acima).
         st.markdown(
-            "<div class='sv-topnav-user-marker'></div>"
             "<style>"
-            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
-            "align-items:center!important;gap:0.75rem!important;}"
-            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
-            " > div[data-testid='column']{"
+            ".st-key-sv_topnav_user_row div[data-testid='stHorizontalBlock']{"
+            "align-items:center!important;gap:0.75rem!important;flex-wrap:nowrap!important;}"
+            ".st-key-sv_topnav_user_row div[data-testid='stColumn']{"
             "display:flex!important;align-items:center!important;min-height:38px;}"
-            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
-            " div[data-testid='stButton']{margin:0!important;width:100%;}"
-            "@media(max-width:768px){"
-            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']{"
-            "flex-wrap:nowrap!important;}"
-            "div.sv-topnav-user-marker+div[data-testid='stHorizontalBlock']"
-            " [data-testid='column']{min-width:0!important;}"
-            "}"
+            ".st-key-sv_topnav_user_row div[data-testid='stColumn']:first-child{"
+            "flex:1 1 auto!important;min-width:0!important;}"
+            ".st-key-sv_topnav_user_row div[data-testid='stColumn']:last-child{"
+            "flex:0 0 auto!important;min-width:64px!important;}"
+            ".st-key-sv_topnav_user_row div[data-testid='stButton']{margin:0!important;width:100%;}"
             "</style>",
             unsafe_allow_html=True,
         )
-        u_info, u_btn = st.columns([3, 1])
+        _sv_topnav_user_row = st.container(key="sv_topnav_user_row")
+        u_info, u_btn = _sv_topnav_user_row.columns([3, 1])
         with u_info:
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end;'>"

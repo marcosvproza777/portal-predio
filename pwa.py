@@ -407,17 +407,47 @@ html { -webkit-text-size-adjust: 100%; }
     font-size: 0.82rem !important;
     white-space: nowrap;
   }
-  /* Topnav scrollável */
-  .portal-nav-marker + div,
-  .portal-nav-marker ~ [data-testid="stHorizontalBlock"] {
+  /* Topnav scrollável — via st.container(key="portal_nav_row"), ver
+     render_client_topnav() em ui.py (mesmo motivo do header da
+     Supervisão: marcador+irmão nunca combinava, e o testid certo é
+     'stColumn', não 'column'). */
+  .st-key-portal_nav_row [data-testid="stHorizontalBlock"] {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
     scrollbar-width: none !important;
     flex-wrap: nowrap !important;
   }
-  .portal-nav-marker + div::-webkit-scrollbar,
-  .portal-nav-marker ~ [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
+  .st-key-portal_nav_row [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
     display: none !important;
+  }
+  /* white-space:nowrap sem isso quebra em várias linhas dentro da pill
+     estreita em vez de manter a pill numa linha só e deixar a BARRA rolar
+     horizontalmente. width:auto sobrescreve o width:100% que
+     use_container_width=True aplica no botão — com width:100%, o botão
+     não cresce para caber o rótulo (fica do tamanho da coluna, que por sua
+     vez tenta se basear no tamanho do botão — ciclo que os navegadores
+     resolvem encolhendo tudo), e os rótulos ficam sobrepostos entre pills
+     vizinhas. Com width:auto, o botão (e a coluna, via flex-basis:auto)
+     passam a caber exatamente o texto do rótulo. */
+  .st-key-portal_nav_row .stButton > button {
+    white-space: nowrap !important;
+    width: auto !important;
+  }
+  /* Entre a coluna e o botão o Streamlit intercala mais 2 wrappers
+     (stVerticalBlock > stElementContainer > stButton > button) que ficam
+     width:100% do pai — mesmo com o botão já largo o bastante pro rótulo,
+     essa cadeia nunca "encolhe pro conteúdo" pra informar o
+     flex-basis:auto da coluna (que cai no fallback = min-width). Em vez
+     de zerar width em cada nível (frágil — depende de o Streamlit nunca
+     adicionar mais um wrapper), width:max-content na COLUNA sozinha já
+     resolve: o navegador recalcula o tamanho intrínseco através de toda a
+     árvore de descendentes, ignorando os width:100% intermediários. */
+  .st-key-portal_nav_row [data-testid="stColumn"] {
+    width: max-content !important;
+  }
+  .st-key-portal_nav_row [data-testid="stButton"] {
+    width: auto !important;
+    display: inline-flex !important;
   }
   /* Colunas — mínimo legível */
   [data-testid="column"] { min-width: 130px; }
@@ -441,29 +471,37 @@ html { -webkit-text-size-adjust: 100%; }
     min-width: 140px !important;
   }
   /* Topnav: NÃO quebra, scrollável */
-  div.portal-nav-marker ~ [data-testid="stHorizontalBlock"],
-  div.portal-nav-marker + [data-testid="stHorizontalBlock"] {
+  .st-key-portal_nav_row [data-testid="stHorizontalBlock"] {
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
     gap: 4px !important;
   }
-  div.portal-nav-marker ~ [data-testid="stHorizontalBlock"] [data-testid="column"],
-  div.portal-nav-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] {
+  /* Sem max-width: com white-space:nowrap no botão, a pill deve caber a
+     largura real do rótulo ("🔧 Chamados"), senão o texto fica cortado. O
+     min-width só é uma folga mínima para as pills mais curtas (ícone só). */
+  .st-key-portal_nav_row [data-testid="stColumn"] {
     flex: 0 0 auto !important;
     min-width: 52px !important;
-    max-width: 82px !important;
+    width: max-content !important;
   }
   /* Header da Supervisão: mesma exceção — não quebra em 2 colunas empilhadas
      como o conteúdo genérico da página (senão logo/título e usuário/sair
-     ficam um embaixo do outro em vez de lado a lado). */
-  div.sv-topnav-marker + [data-testid="stHorizontalBlock"],
-  div.sv-topnav-user-marker + [data-testid="stHorizontalBlock"] {
+     ficam um embaixo do outro em vez de lado a lado). Seletor via
+     st.container(key=...) (classe st-key-*), não mais via marcador +
+     irmão adjacente — ver render_sv_topnav() em ui.py. Atenção: o
+     data-testid da coluna nesta versão do Streamlit é 'stColumn', não
+     'column' (mudou entre versões) — ver mesmo comentário em ui.py. */
+  .st-key-sv_topnav_row [data-testid="stHorizontalBlock"],
+  .st-key-sv_topnav_user_row [data-testid="stHorizontalBlock"] {
     flex-wrap: nowrap !important;
   }
-  div.sv-topnav-marker + [data-testid="stHorizontalBlock"] [data-testid="column"],
-  div.sv-topnav-user-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] {
-    flex: 1 1 auto !important;
+  /* Só min-width:0 — NÃO sobrescrever `flex` aqui: o basis calc(50%-Npx)
+     nativo do st.columns([2,2])/([3,1]) é o que dá a divisão proporcional
+     certa; só o min-width nativo (que força quase 100% por coluna em telas
+     estreitas, pensado para stack) precisa ser zerado. */
+  .st-key-sv_topnav_row [data-testid="stColumn"],
+  .st-key-sv_topnav_user_row [data-testid="stColumn"] {
     min-width: 0 !important;
   }
 }
@@ -482,17 +520,16 @@ html { -webkit-text-size-adjust: 100%; }
     flex: 1 1 100% !important;
     min-width: 100% !important;
   }
-  /* Exceto topnav */
-  div.portal-nav-marker ~ [data-testid="stHorizontalBlock"] [data-testid="column"],
-  div.portal-nav-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] {
+  /* Exceto topnav — mesma razão do breakpoint de 640px acima (sem max-width,
+     senão o rótulo do botão fica cortado em vez da barra rolar) */
+  .st-key-portal_nav_row [data-testid="stColumn"] {
     flex: 0 0 auto !important;
     min-width: 52px !important;
-    max-width: 82px !important;
+    width: max-content !important;
   }
   /* Exceto header da Supervisão — mesma razão do breakpoint de 640px acima */
-  div.sv-topnav-marker + [data-testid="stHorizontalBlock"] [data-testid="column"],
-  div.sv-topnav-user-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] {
-    flex: 1 1 auto !important;
+  .st-key-sv_topnav_row [data-testid="stColumn"],
+  .st-key-sv_topnav_user_row [data-testid="stColumn"] {
     min-width: 0 !important;
   }
 }
