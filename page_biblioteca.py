@@ -121,7 +121,18 @@ def _render_doc_card(doc: dict) -> None:
     resumo    = str(doc.get("Resumo",            doc.get("resumo",            ""))).strip()
     arq_url   = str(doc.get("Arquivo_Url",       doc.get("arquivo_url",       ""))).strip()
     arq_nome  = str(doc.get("Arquivo_Nome",      doc.get("arquivo_nome",      ""))).strip()
-    st_idx    = str(doc.get("Status_Indexacao",  doc.get("status_indexacao",  ""))).strip()
+    st_idx    = str(doc.get("Indexado_Para_Ia",  doc.get("status_indexacao",  ""))).strip()
+    storage_path = str(doc.get("Storage_Path",   doc.get("storage_path",      ""))).strip()
+
+    # Storage privado tem prioridade — link assinado de curta duração gerado
+    # sob demanda (nunca reaproveita entre reruns). Arquivo_Url só é usado
+    # para documentos cadastrados antes deste mecanismo existir.
+    if storage_path and storage_path.lower() not in ("", "nan"):
+        try:
+            from drive_storage import get_document_pdf_url
+            arq_url = get_document_pdf_url(storage_path)
+        except Exception:
+            pass  # mantém arq_url original (Arquivo_Url) se o storage_path for inválido
 
     icon = _TIPO_ICON.get(tipo, "📄")
 
@@ -131,13 +142,13 @@ def _render_doc_card(doc: dict) -> None:
         idx_badge = (
             "<span style='background:#DCFCE7;color:#15803D;-webkit-text-fill-color:#15803D;"
             "font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;"
-            "border:1px solid #86EFAC;white-space:nowrap;'>🤖 Disponível para consulta IA</span>"
+            "border:1px solid #86EFAC;white-space:nowrap;'>🤖 IA: Disponível para consulta</span>"
         )
     else:
         idx_badge = (
             "<span style='background:#F1F5F9;color:#64748B;-webkit-text-fill-color:#64748B;"
             "font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:10px;"
-            "border:1px solid #CBD5E1;white-space:nowrap;'>📥 Disponível apenas para download</span>"
+            "border:1px solid #CBD5E1;white-space:nowrap;'>📖 Disponível para leitura · IA: Não indexado</span>"
         )
 
     meta = []

@@ -5,6 +5,10 @@ from auth import current_client_id, current_empresa, current_email
 from ai_assistant import query_ai, is_critical_question
 from sheets import salvar_log_assistente, get_historico_assistente
 from ui import page_header, COLOR_NAVY, COLOR_BLUE, COLOR_CYAN, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
+import assistant_lookup
+
+_KEY_CUR_REPORT = "assistente_current_report_id"
+_KEY_CUR_DOC = "assistente_current_document_id"
 
 _AVISO = (
     "ℹ️ As respostas são baseadas nos dados disponíveis no portal. "
@@ -107,7 +111,10 @@ def render() -> None:
 
     for item in reversed(st.session_state["chat_history"]):
         _render_user_msg(item["pergunta"])
-        _render_bot_msg(item)
+        if item.get("lookup"):
+            _render_lookup_msg(item, client_id, email)
+        else:
+            _render_bot_msg(item)
         if item.get("critico"):
             if st.button("🔧 Abrir Chamado Técnico Urgente", key=f"crit_{item['ts']}",
                          type="primary"):
@@ -116,6 +123,19 @@ def render() -> None:
 
 
 def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str) -> None:
+    # Antes de acionar a IA genérica, verifica se a pergunta é sobre
+    # localizar/exibir/resumir um Relatório Técnico ou documento da
+    # Biblioteca — se for, resolve aqui e nem chama query_ai(). Se não for
+    # (retorna None), segue o fluxo normal sem nenhuma mudança.
+    current_report_id = st.session_state.get(_KEY_CUR_REPORT, "")
+    current_document_id = st.session_state.get(_KEY_CUR_DOC, "")
+    with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
+        lookup = assistant_lookup.rotear_pergunta(pergunta, client_id, current_report_id, current_document_id)
+    if lookup is not None:
+        _registrar_lookup(pergunta, lookup, client_id, email)
+        st.rerun()
+        return
+
     with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
         # IA chamada server-side — client_id da sessão, nunca do front-end
         result = query_ai(client_id, pergunta)
@@ -168,6 +188,246 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
         pass
 
     st.rerun()
+
+
+def _registrar_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None:
+    """Adiciona ao histórico da sessão um resultado de
+    assistant_lookup.rotear_pergunta() (card/lista/resumo/etc.) e atualiza
+    current_report_id/current_document_id — SEMPRE os valores que vieram
+    já revalidados dentro de rotear_pergunta(), nunca um id "solto"."""
+    if "current_report_id" in lookup:
+        st.session_state[_KEY_CUR_REPORT] = lookup["current_report_id"]
+    if "current_document_id" in lookup:
+        st.session_state[_KEY_CUR_DOC] = lookup["current_document_id"]
+
+    item = {
+        "pergunta": pergunta,
+        "lookup": lookup,
+        "critico": False,
+        "ts": str(len(st.session_state["chat_history"])),
+    }
+    st.session_state["chat_history"].append(item)
+    _log_lookup(pergunta, lookup, client_id, email)
+
+
+def _log_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None:
+    tipo = lookup.get("tipo", "")
+    if tipo in ("relatorio_card",):
+        report_ids = lookup["item"]["id"]
+    elif tipo == "resumo_consolidado":
+        report_ids = ",".join(lookup.get("relatorios", []))
+    elif tipo in ("lista_relatorios", "ambiguo") and lookup.get("itens"):
+        report_ids = ",".join(i["id"] for i in lookup["itens"] if "tipo_servico" in i)
+    else:
+        report_ids = lookup.get("current_report_id", "")
+
+    if tipo in ("documento_card",):
+        document_ids = lookup["item"]["id"]
+    elif tipo in ("lista_documentos", "ambiguo") and lookup.get("itens"):
+        document_ids = ",".join(i["id"] for i in lookup["itens"] if "tipo_documento" in i)
+    else:
+        document_ids = lookup.get("current_document_id", "")
+
+    resposta = lookup.get("texto") or lookup.get("mensagem") or f"[{tipo}]"
+    try:
+        salvar_log_assistente(
+            client_id=client_id, email=email, pergunta=pergunta,
+            resposta=resposta[:2000], fontes="Pred.IO", confidence="",
+            report_ids_usados=report_ids, document_ids_usados=document_ids,
+            current_report_id=st.session_state.get(_KEY_CUR_REPORT, ""),
+            current_document_id=st.session_state.get(_KEY_CUR_DOC, ""),
+        )
+    except Exception:
+        pass
+
+
+def _resolver_pdf_url(storage_path: str, arquivo_url: str, is_doc: bool, forcar_download: bool = False) -> str:
+    """Gera um link fresco (nunca reaproveitado entre reruns) a partir do
+    storage privado quando disponível; cai para Arquivo_Url (documentos
+    antigos, sem storage) quando não. Nunca propaga exceção — chamador só
+    usa o resultado como string, podendo estar vazio."""
+    if storage_path:
+        try:
+            from drive_storage import get_document_pdf_url, get_report_pdf_url
+            fn = get_document_pdf_url if is_doc else get_report_pdf_url
+            return fn(storage_path, forcar_download=forcar_download)
+        except Exception:
+            pass
+    return arquivo_url or ""
+
+
+def _acionar_resumo_relatorio(report_id: str, client_id: str, email: str) -> None:
+    with st.spinner("Gerando resumo…"):
+        r = assistant_lookup.summarize_technical_report(report_id, client_id)
+    lookup = {"tipo": "resumo", "texto": r["resumo"] if r["ok"] else r["erro"]}
+    if r["ok"]:
+        lookup["current_report_id"] = report_id
+    _registrar_lookup(f"Resumir relatório {report_id}", lookup, client_id, email)
+    st.rerun()
+
+
+def _acionar_resumo_documento(document_id: str, client_id: str, email: str) -> None:
+    with st.spinner("Gerando resumo…"):
+        r = assistant_lookup.summarize_technical_document(document_id, client_id)
+    lookup = {"tipo": "resumo", "texto": r["resumo"] if r["ok"] else r["erro"]}
+    if r["ok"]:
+        lookup["current_document_id"] = document_id
+    _registrar_lookup(f"Resumir documento {document_id}", lookup, client_id, email)
+    st.rerun()
+
+
+def _render_report_card(item: dict, key_prefix: str, client_id: str, email: str) -> None:
+    titulo   = item.get("titulo", "")
+    tipo_srv = item.get("tipo_servico", "")
+    sev      = item.get("severidade", "")
+    data     = item.get("data", "")
+    ativo    = item.get("ativo_nome") or item.get("ativo_id", "")
+    resumo   = item.get("resumo", "")
+    recos    = item.get("recomendacoes", "")
+
+    sev_l = sev.strip().lower()
+    sev_bg, sev_tc = {
+        "crítica": ("#FEE2E2", "#DC2626"), "critica": ("#FEE2E2", "#DC2626"),
+        "alta": ("#FFEDD5", "#C2410C"),
+        "moderada": ("#FEF9C3", "#B45309"), "normal": ("#DCFCE7", "#15803D"),
+        "baixa": ("#DCFCE7", "#15803D"),
+    }.get(sev_l, ("#F1F5F9", "#64748B"))
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-left:4px solid {COLOR_BLUE};border-radius:4px 12px 12px 12px;"
+        f"padding:12px 16px;margin:8px 0;max-width:88%;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;'>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>📋 {titulo}</span>"
+        + (f"<span style='background:{sev_bg};color:{sev_tc};-webkit-text-fill-color:{sev_tc};"
+           f"font-size:0.65rem;font-weight:700;padding:2px 9px;border-radius:10px;'>{sev}</span>" if sev else "")
+        + "</div>"
+        + (f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:4px 0;'>"
+           f"{tipo_srv}{' · ' + data if data else ''}{' · ' + ativo if ativo else ''}</p>")
+        + (f"<p style='color:#475569;font-size:0.83rem;margin:4px 0;'>{resumo}</p>" if resumo else "")
+        + (f"<p style='color:#475569;font-size:0.8rem;margin:4px 0;'><strong>Recomendações:</strong> {recos}</p>" if recos else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    url_abrir = _resolver_pdf_url(item.get("storage_path", ""), item.get("arquivo_url", ""), is_doc=False)
+    url_baixar = _resolver_pdf_url(item.get("storage_path", ""), item.get("arquivo_url", ""), is_doc=False, forcar_download=True)
+    cols = st.columns(4)
+    with cols[0]:
+        if url_abrir:
+            st.link_button("👁️ Abrir", url_abrir, use_container_width=True)
+        else:
+            st.button("👁️ Abrir", key=f"{key_prefix}_abrir_x", disabled=True, use_container_width=True)
+    with cols[1]:
+        if url_baixar:
+            st.link_button("⬇️ Baixar", url_baixar, use_container_width=True)
+        else:
+            st.button("⬇️ Baixar", key=f"{key_prefix}_baixar_x", disabled=True, use_container_width=True)
+    with cols[2]:
+        if st.button("📝 Resumir", key=f"{key_prefix}_resumir", use_container_width=True):
+            _acionar_resumo_relatorio(item["id"], client_id, email)
+    with cols[3]:
+        if item.get("ativo_id"):
+            if st.button("🔧 Ver ativo", key=f"{key_prefix}_ativo", use_container_width=True):
+                st.session_state["ativo_detalhe_id"] = item["ativo_id"]
+                st.session_state["portal_page"] = "ativos"
+                st.rerun()
+
+
+def _render_document_card(item: dict, key_prefix: str, client_id: str, email: str) -> None:
+    titulo = item.get("titulo", "")
+    tipo   = item.get("tipo_documento", "")
+    fab    = item.get("fabricante", "")
+    modelo = item.get("modelo", "")
+    ativo  = item.get("ativo_nome") or item.get("ativo_id", "")
+    resumo = item.get("resumo", "")
+    idx    = item.get("status_indexacao", "")
+
+    meta = [m for m in (fab, modelo, ativo) if m]
+
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-left:4px solid {COLOR_CYAN};border-radius:4px 12px 12px 12px;"
+        f"padding:12px 16px;margin:8px 0;max-width:88%;'>"
+        f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.9rem;'>📚 {titulo}</span>"
+        + (f"<p style='color:{COLOR_MUTED};font-size:0.78rem;margin:4px 0;'>{tipo}{' · ' + ' · '.join(meta) if meta else ''}</p>")
+        + (f"<p style='color:#475569;font-size:0.83rem;margin:4px 0;'>{resumo}</p>" if resumo else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    url_abrir = _resolver_pdf_url(item.get("storage_path", ""), item.get("arquivo_url", ""), is_doc=True)
+    url_baixar = _resolver_pdf_url(item.get("storage_path", ""), item.get("arquivo_url", ""), is_doc=True, forcar_download=True)
+    cols = st.columns(4)
+    with cols[0]:
+        if url_abrir:
+            st.link_button("👁️ Abrir", url_abrir, use_container_width=True)
+        else:
+            st.button("👁️ Abrir", key=f"{key_prefix}_abrir_x", disabled=True, use_container_width=True)
+    with cols[1]:
+        if url_baixar:
+            st.link_button("⬇️ Baixar", url_baixar, use_container_width=True)
+        else:
+            st.button("⬇️ Baixar", key=f"{key_prefix}_baixar_x", disabled=True, use_container_width=True)
+    with cols[2]:
+        if idx == "Indexado":
+            if st.button("📝 Resumir", key=f"{key_prefix}_resumir", use_container_width=True):
+                _acionar_resumo_documento(item["id"], client_id, email)
+        else:
+            st.button("📝 Resumir", key=f"{key_prefix}_resumir_x", disabled=True, use_container_width=True,
+                      help="Documento ainda não indexado")
+    with cols[3]:
+        if st.button("💬 Perguntar sobre este", key=f"{key_prefix}_perguntar", use_container_width=True):
+            st.session_state[_KEY_CUR_DOC] = item["id"]
+            st.toast("Pode perguntar sobre este documento agora.", icon="💬")
+
+
+def _render_lookup_msg(item: dict, client_id: str, email: str) -> None:
+    lookup = item["lookup"]
+    tipo = lookup.get("tipo", "")
+    ts = item["ts"]
+
+    if tipo == "relatorio_card":
+        _render_report_card(lookup["item"], f"rc_{ts}", client_id, email)
+    elif tipo == "documento_card":
+        _render_document_card(lookup["item"], f"dc_{ts}", client_id, email)
+    elif tipo == "lista_relatorios":
+        st.markdown(
+            f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:4px 0;'>"
+            f"Encontrei {len(lookup['itens'])} relatório(s):</p>", unsafe_allow_html=True,
+        )
+        for i, r in enumerate(lookup["itens"]):
+            _render_report_card(r, f"lr_{ts}_{i}", client_id, email)
+    elif tipo == "lista_documentos":
+        st.markdown(
+            f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:4px 0;'>"
+            f"Encontrei {len(lookup['itens'])} documento(s):</p>", unsafe_allow_html=True,
+        )
+        for i, d in enumerate(lookup["itens"]):
+            _render_document_card(d, f"ld_{ts}_{i}", client_id, email)
+    elif tipo == "ambiguo":
+        _render_texto_msg(lookup.get("mensagem", ""))
+        for i, r in enumerate(lookup.get("itens", [])):
+            if "tipo_servico" in r:
+                _render_report_card(r, f"amb_{ts}_{i}", client_id, email)
+            else:
+                _render_document_card(r, f"amb_{ts}_{i}", client_id, email)
+    elif tipo in ("resumo", "resumo_consolidado", "cruzamento"):
+        _render_texto_msg(lookup.get("texto", ""))
+    elif tipo == "nao_encontrado":
+        _render_texto_msg(lookup.get("mensagem", ""))
+
+
+def _render_texto_msg(texto: str) -> None:
+    st.markdown(
+        f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+        f"border-left:4px solid {COLOR_CYAN};border-radius:4px 12px 12px 12px;"
+        f"padding:12px 16px;margin:8px 0;max-width:88%;'>"
+        f"<strong style='color:{COLOR_NAVY};'>Assistente Pred.IO</strong>"
+        f"<div style='color:#1E293B;font-size:0.88rem;line-height:1.55;margin-top:6px;"
+        f"white-space:pre-wrap;'>{texto}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_user_msg(texto: str) -> None:
@@ -255,7 +515,7 @@ def _mostrar_historico(client_id: str) -> None:
         pergunta   = str(row.get("Pergunta", "")).strip()
         resposta   = str(row.get("Resposta", "")).strip()
         confidence = str(row.get("Confidence", "")).strip()
-        data_h     = str(row.get("Data_Hora", "")).strip()
+        data_h     = str(row.get("Data", "")).strip()
         conf_bg, conf_tc, conf_label = _CONF_CFG.get(confidence, _CONF_CFG["media"])
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"

@@ -67,30 +67,44 @@ def render_resumo_executivo_button(
     ativo_id: str = "",
     ativo_nome: str = "",
     key_prefix: str = "resexec",
+    mostrar_comparativo: bool = False,
 ) -> None:
-    """Renderiza o botão "Gerar Resumo Executivo". Ao clicar, abre o modal.
+    """Renderiza o botão "Gerar Resumo Executivo" (ou "Preparar Reunião" se
+    mostrar_comparativo=True). Ao clicar, abre o modal.
 
     client_id/cliente_nome: no Portal do Cliente são ignorados e sempre
     substituídos por current_client_id()/current_empresa() — proteção
     contra client_id livre vindo de quem chama por engano. Na Supervisão
     servem apenas como valor pré-selecionado no seletor de cliente do modal.
+
+    mostrar_comparativo: injeta o bloco "O que mudou" (reaproveita
+    comparativo.py/comparativo_ui.py — não duplica o motor) ANTES do preview
+    do resumo executivo já existente. Usado pelo botão "🗓️ Preparar Reunião".
     """
     staff = is_staff()
     if not staff:
         client_id    = current_client_id()
         cliente_nome = current_empresa()
 
-    if st.button("📊 Gerar Resumo Executivo", key=f"{key_prefix}_btn", use_container_width=False):
+    label = "🗓️ Preparar Reunião" if mostrar_comparativo else "📊 Gerar Resumo Executivo"
+    if st.button(label, key=f"{key_prefix}_btn", use_container_width=False):
         if not client_id and not staff:
             st.error("🔒 Sessão inválida.")
             _audit("tentativa_acesso_negado_resumo", "negado", "", detalhe="client_id vazio na sessão")
             return
-        _dialog_resumo(client_id, cliente_nome, ativo_id, ativo_nome, staff, key_prefix)
+        _dialog_resumo(client_id, cliente_nome, ativo_id, ativo_nome, staff, key_prefix, mostrar_comparativo)
 
 
 @st.dialog("📊 Gerar Resumo Executivo", width="large")
 def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
-                   ativo_nome: str, staff: bool, key_prefix: str) -> None:
+                   ativo_nome: str, staff: bool, key_prefix: str,
+                   mostrar_comparativo: bool = False) -> None:
+    if mostrar_comparativo:
+        st.markdown(
+            f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:1rem;margin:-0.5rem 0 0.5rem;'>"
+            f"🗓️ Preparar Reunião</p>",
+            unsafe_allow_html=True,
+        )
     st.markdown(
         f"<p style='color:{COLOR_MUTED};font-size:0.82rem;margin-top:-0.5rem;'>"
         "Consolida relatórios, manutenções, alertas, chamados e GUT do período "
@@ -181,6 +195,14 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
     # ── Tipo de resumo ───────────────────────────────────────────────────────
     tipo_resumo = st.selectbox("Tipo de resumo", options=es.TIPOS_RESUMO, key=f"{key_prefix}_tipo")
 
+    # ── Tipo de relatório (categoria) — filtra quais relatórios entram ──────
+    sel_categoria = st.selectbox(
+        "Tipo de relatório", options=["Todos"] + es.CATEGORIAS_RELATORIO,
+        key=f"{key_prefix}_categoria",
+        help="Restringe o resumo a uma categoria de relatório (ex.: só Vibração).",
+    )
+    f_tipo_servico = "" if sel_categoria == "Todos" else sel_categoria
+
     # ── O que incluir ────────────────────────────────────────────────────────
     st.markdown("**Incluir no resumo**")
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -210,6 +232,7 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
             incluir        = {"relatorios": inc_rel, "manutencoes": inc_man,
                               "alertas": inc_al, "chamados": inc_ch, "gut": inc_gut},
             salvar         = False,
+            tipo_servico   = f_tipo_servico,
         )
         if not resultado.get("ok"):
             st.error(resultado.get("erro", "Erro ao gerar resumo."))
@@ -221,16 +244,54 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
         _audit("resumo_executivo_gerado", "permitido", client_id, ativo_id=sel_ativo_id,
               detalhe=f"modo={modo}")
 
+        if mostrar_comparativo:
+            # Reaproveita o motor de comparativo (comparativo.py) — mesmo
+            # período do resumo como "atual"; "anterior" vem da última
+            # reunião registrada, se houver (senão comparativo.py já cai no
+            # fallback manual de 30 dias antes). Não duplica lógica de coleta.
+            import comparativo as _cmp
+            periodos = _cmp.resolver_periodo_comparativo(
+                client_id, usar_ultima_reuniao=True,
+                periodo_atual_ini=ini, periodo_atual_fim=fim,
+            )
+            comp_resultado = _cmp.gerar_comparativo(
+                client_id, periodos["atual"], periodos["anterior"],
+                ativo_id=sel_ativo_id, modo=modo,
+            )
+            st.session_state[f"{key_prefix}_comparativo"] = comp_resultado
+
     resultado = st.session_state.get(f"{key_prefix}_resultado")
     if resultado:
         st.markdown(
             f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>",
             unsafe_allow_html=True,
         )
+
+        if mostrar_comparativo:
+            comp_resultado = st.session_state.get(f"{key_prefix}_comparativo")
+            if comp_resultado and comp_resultado.get("ok"):
+                st.markdown(
+                    f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.5rem;'>"
+                    f"🔄 O que mudou</p>",
+                    unsafe_allow_html=True,
+                )
+                from comparativo_ui import _render_resultado as _render_comparativo_resultado
+                _render_comparativo_resultado(comp_resultado)
+                st.markdown(
+                    f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown(
+                f"<p style='font-weight:800;color:{COLOR_NAVY};font-size:0.95rem;margin:0 0 0.5rem;'>"
+                f"📋 Situação atual</p>",
+                unsafe_allow_html=True,
+            )
+
         _audit("resumo_executivo_visualizado", "permitido", client_id,
               recurso_id=resultado.get("summary_id", ""), ativo_id=resultado.get("ativo_id", ""))
 
         _render_preview_visual(resultado)
+        _render_relatorios_usados(resultado)
 
         with st.expander("📄 Ver texto completo (para copiar)"):
             st.code(resultado["texto"], language=None)
@@ -276,6 +337,31 @@ def _dialog_resumo(client_id: str, cliente_nome: str, ativo_id: str,
                     st.success("Resumo arquivado.")
                 else:
                     st.error("Erro ao arquivar.")
+
+
+def _render_relatorios_usados(resultado: dict) -> None:
+    """"Relatórios utilizados: X" — auditoria de fonte do resumo. Mostra só
+    os metadados dos relatórios (Título/Ativo/Tipo/Data/Severidade), nunca
+    os chunks brutos indexados para a IA."""
+    df_rel = resultado.get("dados", {}).get("relatorios")
+    n = len(df_rel) if df_rel is not None else 0
+    with st.expander(f"📎 Relatórios utilizados: {n}"):
+        if not n:
+            st.caption("Nenhum relatório publicado entrou neste resumo no período selecionado.")
+            return
+        for _, r in df_rel.iterrows():
+            titulo = str(r.get("Titulo", "Relatório")).strip()
+            tipo   = str(r.get("Tipo_Servico", "")).strip()
+            data   = str(r.get("Data_Relatorio", "")).strip()
+            sev    = str(r.get("Severidade", "")).strip()
+            ativo  = str(r.get("Ativo_Id", "")).strip()
+            st.markdown(
+                f"<div style='padding:6px 0;border-bottom:1px solid {COLOR_BORDER};font-size:0.85rem;'>"
+                f"<strong>{titulo}</strong><br/>"
+                f"<span style='color:{COLOR_MUTED};'>{tipo} · {data} · {sev}"
+                + (f" · Ativo: {ativo}" if ativo else "") + "</span></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_preview_visual(resultado: dict) -> None:

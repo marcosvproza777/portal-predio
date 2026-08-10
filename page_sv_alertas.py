@@ -1,8 +1,8 @@
 """Supervisão — Alertas e Pontos de Atenção manuais."""
 import streamlit as st
-from auth import require_staff
+from auth import require_staff, current_nome
 from sheets import (get_all_clientes, get_alertas_sv, add_alerta_sv,
-                    delete_alerta_sv, update_alerta_gut)
+                    delete_alerta_sv, resolver_alerta_sv, update_alerta_gut)
 from assistant import send_whatsapp
 from ui import (sv_page_header, status_badge, status_color, empty_state,
                 COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE)
@@ -149,7 +149,7 @@ def _render_card(row) -> None:
         f"<span style='font-size:0.62rem;color:{COLOR_MUTED};margin-left:4px;'>GUT {gut_res['score']}</span>"
     ) if gut_res else ""
 
-    col_info, col_del = st.columns([10, 0.7])
+    col_info, col_res, col_del = st.columns([9, 0.9, 0.7])
     with col_info:
         st.markdown(
             f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
@@ -174,10 +174,20 @@ def _render_card(row) -> None:
             + "</div>",
             unsafe_allow_html=True,
         )
+    with col_res:
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        if st.button("✅", key=f"resolve_alerta_{alerta_id}", use_container_width=True,
+                     help="Marcar como resolvido (some da lista, mas fica no histórico)"):
+            ok = resolver_alerta_sv(alerta_id, current_nome())
+            if ok:
+                st.toast("✅ Alerta resolvido.", icon="✅")
+                st.rerun()
+            else:
+                st.toast("⚠️ Não foi possível resolver.", icon="⚠️")
     with col_del:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         if st.button("🗑️", key=f"del_alerta_{alerta_id}", use_container_width=True,
-                     help="Remover este alerta"):
+                     help="Remover este alerta permanentemente"):
             ok = delete_alerta_sv(alerta_id)
             if ok:
                 st.toast("🗑️ Alerta removido.", icon="🗑️")

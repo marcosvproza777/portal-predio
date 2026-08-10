@@ -8,7 +8,7 @@ from sheets import (
     get_all_clientes, get_documentos_tecnicos,
     save_assistant_log, get_assistant_logs,
     update_log_avaliacao, save_assistant_faq, get_assistant_faq,
-    buscar_chunks,
+    buscar_chunks, get_logs_assistente_staff,
 )
 from ui import (
     sv_page_header, sv_metric_card, empty_state,
@@ -107,9 +107,10 @@ def render() -> None:
         "com base nos documentos indexados.",
     )
 
-    tab_test, tab_logs, tab_faq, tab_metrics, tab_web = st.tabs([
+    tab_test, tab_logs, tab_prod, tab_faq, tab_metrics, tab_web = st.tabs([
         "🧪 Testar Assistente",
         "📋 Logs de Auditoria",
+        "💬 Chat em Produção",
         "⭐ Perguntas Frequentes",
         "📊 Métricas",
         "🌐 Busca Web",
@@ -120,6 +121,9 @@ def render() -> None:
 
     with tab_logs:
         _render_logs_tab()
+
+    with tab_prod:
+        _render_producao_tab()
 
     with tab_faq:
         _render_faq_tab()
@@ -202,7 +206,7 @@ def _render_test_tab() -> None:
                 for _, r in df_docs.iterrows():
                     did  = str(r.get("Id",    "")).strip()
                     dtit = str(r.get("Titulo","")).strip()
-                    dstat = str(r.get("Status_Indexacao", "")).strip()
+                    dstat = str(r.get("Indexado_Para_Ia", "")).strip()
                     if did:
                         lbl = dtit or did
                         if dstat:
@@ -541,6 +545,89 @@ def _render_faq_creation(result: dict) -> None:
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ── Tab: Chat em Produção ──────────────────────────────────────────────────────
+#
+# Diferente da aba "Logs de Auditoria" (que testa o motor de regras via
+# query_assistant_audit, numa aba separada — AssistantLogs): esta aba lê
+# AssistenteLogs, a aba onde o chat REAL do cliente (page_assistente.py →
+# ai_assistant.query_ai() ou assistant_lookup.rotear_pergunta()) grava toda
+# interação. Dá visibilidade do que o Assistente realmente respondeu e
+# quais Relatórios/Documentos usou, sem reconstruir a ferramenta de teste.
+
+def _render_producao_tab() -> None:
+    df = get_logs_assistente_staff(limit=200)
+    if df.empty:
+        empty_state(
+            "Nenhuma interação registrada ainda no chat de produção.",
+            icon="💬",
+        )
+        return
+
+    st.markdown(
+        f"<p style='color:{COLOR_MUTED};font-size:0.8rem;margin:0 0 8px;'>"
+        f"{len(df)} interação(ões) mais recentes — todos os clientes.</p>",
+        unsafe_allow_html=True,
+    )
+
+    f_cli = st.text_input(
+        "Filtrar por cliente (Empresa/Client_Id)",
+        key="_prod_f_cli", placeholder="ex: gpa",
+    )
+    col_id = "Empresa" if "Empresa" in df.columns else ("Client_Id" if "Client_Id" in df.columns else None)
+    df_show = df
+    if f_cli.strip() and col_id:
+        df_show = df_show[df_show[col_id].str.strip().str.lower().str.contains(f_cli.strip().lower(), na=False)]
+
+    if df_show.empty:
+        empty_state("Nenhuma interação com esse filtro.", icon="💬")
+        return
+
+    for _, row in df_show.iterrows():
+        cliente   = str(row.get("Empresa", row.get("Client_Id", ""))).strip() or "—"
+        email     = str(row.get("Email", "")).strip()
+        data      = str(row.get("Data", "")).strip()
+        pergunta  = str(row.get("Pergunta", "")).strip()
+        resposta  = str(row.get(" Resposta", row.get("Resposta", ""))).strip()
+        rep_ids   = str(row.get("Report_Ids_Usados", "")).strip()
+        doc_ids   = str(row.get("Document_Ids_Usados", "")).strip()
+        cur_rep   = str(row.get("Current_Report_Id", "")).strip()
+        cur_doc   = str(row.get("Current_Document_Id", "")).strip()
+
+        pergunta_short = pergunta[:80] + ("…" if len(pergunta) > 80 else "")
+        with st.expander(f"💬 [{cliente}] {pergunta_short}", expanded=False):
+            st.markdown(
+                f"<p style='font-size:0.75rem;color:#64748B;margin:0 0 6px;'>"
+                f"<strong>Cliente:</strong> {cliente} &nbsp;·&nbsp; "
+                f"<strong>Usuário:</strong> {email or '—'} &nbsp;·&nbsp; "
+                f"<strong>Data:</strong> {data or '—'}</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<p style='font-size:0.78rem;font-weight:700;color:{COLOR_NAVY};"
+                f"margin:6px 0 3px;'>Pergunta</p>"
+                f"<p style='font-size:0.84rem;color:#334155;margin:0;'>{pergunta}</p>",
+                unsafe_allow_html=True,
+            )
+            if resposta:
+                st.markdown(
+                    f"<p style='font-size:0.78rem;font-weight:700;color:{COLOR_NAVY};"
+                    f"margin:8px 0 3px;'>Resposta</p>"
+                    f"<p style='font-size:0.84rem;color:#334155;margin:0;'>"
+                    f"{resposta[:500]}{'…' if len(resposta) > 500 else ''}</p>",
+                    unsafe_allow_html=True,
+                )
+            if rep_ids or doc_ids or cur_rep or cur_doc:
+                st.markdown(
+                    f"<p style='font-size:0.73rem;color:#64748B;margin:8px 0 0;'>"
+                    + (f"<strong>Relatórios usados:</strong> {rep_ids}<br>" if rep_ids else "")
+                    + (f"<strong>Documentos usados:</strong> {doc_ids}<br>" if doc_ids else "")
+                    + (f"<strong>Relatório atual (sessão):</strong> {cur_rep}<br>" if cur_rep else "")
+                    + (f"<strong>Documento atual (sessão):</strong> {cur_doc}" if cur_doc else "")
+                    + "</p>",
+                    unsafe_allow_html=True,
+                )
 
 
 # ── Tab: Logs ─────────────────────────────────────────────────────────────────

@@ -536,7 +536,12 @@ _HT_TIPO_CFG = {
     "manutencao_vencida":   {"icone": "🚨", "label": "Manutenção vencida",           "cor": "#EF4444", "cat": "manutencao"},
     "manutencao_concluida": {"icone": "🔩", "label": "Manutenção concluída",         "cor": "#10B981", "cat": "manutencao"},
     "alerta_gerado":        {"icone": "🔔", "label": "Alerta gerado",                "cor": "#EF4444", "cat": "alertas"},
-    "status_alterado":      {"icone": "🔄", "label": "Status alterado",              "cor": "#8B5CF6", "cat": "status"},
+    "alerta_resolvido":     {"icone": "✅", "label": "Alerta resolvido",             "cor": "#10B981", "cat": "alertas"},
+    # status_alterado é escrito por _update_ativo_score() quando a FAIXA do
+    # score muda (Bom/Atenção/Crítico/Urgente) — por isso cat="score", não um
+    # "status" separado (o status do ativo já É essa faixa, no modelo atual).
+    "status_alterado":      {"icone": "🔄", "label": "Score de saúde alterado",      "cor": "#8B5CF6", "cat": "score"},
+    "gut_alterado":         {"icone": "📈", "label": "GUT alterado",                 "cor": "#F97316", "cat": "gut"},
     "recomendacao_tecnica": {"icone": "💡", "label": "Recomendação técnica",         "cor": "#2563EB", "cat": "recomendacoes"},
     "analise_oleo":         {"icone": "🧪", "label": "Análise de óleo",             "cor": "#F59E0B", "cat": "relatorios"},
     "analise_vibracao":     {"icone": "📳", "label": "Análise de vibração",         "cor": "#3B82F6", "cat": "relatorios"},
@@ -2070,6 +2075,8 @@ def _render_historico_tecnico(
         ("manutencao",    "Manutenção"),
         ("alertas",       "Alertas"),
         ("recomendacoes", "Recomendações"),
+        ("gut",           "GUT"),
+        ("score",         "Score de saúde"),
     ]
 
     cols_f = st.columns(len(FILTROS_HT))
@@ -2086,6 +2093,31 @@ def _render_historico_tecnico(
                 st.session_state[fkey] = key
                 st.rerun()
 
+    # ── Filtro por período — "Tudo" preserva o comportamento anterior
+    #    (sem filtro de período nenhum) para não quebrar quem já usava isto. ──
+    import datetime as _dtmod
+    pkey = f"ht_periodo_{prefix}{ativo_id}"
+    PERIODOS_HT = [
+        ("tudo", "Tudo"), ("30d", "30 dias"), ("90d", "90 dias"),
+        ("6m", "6 meses"), ("1a", "1 ano"), ("custom", "Personalizado"),
+    ]
+    periodo_sel = st.selectbox(
+        "Período", options=[k for k, _ in PERIODOS_HT],
+        format_func=lambda k: dict(PERIODOS_HT)[k],
+        key=pkey,
+    )
+    periodo_ini = periodo_fim = None
+    if periodo_sel == "custom":
+        c_ini, c_fim = st.columns(2)
+        with c_ini:
+            periodo_ini = st.date_input("De", key=f"{pkey}_ini")
+        with c_fim:
+            periodo_fim = st.date_input("Até", key=f"{pkey}_fim")
+    elif periodo_sel != "tudo":
+        dias_map = {"30d": 30, "90d": 90, "6m": 182, "1a": 365}
+        periodo_fim = _dtmod.date.today()
+        periodo_ini = periodo_fim - _dtmod.timedelta(days=dias_map[periodo_sel])
+
     st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
     # ── Filtra e ordena: mais recente primeiro ────────────────────────────────
@@ -2097,6 +2129,15 @@ def _render_historico_tecnico(
             return (int(p[2]), int(p[1]), int(p[0]))
         except Exception:
             return (0, 0, 0)
+
+    if periodo_ini and periodo_fim:
+        def _dentro_periodo(e):
+            p = _dt(e.get("data", ""))
+            if p == (0, 0, 0):
+                return True  # data ilegível — mantém, não descarta por engano
+            d = _dtmod.date(p[0], p[1], p[2])
+            return periodo_ini <= d <= periodo_fim
+        filtrados = [e for e in filtrados if _dentro_periodo(e)]
 
     filtrados = sorted(filtrados, key=lambda e: _dt(e.get("data", "")), reverse=True)
 

@@ -644,8 +644,13 @@ def render() -> None:
     require_staff()
     sv_page_header("Dashboard", "Visão executiva Pred.IO — todos os clientes")
 
-    from resumo_executivo_ui import render_resumo_executivo_button
-    render_resumo_executivo_button(key_prefix="svdash_resexec")
+    col_resexec, col_comparativo = st.columns(2)
+    with col_resexec:
+        from resumo_executivo_ui import render_resumo_executivo_button
+        render_resumo_executivo_button(key_prefix="svdash_resexec")
+    with col_comparativo:
+        from comparativo_ui import render_comparativo_button
+        render_comparativo_button(key_prefix="svdash_comparativo")
 
     tab_dash, tab_ativo, tab_cliente = st.tabs([
         "📊 Visão Geral",

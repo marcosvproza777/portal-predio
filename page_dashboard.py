@@ -1036,8 +1036,21 @@ def render() -> None:
 
     page_header("📊 Dashboard", f"Visão executiva — {empresa}")
 
-    from resumo_executivo_ui import render_resumo_executivo_button
-    render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="dash_resexec")
+    col_resexec, col_periodo = st.columns(2)
+    with col_resexec:
+        from resumo_executivo_ui import render_resumo_executivo_button
+        render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="dash_resexec")
+    with col_periodo:
+        # Mesmo motor/modal do comparativo da Supervisão — modo="cliente" é
+        # forçado internamente por render_comparativo_button quando
+        # is_staff()==False, então o cliente nunca vê nada interno mesmo que
+        # este client_id/cliente_nome fossem adulterados (não são possíveis
+        # de adulterar de qualquer forma — current_client_id() é a fonte).
+        from comparativo_ui import render_comparativo_button
+        render_comparativo_button(
+            client_id=client_id, cliente_nome=empresa, key_prefix="dash_periodo",
+            label="📊 Resumo do período",
+        )
 
     # ── Banner de notificações não lidas ────────────────────────────────────
     try:

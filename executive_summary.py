@@ -23,12 +23,53 @@ SEGURANÇA:
 from __future__ import annotations
 
 import datetime as _dt
+import re
+import unicodedata
 import pandas as pd
 
 from gut import GUT_DISCLAIMER
 
 TIPOS_RESUMO = ["Resumo para reunião", "Resumo técnico", "Resumo gerencial"]
 MODOS = ("cliente", "admin_cliente", "interno_predio")
+
+# ── Categorias de exibição de Tipo_Servico (agrupamento Cliente → Tipo) ───────
+#
+# Tipo_Servico NÃO é um enum fechado — o formulário manual da Supervisão usa
+# uma lista fixa, mas a integração do App Relatórios grava valores livres
+# (ex.: "Ordem de Assistência (OAT)") direto no campo. Estas categorias são
+# só de EXIBIÇÃO/filtro — nunca reescrevem o Tipo_Servico real gravado.
+# Definidas aqui (não em page_sv_relatorios.py) para serem a fonte única
+# tanto pra tela de Relatórios da Supervisão quanto pro filtro de tipo do
+# Resumo Executivo, evitando duas listas de aliases divergindo com o tempo.
+
+CATEGORIAS_RELATORIO = ["Vibração", "Termografia", "Ordem de Serviço",
+                        "Análise de Óleo", "Alinhamento a Laser", "Outros"]
+
+_ALIASES_CATEGORIA = {
+    "Vibração":            ["vibracao", "vibração"],
+    "Termografia":         ["termografia", "termografico", "térmico", "termico"],
+    "Ordem de Serviço":    ["ordem de servico", "ordem de serviço", " os ",
+                            "ordem de assistencia", "ordem de assistência", "oat"],
+    "Análise de Óleo":     ["oleo", "óleo"],
+    "Alinhamento a Laser": ["alinhamento"],
+}
+
+
+def _norm_tipo(s: str) -> str:
+    n = unicodedata.normalize("NFD", str(s or "").lower())
+    n = re.sub(r"[̀-ͯ]", "", n)
+    return f" {n.strip()} "
+
+
+def categoria_relatorio(tipo_servico: str) -> str:
+    """Mapeia um Tipo_Servico real (livre) para uma categoria de exibição
+    fixa — nunca inventa categoria fora de CATEGORIAS_RELATORIO, cai em
+    "Outros" quando não reconhece."""
+    t = _norm_tipo(tipo_servico)
+    for categoria, aliases in _ALIASES_CATEGORIA.items():
+        if any(a in t for a in aliases):
+            return categoria
+    return "Outros"
 
 TEXTO_OBRIGATORIO = (
     "Este resumo consolida informações disponíveis no Portal Pred.IO no período "
@@ -80,7 +121,7 @@ def _filtrar_periodo(df: pd.DataFrame, col_data: str, ini: _dt.date, fim: _dt.da
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _coletar_dados(cliente_id: str, ativo_id: str, ini: _dt.date, fim: _dt.date,
-                   modo: str, incluir: dict) -> dict:
+                   modo: str, incluir: dict, tipo_servico: str = "") -> dict:
     from sheets import (
         get_technical_reports, get_maintenance_tasks, get_maintenance_executions,
         get_alertas_sv, get_chamados_v2, get_gut_summary, get_all_ativos_sv,
@@ -109,6 +150,8 @@ def _coletar_dados(cliente_id: str, ativo_id: str, ini: _dt.date, fim: _dt.date,
         try:
             df_rel = get_technical_reports(client_id=cliente_id, ativo_id=ativo_id, staff=staff_mode)
             df_rel = _filtrar_periodo(df_rel, "Data_Relatorio", ini, fim)
+            if tipo_servico and not df_rel.empty:
+                df_rel = df_rel[df_rel["Tipo_Servico"].apply(categoria_relatorio) == tipo_servico]
             if not staff_mode and "Obs_Interna" in df_rel.columns:
                 df_rel = df_rel.drop(columns=["Obs_Interna"])
         except Exception:
@@ -371,15 +414,54 @@ def compute_chart_data(dados: dict) -> dict:
     }
 
 
+def detectar_recorrencias(dados: dict) -> list[str]:
+    """Detecta o mesmo ativo+tipo de serviço aparecendo em 2+ relatórios
+    publicados dentro do período — ex.: "Motor X apresentou recorrência de
+    Análise de Vibração em 2 relatórios no período." Só usa metadados já
+    presentes nos relatórios (Ativo_Id/Tipo_Servico), sem heurística de
+    texto livre. Ordenado das recorrências mais frequentes para as menos."""
+    df_rel = dados.get("relatorios")
+    if df_rel is None or df_rel.empty \
+            or "Ativo_Id" not in df_rel.columns or "Tipo_Servico" not in df_rel.columns:
+        return []
+
+    df_ativos = dados.get("ativos")
+    nome_por_id: dict = {}
+    if df_ativos is not None and not df_ativos.empty:
+        id_col   = "Id"  if "Id"  in df_ativos.columns else df_ativos.columns[0]
+        nome_col = "Tag" if "Tag" in df_ativos.columns else id_col
+        for _, row in df_ativos.iterrows():
+            nome_por_id[str(row.get(id_col, "")).strip()] = str(row.get(nome_col, "")).strip()
+
+    tmp = df_rel.copy()
+    tmp["_ativo"] = tmp["Ativo_Id"].astype(str).str.strip()
+    tmp["_tipo"]  = tmp["Tipo_Servico"].astype(str).str.strip()
+    tmp = tmp[(tmp["_ativo"] != "") & (tmp["_tipo"] != "")]
+
+    grupos: list[tuple[int, str]] = []
+    for (ativo_id, tipo), grupo in tmp.groupby(["_ativo", "_tipo"]):
+        n = len(grupo)
+        if n >= 2:
+            nome = nome_por_id.get(ativo_id, "") or ativo_id
+            grupos.append((n, f"{nome} apresentou recorrência de {tipo} em {n} relatórios no período."))
+    grupos.sort(key=lambda t: t[0], reverse=True)
+    return [frase for _, frase in grupos]
+
+
 def principais_pontos_gerencia(dados: dict, indicadores: dict) -> list:
     """Até 5 pontos objetivos para levar à reunião — frases curtas, sem
-    parágrafos longos. A última linha (segurança/transparência) é sempre
+    parágrafos longos. Recorrências entre relatórios (mesmo ativo+tipo
+    aparecendo 2+ vezes) vêm primeiro — é um sinal mais forte que um único
+    relatório isolado. A última linha (segurança/transparência) é sempre
     incluída quando há espaço, espelhando a regra de nunca indicar
     overhaul/rolamento automaticamente."""
     pontos: list = []
     df_ativos = dados.get("ativos")
     gut_itens = dados.get("gut_itens", [])
     df_rel    = dados.get("relatorios")
+
+    # Recorrências entre relatórios — prioridade mais alta
+    pontos.extend(detectar_recorrencias(dados))
 
     # Ativo com pior score fora de "Bom"
     if df_ativos is not None and not df_ativos.empty and "Score" in df_ativos.columns:
@@ -747,13 +829,21 @@ def generate_executive_summary(
     modo: str = "cliente",
     incluir: dict | None = None,
     salvar: bool = True,
+    tipo_servico: str = "",
 ) -> dict:
     """Gera (e, por padrão, salva) o resumo executivo consolidado do período.
 
     Retorna dict:
       ok, titulo, texto, dados (DataFrames/listas usados — auditoria),
       cliente_id, ativo_id, periodo_inicio, periodo_fim, modo, tipo_resumo,
-      summary_id (se salvar=True e a gravação funcionar).
+      report_ids_usados (Ids dos TechnicalReports publicados que entraram
+      neste resumo — auditoria de fonte), summary_id (se salvar=True e a
+      gravação funcionar).
+
+    tipo_servico: categoria de exibição (uma de CATEGORIAS_RELATORIO,
+    ex.: "Vibração") — se informada, só relatórios cujo Tipo_Servico real
+    caia nessa categoria (via categoria_relatorio()) entram no resumo.
+    "" (padrão) = todos os tipos.
 
     SEGURANÇA: cliente_id deve vir sempre de current_client_id() (Portal do
     Cliente) ou de uma seleção explícita do staff já autenticado como
@@ -772,7 +862,8 @@ def generate_executive_summary(
     incluir = incluir or {"relatorios": True, "manutencoes": True,
                           "alertas": True, "chamados": True, "gut": True}
 
-    dados = _coletar_dados(cliente_id, ativo_id, periodo_inicio, periodo_fim, modo, incluir)
+    dados = _coletar_dados(cliente_id, ativo_id, periodo_inicio, periodo_fim, modo, incluir,
+                           tipo_servico=tipo_servico)
 
     titulo = f"Resumo Executivo Pred.IO — {cliente_nome}"
     if ativo_nome:
@@ -790,6 +881,15 @@ def generate_executive_summary(
     acoes       = acoes_prioritarias(dados)
     timeline    = timeline_periodo(dados)
 
+    # Auditoria de fonte — quais relatórios publicados entraram neste resumo,
+    # pra "Relatórios utilizados: X" na UI e pra saber de onde veio cada dado.
+    df_rel_usados = dados.get("relatorios")
+    report_ids_usados = (
+        df_rel_usados["Id"].astype(str).str.strip().tolist()
+        if df_rel_usados is not None and not df_rel_usados.empty and "Id" in df_rel_usados.columns
+        else []
+    )
+
     resultado = {
         "ok": True, "titulo": titulo, "texto": texto, "dados": dados,
         "cliente_id": cliente_id, "cliente_nome": cliente_nome,
@@ -798,7 +898,7 @@ def generate_executive_summary(
         "modo": modo, "tipo_resumo": tipo_resumo,
         "indicadores": indicadores, "charts": charts,
         "pontos_gerencia": pontos, "acoes_prioritarias": acoes,
-        "timeline": timeline,
+        "timeline": timeline, "report_ids_usados": report_ids_usados,
         "gerado_em": _dt.datetime.now(),
     }
 
@@ -811,6 +911,7 @@ def generate_executive_summary(
             periodo_inicio=periodo_inicio.strftime("%d/%m/%Y"),
             periodo_fim=periodo_fim.strftime("%d/%m/%Y"),
             dados_usados=",".join(k for k, v in incluir.items() if v),
+            report_ids_usados=",".join(report_ids_usados),
         )
         resultado["summary_id"] = summary_id
 

@@ -1,5 +1,6 @@
 """Supervisão — Relatórios Técnicos: CRUD, publicação, impacto no score."""
 import datetime
+import pandas as pd
 import streamlit as st
 from auth import require_staff, current_nome
 
@@ -20,10 +21,12 @@ from sheets import (
     ORIGEM_UPLOAD_MANUAL_VIBRACAO,
 )
 from ui import (
-    sv_page_header, status_badge,
+    sv_page_header, status_badge, sv_metric_card,
     COLOR_NAVY, COLOR_CARD, COLOR_BORDER, COLOR_MUTED, COLOR_BLUE,
 )
 from gut import calculate_gut, GUT_DISCLAIMER
+from executive_summary import PERIODOS_PRESET, resolver_periodo
+import executive_summary as _es_categorias
 
 # ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,37 @@ _STATUS_COLOR = {
 # Etapa 3) usam o mesmo botão "Publicar".
 _STATUS_PUBLICAVEIS = ("Rascunho", "Em revisão", "")
 _STATUS_DEFAULT = ("#94A3B8", "#F8FAFC", "#CBD5E1")
+
+# Badge de Status_Indexacao (Etapa 6) — mesmo padrão visual do _IDX_BADGE de
+# page_sv_biblioteca.py, mas com os valores próprios de TechnicalReports
+# (index_relatorio_tecnico() em sheets.py, não os de documento/manual).
+_IDX_COLOR = {
+    "indexado (texto+pdf)": ("#10B981", "#F0FDF4", "#86EFAC"),
+    "indexado (texto)":     ("#10B981", "#F0FDF4", "#86EFAC"),
+    "requer ocr":           ("#F59E0B", "#FFFBEB", "#FCD34D"),
+    "falhou":                ("#EF4444", "#FEF2F2", "#FCA5A5"),
+}
+_IDX_DEFAULT = ("#94A3B8", "#F1F5F9", "#CBD5E1")
+
+# Categorias de exibição (agrupamento por Cliente → Tipo) — definidas em
+# executive_summary.py (fonte única, reaproveitada também pelo filtro de
+# tipo do Resumo Executivo) para as duas telas nunca divergirem.
+_CATEGORIAS = _es_categorias.CATEGORIAS_RELATORIO
+_categoria_relatorio = _es_categorias.categoria_relatorio
+
+_SEV_ORDEM = {"urgente": 0, "crítico": 1, "critico": 1, "atenção": 2, "atencao": 2, "normal": 3}
+
+
+def _ordenar_relatorios(df):
+    """Data_Relatorio desc → Severidade (mais grave primeiro) → Ativo."""
+    if df.empty:
+        return df
+    d = df.copy()
+    d["_dt"] = pd.to_datetime(d["Data_Relatorio"].astype(str), dayfirst=True, errors="coerce")
+    d["_sev_rank"] = d["Severidade"].astype(str).str.strip().str.lower().map(_SEV_ORDEM).fillna(4)
+    d = d.sort_values(["_dt", "_sev_rank", "Ativo_Id"], ascending=[False, True, True])
+    return d.drop(columns=["_dt", "_sev_rank"])
+
 
 _KEY_REP_ID = "_svrel_rep_id"
 
@@ -139,6 +173,8 @@ def render() -> None:
         rep_id = st.session_state.get(_KEY_REP_ID, "")
         rep    = get_technical_report_by_id(rep_id) if rep_id else None
         _render_form(report=rep)
+    elif sv_view == "relatorios_cliente_detalhe":
+        _render_cliente_detalhe(st.session_state.get("_svrel_cliente_id", ""))
     else:
         _render_lista()
 
@@ -170,6 +206,17 @@ def _render_lista() -> None:
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
     # ── Filtros ───────────────────────────────────────────────────────────────
+    df_cli = get_all_clientes()
+    cli_map = {}
+    id_para_empresa = {}
+    if not df_cli.empty:
+        for _, r in df_cli.iterrows():
+            emp = str(r.get("Empresa", "")).strip()
+            cid = str(r.get("Client_Id", r.get("Cliente_Id", ""))).strip()
+            if emp and cid:
+                cli_map[emp] = cid
+                id_para_empresa[cid.lower()] = emp
+
     with st.expander("🔍 Filtros", expanded=True):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -179,21 +226,30 @@ def _render_lista() -> None:
             sev_opts = ["Todas"] + _SEVERIDADES
             f_sev = st.selectbox("Severidade", sev_opts, key="_svrel_f_sev")
         with c3:
-            tipo_opts = ["Todos"] + _TIPOS_SERVICO
-            f_tipo = st.selectbox("Tipo de Serviço", tipo_opts, key="_svrel_f_tipo")
+            tipo_opts = ["Todos"] + _CATEGORIAS
+            f_categoria = st.selectbox("Tipo de relatório", tipo_opts, key="_svrel_f_categoria")
         with c4:
-            try:
-                df_cli = get_all_clientes()
-                cli_map = {
-                    str(r.get("Empresa", "")).strip(): str(r.get("Client_Id", r.get("Cliente_Id", ""))).strip()
-                    for _, r in df_cli.iterrows()
-                    if str(r.get("Empresa", "")).strip()
-                }
-                cli_list = ["Todos os clientes"] + sorted(cli_map.keys())
-            except Exception:
-                cli_map  = {}
-                cli_list = ["Todos os clientes"]
+            cli_list = ["Todos os clientes"] + sorted(cli_map.keys())
             f_cli_label = st.selectbox("Cliente", cli_list, key="_svrel_f_cli")
+
+        c5, c6 = st.columns(2)
+        with c5:
+            periodo_opts = [("todos", "Todo o período")] + list(PERIODOS_PRESET.items()) + [
+                ("este_mes", "Este mês"), ("mes_anterior", "Mês anterior"), ("custom", "Personalizado"),
+            ]
+            f_periodo_key = st.selectbox(
+                "Período (data do relatório)", [p[0] for p in periodo_opts],
+                format_func=lambda k: dict((p[0], p[1] if isinstance(p[1], str) else p[1][0]) for p in periodo_opts)[k],
+                key="_svrel_f_periodo",
+            )
+        f_custom_ini = f_custom_fim = None
+        if f_periodo_key == "custom":
+            with c6:
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    f_custom_ini = st.date_input("De", key="_svrel_f_periodo_ini")
+                with cc2:
+                    f_custom_fim = st.date_input("Até", key="_svrel_f_periodo_fim")
 
     # Carrega relatórios
     f_client_id = cli_map.get(f_cli_label, "") if f_cli_label != "Todos os clientes" else ""
@@ -206,8 +262,12 @@ def _render_lista() -> None:
     # Filtros adicionais em memória
     if not df.empty and f_sev != "Todas":
         df = df[df["Severidade"].str.strip() == f_sev]
-    if not df.empty and f_tipo != "Todos":
-        df = df[df["Tipo_Servico"].str.strip() == f_tipo]
+    if not df.empty and f_categoria != "Todos":
+        df = df[df["Tipo_Servico"].apply(_categoria_relatorio) == f_categoria]
+    if not df.empty and f_periodo_key != "todos":
+        ini, fim = resolver_periodo(f_periodo_key, f_custom_ini, f_custom_fim)
+        _dt_col = pd.to_datetime(df["Data_Relatorio"].astype(str), dayfirst=True, errors="coerce")
+        df = df[(_dt_col.dt.date >= ini) & (_dt_col.dt.date <= fim)]
 
     # Métricas rápidas
     mc = st.columns(4)
@@ -246,8 +306,97 @@ def _render_lista() -> None:
         st.info("Nenhum relatório encontrado com os filtros selecionados.")
         return
 
-    for _, row in df.iterrows():
-        _render_card(row)
+    # ── Agrupamento por Cliente → Tipo ──────────────────────────────────────────
+    for client_id, grupo in _agrupar_por_cliente(df, id_para_empresa):
+        empresa = id_para_empresa.get(client_id.lower(), client_id or "— sem cliente —")
+        with st.expander(f"👤 {empresa} ({len(grupo)})", expanded=False):
+            if client_id and st.button("Ver cliente →", key=f"_svrel_vercli_{client_id}"):
+                st.session_state["_svrel_cliente_id"] = client_id
+                st.session_state["sv_view"] = "relatorios_cliente_detalhe"
+                st.rerun()
+            _render_grupo_por_categoria(grupo, key_prefix=f"grp_{client_id}")
+
+
+def _agrupar_por_cliente(df, id_para_empresa: dict):
+    """Retorna [(client_id, sub_df), ...] ordenado pelo nome da empresa."""
+    grupos = []
+    for client_id, sub in df.groupby(df["Cliente_Id"].astype(str).str.strip(), sort=False):
+        grupos.append((client_id, sub))
+    grupos.sort(key=lambda g: id_para_empresa.get(g[0].lower(), g[0]).lower())
+    return grupos
+
+
+def _render_grupo_por_categoria(df, key_prefix: str) -> None:
+    """Dentro de um grupo (cliente ou visão dedicada): chips/tabs por
+    categoria com contador, cards ordenados por Data_Relatorio desc →
+    Severidade → Ativo dentro de cada categoria."""
+    categorias_presentes = sorted(
+        set(df["Tipo_Servico"].apply(_categoria_relatorio)),
+        key=lambda c: _CATEGORIAS.index(c) if c in _CATEGORIAS else len(_CATEGORIAS),
+    )
+    labels = ["Todos"] + [f"{c} ({(df['Tipo_Servico'].apply(_categoria_relatorio) == c).sum()})"
+                           for c in categorias_presentes]
+    tabs = st.tabs(labels)
+
+    with tabs[0]:
+        for _, row in _ordenar_relatorios(df).iterrows():
+            _render_card(row, key_prefix=f"{key_prefix}_todos_")
+    for tab, categoria in zip(tabs[1:], categorias_presentes):
+        with tab:
+            sub = df[df["Tipo_Servico"].apply(_categoria_relatorio) == categoria]
+            for _, row in _ordenar_relatorios(sub).iterrows():
+                _render_card(row, key_prefix=f"{key_prefix}_{categoria}_")
+
+
+def _render_cliente_detalhe(client_id: str) -> None:
+    df_cli = get_all_clientes()
+    empresa = client_id
+    if not df_cli.empty:
+        m = df_cli[df_cli.get("Client_Id", df_cli.get("Cliente_Id", pd.Series(dtype=str))).astype(str).str.strip().str.lower() == client_id.lower()]
+        if not m.empty:
+            empresa = str(m.iloc[0].get("Empresa", client_id)).strip() or client_id
+
+    sv_page_header(f"📁 {empresa}", "Relatórios técnicos deste cliente.",
+                   back_label="Relatórios", back_view="relatorios_sv")
+
+    if not client_id:
+        st.warning("Cliente não identificado.")
+        return
+
+    df = get_technical_reports(client_id=client_id, staff=True)
+    if df.empty:
+        st.info("Nenhum relatório encontrado para este cliente.")
+        return
+
+    total = len(df)
+    categorias_col = df["Tipo_Servico"].apply(_categoria_relatorio)
+    cols = st.columns(min(len(_CATEGORIAS) + 1, 5))
+    with cols[0]:
+        sv_metric_card("📁", "Total", str(total), COLOR_BLUE)
+    contagens = [(c, int((categorias_col == c).sum())) for c in _CATEGORIAS if (categorias_col == c).any()]
+    for i, (categoria, n) in enumerate(contagens[:4], start=1):
+        with cols[i]:
+            sv_metric_card("📄", categoria, str(n), "#6366F1")
+
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        f_status = st.selectbox("Status", ["Todos", "Rascunho", "Em revisão", "Publicado", "Arquivado"],
+                                 key="_svrel_det_status")
+    with c2:
+        f_categoria = st.selectbox("Tipo de relatório", ["Todos"] + _CATEGORIAS, key="_svrel_det_categoria")
+
+    if f_status != "Todos":
+        df = df[df["Status"].str.strip() == f_status]
+    if f_categoria != "Todos":
+        df = df[df["Tipo_Servico"].apply(_categoria_relatorio) == f_categoria]
+
+    if df.empty:
+        st.info("Nenhum relatório com esses filtros.")
+        return
+
+    _render_grupo_por_categoria(df, key_prefix=f"det_{client_id}")
 
 
 def _sev_cfg(sev: str) -> tuple:
@@ -258,7 +407,7 @@ def _status_cfg(status: str) -> tuple:
     return _STATUS_COLOR.get(status.strip().lower(), _STATUS_DEFAULT)
 
 
-def _render_card(row) -> None:
+def _render_card(row, key_prefix: str = "") -> None:
     rep_id     = str(row.get("Id",            "")).strip()
     titulo     = str(row.get("Titulo",         "Sem título")).strip()
     tipo       = str(row.get("Tipo_Servico",   "")).strip()
@@ -270,9 +419,11 @@ def _render_card(row) -> None:
     cliente_id = str(row.get("Cliente_Id",     "")).strip()
     score_imp  = str(row.get("Score_Impacto",  "")).strip()
     resumo     = str(row.get("Resumo",         "")).strip()
+    status_idx = str(row.get("Status_Indexacao", "")).strip()
 
     sc, sb, sbo, st_ = _sev_cfg(sev)
     stc, stb, stbo   = _status_cfg(status)
+    idxc, idxb, idxbo = _IDX_COLOR.get(status_idx.lower(), _IDX_DEFAULT)
 
     meta = []
     if tipo:       meta.append(f"📋 {tipo}")
@@ -296,6 +447,17 @@ def _render_card(row) -> None:
         except Exception:
             pass
 
+    # Badge de indexação (Etapa 6) — só aparece se já houve tentativa de
+    # indexar (relatório publicado pelo menos uma vez); mesmo padrão visual
+    # dos badges de Severidade/Status acima.
+    idx_html = ""
+    if status_idx:
+        idx_html = (
+            f"<span style='background:{idxb};color:{idxc};-webkit-text-fill-color:{idxc};"
+            f"border:1px solid {idxbo};font-size:0.67rem;font-weight:700;"
+            f"padding:2px 10px;border-radius:12px;'>🧠 {status_idx}</span>"
+        )
+
     col_info, col_btns = st.columns([6, 2])
     with col_info:
         st.markdown(
@@ -312,6 +474,7 @@ def _render_card(row) -> None:
             f"<span style='background:{stb};color:{stc};-webkit-text-fill-color:{stc};"
             f"border:1px solid {stbo};font-size:0.67rem;font-weight:700;"
             f"padding:2px 10px;border-radius:12px;'>{status}</span>"
+            + idx_html
             + score_html
             + f"</div></div>"
             f"<div style='margin-bottom:4px;'>{meta_html}</div>"
@@ -323,20 +486,35 @@ def _render_card(row) -> None:
         )
     with col_btns:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        if st.button("✏️ Editar", key=f"_svrel_edit_{rep_id}", use_container_width=True):
+        if st.button("✏️ Editar", key=f"_svrel_edit_{key_prefix}{rep_id}", use_container_width=True):
             st.session_state[_KEY_REP_ID] = rep_id
             st.session_state["sv_view"]   = "relatorio_editar"
             st.rerun()
         if status in _STATUS_PUBLICAVEIS:
-            if st.button("📢 Publicar", key=f"_svrel_pub_{rep_id}", use_container_width=True,
+            if st.button("📢 Publicar", key=f"_svrel_pub_{key_prefix}{rep_id}", use_container_width=True,
                          type="primary"):
                 st.session_state[f"_svrel_confirm_pub_{rep_id}"] = True
                 st.rerun()
         if status == "Publicado":
-            if st.button("🗂️ Arquivar", key=f"_svrel_arch_{rep_id}", use_container_width=True):
+            if st.button("🗂️ Arquivar", key=f"_svrel_arch_{key_prefix}{rep_id}", use_container_width=True):
                 st.session_state[f"_svrel_confirm_arch_{rep_id}"] = True
                 st.rerun()
-        if st.button("🗑️ Excluir", key=f"_svrel_del_{rep_id}", use_container_width=True):
+            # Reindexação manual (Etapa 6) — não é destrutivo/irreversível
+            # (idempotente, sempre substitui os chunks antigos do mesmo
+            # relatório), então não precisa de confirmação em 2 passos como
+            # Publicar/Arquivar/Excluir.
+            if st.button("🔄 Reindexar", key=f"_svrel_reidx_{key_prefix}{rep_id}", use_container_width=True):
+                from sheets import reindex_technical_report as _reidx
+                with st.spinner("Reindexando..."):
+                    result = _reidx(rep_id)
+                from sheets import load_sheet as _ls
+                _ls.clear()
+                if result.get("ok"):
+                    st.success("Relatório reindexado.")
+                    st.rerun()
+                else:
+                    st.error(result.get("erro", "Erro ao reindexar."))
+        if st.button("🗑️ Excluir", key=f"_svrel_del_{key_prefix}{rep_id}", use_container_width=True):
             st.session_state[f"_svrel_confirm_del_{rep_id}"] = True
             st.rerun()
 
@@ -362,7 +540,7 @@ def _render_card(row) -> None:
         )
         col_ok, col_no, _ = st.columns([1, 1, 3])
         with col_ok:
-            if st.button("✅ Confirmar", key=f"_svrel_pubOK_{rep_id}", type="primary",
+            if st.button("✅ Confirmar", key=f"_svrel_pubOK_{key_prefix}{rep_id}", type="primary",
                          use_container_width=True):
                 with st.spinner("Publicando..."):
                     result = publish_technical_report(rep_id, current_nome())
@@ -382,7 +560,7 @@ def _render_card(row) -> None:
                 else:
                     st.error(result.get("erro", "Erro ao publicar."))
         with col_no:
-            if st.button("❌ Cancelar", key=f"_svrel_pubNO_{rep_id}", use_container_width=True):
+            if st.button("❌ Cancelar", key=f"_svrel_pubNO_{key_prefix}{rep_id}", use_container_width=True):
                 st.session_state.pop(f"_svrel_confirm_pub_{rep_id}", None)
                 st.rerun()
 
@@ -391,7 +569,7 @@ def _render_card(row) -> None:
         col_ok2, col_no2, _ = st.columns([1, 1, 3])
         st.warning(f"Arquivar '{titulo}'? O cliente não poderá mais acessá-lo.")
         with col_ok2:
-            if st.button("✅ Arquivar", key=f"_svrel_archOK_{rep_id}", type="primary",
+            if st.button("✅ Arquivar", key=f"_svrel_archOK_{key_prefix}{rep_id}", type="primary",
                          use_container_width=True):
                 archive_technical_report(rep_id)
                 st.session_state.pop(f"_svrel_confirm_arch_{rep_id}", None)
@@ -399,7 +577,7 @@ def _render_card(row) -> None:
                 _ls.clear()
                 st.rerun()
         with col_no2:
-            if st.button("❌ Cancelar", key=f"_svrel_archNO_{rep_id}", use_container_width=True):
+            if st.button("❌ Cancelar", key=f"_svrel_archNO_{key_prefix}{rep_id}", use_container_width=True):
                 st.session_state.pop(f"_svrel_confirm_arch_{rep_id}", None)
                 st.rerun()
 
@@ -419,7 +597,7 @@ def _render_card(row) -> None:
             st.warning(f"Apagar '{titulo}' permanentemente? Esta ação não pode ser desfeita.")
         col_ok3, col_no3, _ = st.columns([1, 1, 3])
         with col_ok3:
-            if st.button("🗑️ Confirmar exclusão", key=f"_svrel_delOK_{rep_id}",
+            if st.button("🗑️ Confirmar exclusão", key=f"_svrel_delOK_{key_prefix}{rep_id}",
                          type="primary", use_container_width=True):
                 result = delete_technical_report_full(rep_id)
                 st.session_state.pop(f"_svrel_confirm_del_{rep_id}", None)
@@ -431,7 +609,7 @@ def _render_card(row) -> None:
                 else:
                     st.error(result.get("erro", "Erro ao excluir."))
         with col_no3:
-            if st.button("❌ Cancelar", key=f"_svrel_delNO_{rep_id}", use_container_width=True):
+            if st.button("❌ Cancelar", key=f"_svrel_delNO_{key_prefix}{rep_id}", use_container_width=True):
                 st.session_state.pop(f"_svrel_confirm_del_{rep_id}", None)
                 st.rerun()
 

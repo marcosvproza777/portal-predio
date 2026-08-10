@@ -1,12 +1,16 @@
 """Supervisão Pred.IO — Clientes e Histórico."""
 import streamlit as st
-from auth import require_staff, enter_admin_preview
+from auth import require_staff, enter_admin_preview, current_nome
 from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     cadastrar_usuario, delete_usuario, update_usuario,
                     get_client_logo, save_client_logo, delete_ativos_por_cliente,
-                    get_contagem_usuarios_global, get_usuarios_staff)
+                    get_contagem_usuarios_global, get_usuarios_staff,
+                    add_client_meeting, get_last_meeting, get_client_meetings,
+                    snapshot_cliente, get_all_ativos_sv, get_gut_summary,
+                    get_maintenance_tasks, calc_task_status, get_report_timeline_events)
 from ui import (sv_page_header, sv_metric_card, status_badge, status_color, empty_state, app_alert,
-                COLOR_NAVY, COLOR_BLUE, COLOR_BORDER, COLOR_CARD)
+                COLOR_NAVY, COLOR_BLUE, COLOR_BORDER, COLOR_CARD, COLOR_MUTED,
+                COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER)
 
 
 def _compress_logo(file_obj) -> str:
@@ -186,6 +190,296 @@ def _render_lista() -> None:
                     st.toast("⚠️ Não encontrado na planilha ou é dado de demonstração.", icon="⚠️")
 
 
+@st.dialog("📅 Registrar reunião")
+def _dialog_registrar_reuniao(client_id: str) -> None:
+    """Registra quando uma reunião com o cliente aconteceu e qual período
+    foi analisado nela — permite que o comparativo "O que mudou desde a
+    última reunião?" saiba automaticamente o período de referência.
+    Observação é sempre interna (nunca aparece pro cliente, mesmo padrão de
+    Obs_Interna usado no resto do projeto)."""
+    import datetime as _dt
+
+    titulo = st.text_input("Título", value="Reunião de acompanhamento")
+    data_reuniao = st.date_input("Data da reunião", value=_dt.date.today())
+    c1, c2 = st.columns(2)
+    with c1:
+        periodo_ini = st.date_input("Período analisado — de", value=_dt.date.today() - _dt.timedelta(days=30))
+    with c2:
+        periodo_fim = st.date_input("Período analisado — até", value=_dt.date.today())
+    observacao = st.text_area("Observação (interna, opcional)", value="")
+
+    if st.button("✅ Registrar", type="primary", use_container_width=True):
+        if periodo_fim < periodo_ini:
+            st.error("O período final deve ser posterior ao inicial.")
+            return
+        meeting_id = add_client_meeting(
+            cliente_id=client_id, titulo=titulo,
+            data_reuniao=data_reuniao.strftime("%d/%m/%Y"),
+            periodo_inicio=periodo_ini.strftime("%d/%m/%Y"),
+            periodo_fim=periodo_fim.strftime("%d/%m/%Y"),
+            observacao=observacao, criado_por=current_nome(),
+        )
+        if meeting_id:
+            try:
+                snapshot_cliente(client_id)
+            except Exception:
+                pass
+            st.success("Reunião registrada.")
+            st.rerun()
+        else:
+            st.error("Não foi possível registrar a reunião.")
+
+
+def _render_visao_executiva(client_id: str) -> None:
+    """"Visão Executiva do Cliente" — cartões-resumo no topo da tela.
+    Reaproveita a mesma lógica de status/GUT já usada em executive_summary.py
+    (_status_ativo_norm), mas calcula manutenções vencidas via
+    calc_task_status() dinâmico — não via Status bruto salvo na tarefa, que
+    não é recalculado com o tempo (ficaria sempre "Em dia" indefinidamente
+    pra tarefa realmente vencida há semanas)."""
+    import pandas as pd
+    import datetime as _dt_mod
+    from executive_summary import _status_ativo_norm
+    from sheets import get_alertas_sv, get_chamados_v2, get_technical_reports
+
+    df_ativos = get_all_ativos_sv()
+    if not df_ativos.empty and "Client_Id" in df_ativos.columns:
+        df_ativos = df_ativos[df_ativos["Client_Id"].astype(str).str.strip().str.lower() == client_id.strip().lower()]
+
+    n_ativos = len(df_ativos)
+    scores = pd.to_numeric(df_ativos.get("Score", pd.Series(dtype=float)), errors="coerce").dropna()
+    saude_media = round(float(scores.mean()), 1) if len(scores) else None
+    if not df_ativos.empty and "Status" in df_ativos.columns:
+        st_norm = df_ativos["Status"].astype(str).apply(_status_ativo_norm)
+    else:
+        st_norm = pd.Series(dtype=str)
+    n_criticos = int(st_norm.isin(["Crítico", "Urgente"]).sum())
+    n_atencao  = int((st_norm == "Atenção").sum())
+
+    try:
+        gut_itens = get_gut_summary(client_id)
+    except Exception:
+        gut_itens = []
+    maior_gut = gut_itens[0]["score"] if gut_itens else None
+
+    n_venc = 0
+    try:
+        df_tasks = get_maintenance_tasks(client_id=client_id, staff=True)
+        if not df_tasks.empty and "Status" in df_tasks.columns:
+            df_tasks = df_tasks[~df_tasks["Status"].astype(str).str.lower().str.contains("conclu|arquiv", na=False)]
+        for _, t in df_tasks.iterrows():
+            if calc_task_status(t.to_dict()) == "Vencida":
+                n_venc += 1
+    except Exception:
+        pass
+
+    n_alertas_criticos = 0
+    try:
+        df_al = get_alertas_sv(client_id)
+        if not df_al.empty and "Prioridade" in df_al.columns:
+            n_alertas_criticos = int(df_al["Prioridade"].astype(str).str.lower().isin(
+                ["crítica", "critica", "urgente"]).sum())
+    except Exception:
+        pass
+
+    n_chamados_abertos = 0
+    try:
+        df_cham = get_chamados_v2(client_id=client_id)
+        if not df_cham.empty and "Status" in df_cham.columns:
+            n_chamados_abertos = int((df_cham["Status"].astype(str).str.strip() != "Concluído").sum())
+    except Exception:
+        pass
+
+    n_rel_30d = 0
+    try:
+        df_rel = get_technical_reports(client_id=client_id, staff=True)
+        if not df_rel.empty and "Data_Relatorio" in df_rel.columns:
+            dts = pd.to_datetime(df_rel["Data_Relatorio"], dayfirst=True, errors="coerce")
+            n_rel_30d = int((dts >= pd.Timestamp(_dt_mod.date.today() - _dt_mod.timedelta(days=30))).sum())
+    except Exception:
+        pass
+
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:0.75rem 0 0.5rem;'>"
+        f"📊 Visão Executiva do Cliente</p>",
+        unsafe_allow_html=True,
+    )
+    cards = [
+        ("⚙️", "Ativos", n_ativos, COLOR_NAVY),
+        ("💚", "Saúde Média", f"{saude_media}/100" if saude_media is not None else "—",
+         COLOR_SUCCESS if (saude_media or 0) >= 70 else COLOR_WARNING),
+        ("🔴", "Ativos Críticos", n_criticos, COLOR_DANGER if n_criticos else COLOR_SUCCESS),
+        ("🟡", "Ativos em Atenção", n_atencao, COLOR_WARNING if n_atencao else COLOR_SUCCESS),
+        ("🎯", "Maior GUT", maior_gut if maior_gut is not None else "—",
+         COLOR_DANGER if (maior_gut or 0) >= 60 else COLOR_BLUE),
+        ("📅", "Manutenções Vencidas", n_venc, COLOR_DANGER if n_venc else COLOR_SUCCESS),
+        ("🔔", "Alertas Críticos", n_alertas_criticos, COLOR_DANGER if n_alertas_criticos else COLOR_SUCCESS),
+        ("🔧", "Chamados Abertos", n_chamados_abertos, COLOR_WARNING if n_chamados_abertos else COLOR_SUCCESS),
+        ("📁", "Relatórios (30d)", n_rel_30d, COLOR_BLUE),
+    ]
+    cols = st.columns(3)
+    for i, (icon, title, value, color) in enumerate(cards):
+        with cols[i % 3]:
+            sv_metric_card(icon, title, value, color)
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+
+def _render_top_prioridades(client_id: str) -> None:
+    """"Prioridades atuais" — Top 5 por GUT, com botão para o ativo."""
+    try:
+        gut_itens = get_gut_summary(client_id)[:5]
+    except Exception:
+        gut_itens = []
+    if not gut_itens:
+        return
+
+    df_ativos = get_all_ativos_sv()
+    nome_por_id = {}
+    if not df_ativos.empty and "Id" in df_ativos.columns:
+        nome_col = "Tag" if "Tag" in df_ativos.columns else "Id"
+        for _, r in df_ativos.iterrows():
+            nome_por_id[str(r.get("Id", "")).strip()] = str(r.get(nome_col, "")).strip()
+
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:1rem 0 0.5rem;'>"
+        f"🎯 Prioridades atuais</p>",
+        unsafe_allow_html=True,
+    )
+    for item in gut_itens:
+        ativo_id_item = item.get("ativo_id", "")
+        ativo_nome = nome_por_id.get(ativo_id_item, "") or ativo_id_item or "—"
+        cor = {"Crítica": COLOR_DANGER, "Alta": "#F97316"}.get(item.get("prioridade", ""), COLOR_WARNING)
+        col_info, col_btn = st.columns([5, 1])
+        with col_info:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-left:4px solid {cor};border-radius:10px;padding:10px 14px;margin-bottom:4px;'>"
+                f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.85rem;'>{ativo_nome}</span> — "
+                f"<span style='font-size:0.82rem;color:#475569;'>{item.get('titulo', '')}</span><br/>"
+                f"<span style='font-size:0.72rem;color:{COLOR_MUTED};'>Origem: {item.get('origem', '')} · "
+                f"Prioridade: {item.get('prioridade', '')} · Ação: {item.get('acao_recomendada', '')}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            if ativo_id_item and st.button("Ver →", key=f"topprio_{item.get('id', '')}", use_container_width=True):
+                st.session_state["sv_ativo_id"] = ativo_id_item
+                st.session_state["sv_ativo_cliente_id"] = client_id
+                st.session_state["sv_view"] = "ativo_detalhe"
+                st.rerun()
+
+
+def _render_ativos_atencao(client_id: str) -> None:
+    """"Ativos que merecem atenção" — no máximo 5, ordenados por
+    Urgente → Crítico → maior GUT → pior score."""
+    import pandas as pd
+    from executive_summary import _status_ativo_norm
+
+    df_ativos = get_all_ativos_sv()
+    if df_ativos.empty or "Client_Id" not in df_ativos.columns:
+        return
+    df_ativos = df_ativos[df_ativos["Client_Id"].astype(str).str.strip().str.lower() == client_id.strip().lower()]
+    if df_ativos.empty:
+        return
+
+    try:
+        gut_itens = get_gut_summary(client_id)
+    except Exception:
+        gut_itens = []
+    gut_por_ativo: dict = {}
+    for i in gut_itens:
+        aid = i.get("ativo_id", "")
+        if aid and (aid not in gut_por_ativo or i["score"] > gut_por_ativo[aid]):
+            gut_por_ativo[aid] = i["score"]
+
+    id_col   = "Id" if "Id" in df_ativos.columns else df_ativos.columns[0]
+    nome_col = "Tag" if "Tag" in df_ativos.columns else id_col
+    rank_status = {"Urgente": 0, "Crítico": 1, "Atenção": 2, "Bom": 3}
+    linhas = []
+    for _, row in df_ativos.iterrows():
+        aid = str(row.get(id_col, "")).strip()
+        status_norm = _status_ativo_norm(row.get("Status", ""))
+        try:
+            score = int(float(row.get("Score", "0") or "0"))
+        except Exception:
+            score = 999
+        linhas.append({
+            "ativo_id": aid, "nome": str(row.get(nome_col, aid)).strip() or aid,
+            "status": status_norm, "score": score, "gut": gut_por_ativo.get(aid, 0),
+        })
+    linhas.sort(key=lambda l: (rank_status.get(l["status"], 3), -l["gut"], l["score"]))
+    linhas = [l for l in linhas if l["status"] != "Bom" or l["gut"] > 0][:5]
+    if not linhas:
+        return
+
+    from sheets import get_technical_reports
+    st.markdown(
+        f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;margin:1rem 0 0.5rem;'>"
+        f"⚠️ Ativos que merecem atenção</p>",
+        unsafe_allow_html=True,
+    )
+    for l in linhas:
+        ultimo_rel = "—"
+        try:
+            df_r = get_technical_reports(client_id=client_id, ativo_id=l["ativo_id"], staff=True)
+            if not df_r.empty and "Data_Relatorio" in df_r.columns:
+                ultimo_rel = str(df_r.iloc[0].get("Data_Relatorio", "—"))
+        except Exception:
+            pass
+        cor = {"Urgente": COLOR_DANGER, "Crítico": COLOR_DANGER, "Atenção": COLOR_WARNING}.get(l["status"], COLOR_SUCCESS)
+        col_info, col_btn = st.columns([5, 1])
+        with col_info:
+            st.markdown(
+                f"<div style='background:{COLOR_CARD};border:1px solid {COLOR_BORDER};"
+                f"border-left:4px solid {cor};border-radius:10px;padding:10px 14px;margin-bottom:4px;'>"
+                f"<span style='font-weight:700;color:{COLOR_NAVY};font-size:0.85rem;'>{l['nome']}</span> "
+                + status_badge(l["status"], "saude_ativo")
+                + f"<br/><span style='font-size:0.72rem;color:{COLOR_MUTED};'>"
+                f"Score: {l['score']} · Maior GUT: {l['gut'] or '—'} · Último relatório: {ultimo_rel}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            if st.button("Ver →", key=f"atativo_{l['ativo_id']}", use_container_width=True):
+                st.session_state["sv_ativo_id"] = l["ativo_id"]
+                st.session_state["sv_ativo_cliente_id"] = client_id
+                st.session_state["sv_view"] = "ativo_detalhe"
+                st.rerun()
+
+
+def _render_atividade_recente(client_id: str) -> None:
+    """"Atividade recente" — timeline agregada do CLIENTE (todos os ativos),
+    limitada a 15 eventos — nunca carrega o histórico completo de uma vez
+    (mesmo adaptador de dados de page_sv_ativos.py, reaproveitando
+    _render_historico_tecnico de page_ativos.py)."""
+    try:
+        df_tl = get_report_timeline_events(ativo_id="", cliente_id=client_id, staff=True, limit=15)
+    except Exception:
+        df_tl = None
+    if df_tl is None or df_tl.empty:
+        return
+
+    from page_ativos import _render_historico_tecnico
+    ht_data = [
+        {
+            "id":              str(r.get("Id", "")),
+            "tipo":            str(r.get("Tipo", "relatorio_publicado")),
+            "titulo":          str(r.get("Titulo", "")),
+            "descricao":       str(r.get("Descricao", "")),
+            "data":            str(r.get("Data", "")),
+            "origem":          str(r.get("Origem", "")),
+            "link_page":       "relatorios",
+            "visivel_cliente": str(r.get("Visivel_Cliente", "true")).strip().lower() != "false",
+            "obs_interna":     str(r.get("Obs_Interna", "")).strip() or None,
+        }
+        for _, r in df_tl.iterrows()
+    ]
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>", unsafe_allow_html=True)
+    _render_historico_tecnico(ht_data, ativo_id=f"cliente_{client_id}", is_staff=True, prefix="svcli_atv_")
+
+
 def render_historico() -> None:
     client_id = st.session_state.get("sv_cliente_id", "")
     empresa   = st.session_state.get("sv_cliente_nome", client_id)
@@ -201,8 +495,39 @@ def render_historico() -> None:
         st.warning("Cliente não identificado.")
         return
 
-    from resumo_executivo_ui import render_resumo_executivo_button
-    render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="svcli_resexec")
+    _render_visao_executiva(client_id)
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>", unsafe_allow_html=True)
+
+    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns(4)
+    with col_btn1:
+        from resumo_executivo_ui import render_resumo_executivo_button
+        render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa, key_prefix="svcli_resexec")
+    with col_btn2:
+        # Mesmo componente/motor do botão acima, com o comparativo "o que
+        # mudou" injetado antes do preview — não duplica lógica.
+        render_resumo_executivo_button(client_id=client_id, cliente_nome=empresa,
+                                       key_prefix="svcli_prepreuniao", mostrar_comparativo=True)
+    with col_btn3:
+        from comparativo_ui import render_comparativo_button
+        render_comparativo_button(client_id=client_id, cliente_nome=empresa, key_prefix="svcli_comparativo")
+    with col_btn4:
+        if st.button("📅 Registrar reunião", use_container_width=True):
+            _dialog_registrar_reuniao(client_id)
+
+    ultima_reuniao = get_last_meeting(client_id)
+    if ultima_reuniao:
+        st.caption(
+            f"🗓️ Última reunião registrada: **{ultima_reuniao['titulo']}** em "
+            f"{ultima_reuniao['data_reuniao']} (período analisado: "
+            f"{ultima_reuniao['periodo_inicio']} a {ultima_reuniao['periodo_fim']})."
+        )
+    else:
+        st.caption("🗓️ Nenhuma reunião registrada ainda para este cliente.")
+
+    _render_top_prioridades(client_id)
+    _render_ativos_atencao(client_id)
+    _render_atividade_recente(client_id)
+    st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:1.25rem 0;'/>", unsafe_allow_html=True)
 
     historico = get_historico_cliente(client_id)
     chamados   = historico.get("chamados",   None)

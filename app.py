@@ -181,6 +181,15 @@ def main() -> None:
 def _render_supervisao() -> None:
     """Roteador interno da Supervisão Pred.IO."""
     from ui import render_sv_topnav, SV_NAV_ITEMS
+    # A Supervisão não tem bottom nav próprio (usa o pill nav horizontal do
+    # topnav) — mas o bottom nav do Portal do Cliente é injetado direto no
+    # DOM do navegador (fora do ciclo de rerender do Streamlit) e só é
+    # removido no logout. Se o staff usou "Ver como Cliente" e voltou pra
+    # Supervisão, o bottom nav do cliente continua na tela: os ícones
+    # buscam botões ocultos "▸ativos"/"▸manutencao" (esquema do cliente),
+    # que não existem aqui (aqui é "▸sv_ativos_sv" etc.) — cliques não
+    # fazem nada. Remover sempre ao entrar na Supervisão evita esse resíduo.
+    remove_bottom_nav()
     render_sv_topnav()
 
     # Botões ocultos via CSS (aria-label^="▸") — acionados pelo pill nav do topnav
@@ -219,7 +228,7 @@ def _render_supervisao() -> None:
     elif sv_view == "biblioteca_sv":
         import page_sv_biblioteca
         page_sv_biblioteca.render()
-    elif sv_view in ("relatorios_sv", "relatorio_novo", "relatorio_editar"):
+    elif sv_view in ("relatorios_sv", "relatorio_novo", "relatorio_editar", "relatorios_cliente_detalhe"):
         import page_sv_relatorios
         page_sv_relatorios.render()
     elif sv_view == "assistente_sv":

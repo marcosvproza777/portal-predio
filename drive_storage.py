@@ -241,10 +241,16 @@ def upload_report_pdf(
     return blob_name
 
 
-def get_report_pdf_url(storage_path: str, expiration_minutes: int = _REPORT_SIGNED_URL_MINUTES) -> str:
+def get_report_pdf_url(
+    storage_path: str,
+    expiration_minutes: int = _REPORT_SIGNED_URL_MINUTES,
+    forcar_download: bool = False,
+) -> str:
     """
     Gera uma URL assinada de curta duração para visualizar/baixar um
-    relatório técnico armazenado em storage_path.
+    relatório técnico armazenado em storage_path. forcar_download=True
+    marca a resposta como anexo (Content-Disposition: attachment) — botão
+    "Baixar" em vez de abrir no visualizador do navegador.
 
     O CHAMADOR é responsável por já ter validado que o usuário atual pode
     acessar este relatório (cliente dono, ou equipe Pred.IO) antes de chamar
@@ -256,8 +262,149 @@ def get_report_pdf_url(storage_path: str, expiration_minutes: int = _REPORT_SIGN
     client = _get_client()
     bucket = _get_or_create_bucket(client, _get_bucket_name())
     blob = bucket.blob(storage_path)
-    return blob.generate_signed_url(
-        expiration=timedelta(minutes=expiration_minutes),
-        method="GET",
-        version="v2",
-    )
+    kwargs = {"expiration": timedelta(minutes=expiration_minutes), "method": "GET", "version": "v2"}
+    if forcar_download:
+        kwargs["response_disposition"] = "attachment"
+    return blob.generate_signed_url(**kwargs)
+
+
+def download_report_pdf_bytes(storage_path: str) -> bytes:
+    """
+    Baixa os bytes de um relatório técnico armazenado em storage_path, para
+    extração de texto (indexação) — não gera URL nem expõe o arquivo, só lê
+    o conteúdo bruto server-side.
+
+    Mesma checagem de permissão de get_report_pdf_url: o CHAMADOR é
+    responsável por já ter validado o acesso antes de chamar esta função.
+
+    Lança ValueError para storage_path vazio, RuntimeError para falha de
+    storage (bucket/objeto inacessível, sem faturamento GCP ativo, etc.).
+    """
+    if not storage_path:
+        raise ValueError("storage_path vazio.")
+
+    client = _get_client()
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
+    blob = bucket.blob(storage_path)
+    try:
+        return blob.download_as_bytes()
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao baixar arquivo do GCS: {exc}") from exc
+
+
+# ── Upload privado — Biblioteca Técnica ────────────────────────────────────────
+#
+# Espelha upload_report_pdf()/get_report_pdf_url() acima. Documentos da
+# Biblioteca cadastrados ANTES desta função existir só têm Arquivo_Url (uma
+# URL assinada de ~10 anos, salva permanentemente — na prática pública pra
+# quem tiver o link) — esses continuam exatamente como estão, sem migração
+# retroativa possível (não há como "tornar privado" um arquivo sem
+# reenviá-lo). Documentos enviados a partir de agora usam Storage_Path
+# (privado) em vez de Arquivo_Url — mesmo padrão dual que TechnicalReports
+# já usa.
+
+def upload_document_pdf(
+    file_bytes: bytes,
+    cliente_id: str,
+    ativo_id: str,
+    documento_id: str,
+    arquivo_nome: str = "",
+) -> str:
+    """
+    Faz upload do PDF de um documento da Biblioteca Técnica para um caminho
+    privado no GCS: biblioteca/{cliente_id}/{documento_id}/manual.pdf
+    ("sem-cliente" quando o documento não é vinculado a um cliente
+    específico — documentos públicos/internos também ficam privados no
+    storage; a visibilidade de quem pode ABRIR é decidida por
+    get_documentos_tecnicos()/get_document_pdf_url(), não pelo path).
+
+    Retorna o storage_path (não uma URL) — o objeto não é público. Para
+    visualizar/baixar, gere uma URL assinada temporária com
+    get_document_pdf_url() somente depois de validar que o usuário pode
+    acessar aquele documento.
+
+    Lança ValueError para arquivo/parâmetros inválidos, RuntimeError para
+    falha de storage.
+    """
+    if not file_bytes:
+        raise ValueError("Arquivo vazio.")
+    if len(file_bytes) > _MAX_SIZE_BYTES:
+        mb = len(file_bytes) // (1024 * 1024)
+        raise ValueError(
+            f"Arquivo muito grande ({mb} MB). Envie um PDF de até 50 MB."
+        )
+    if file_bytes[:5] != b"%PDF-":
+        raise ValueError("Arquivo não é um PDF válido. Envie um arquivo .pdf.")
+    if not documento_id:
+        raise ValueError("documento_id é obrigatório.")
+
+    cli = _safe_path_segment(cliente_id, "sem-cliente")
+    doc = _safe_path_segment(documento_id, "sem-id")
+    blob_name = f"biblioteca/{cli}/{doc}/manual.pdf"
+
+    try:
+        client = _get_client()
+    except ImportError:
+        raise RuntimeError(
+            "Dependência google-cloud-storage não instalada. "
+            "Aguarde o próximo deploy e tente novamente."
+        )
+
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
+
+    try:
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(io.BytesIO(file_bytes), content_type="application/pdf")
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao enviar arquivo para o GCS: {exc}") from exc
+
+    return blob_name
+
+
+def get_document_pdf_url(
+    storage_path: str,
+    expiration_minutes: int = _REPORT_SIGNED_URL_MINUTES,
+    forcar_download: bool = False,
+) -> str:
+    """
+    Gera uma URL assinada de curta duração para visualizar/baixar um
+    documento da Biblioteca Técnica armazenado em storage_path.
+    forcar_download=True marca a resposta como anexo (Content-Disposition:
+    attachment) — botão "Baixar" em vez de abrir no visualizador.
+
+    O CHAMADOR é responsável por já ter validado que o usuário atual pode
+    acessar este documento (get_documentos_tecnicos() já filtra por
+    Status/Visibilidade/Cliente_Id) antes de chamar esta função — ela não
+    faz nenhuma checagem de permissão por si só.
+    """
+    if not storage_path or not storage_path.startswith("biblioteca/"):
+        # Alguns documentos cadastrados antes da coluna Storage_Path
+        # existir têm dado órfão nessa posição da planilha (coluna extra
+        # sem cabeçalho, herdada de uma limpeza antiga) — nunca trate como
+        # blob real; força o chamador a cair para Arquivo_Url.
+        raise ValueError("storage_path inválido ou vazio.")
+
+    client = _get_client()
+    bucket = _get_or_create_bucket(client, _get_bucket_name())
+    blob = bucket.blob(storage_path)
+    kwargs = {"expiration": timedelta(minutes=expiration_minutes), "method": "GET", "version": "v2"}
+    if forcar_download:
+        kwargs["response_disposition"] = "attachment"
+    return blob.generate_signed_url(**kwargs)
+
+
+def document_pdf_exists(storage_path: str) -> bool:
+    """Verifica se o blob de um documento da Biblioteca Técnica existe de
+    verdade no storage — usado pela Supervisão para distinguir "documento
+    com Storage_Path na planilha, mas arquivo apagado/nunca enviado" de
+    um documento realmente disponível, antes de permitir processar/
+    reprocessar. Nunca lança exceção — path inválido ou falha de
+    conexão contam como "não existe"."""
+    if not storage_path or not storage_path.startswith("biblioteca/"):
+        return False
+    try:
+        client = _get_client()
+        bucket = _get_or_create_bucket(client, _get_bucket_name())
+        return bucket.blob(storage_path).exists()
+    except Exception:
+        return False

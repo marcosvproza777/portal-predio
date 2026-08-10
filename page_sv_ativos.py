@@ -480,6 +480,39 @@ def _render_detalhe() -> None:
             is_staff=True,
             prefix="sv_",
         )
+    else:
+        # Ativo real — mesmo adaptador DataFrame→lista de dicts já usado no
+        # Portal do Cliente (page_ativos.py:1529-1552), mas com staff=True e
+        # preservando Visivel_Cliente/Obs_Interna reais (Supervisão vê tudo,
+        # diferente do cliente que só vê o que foi marcado visível).
+        from sheets import get_report_timeline_events
+        from page_ativos import _render_historico_tecnico
+        try:
+            df_tl = get_report_timeline_events(
+                ativo_id=ativo_id, cliente_id=client_id, staff=True,
+            )
+        except Exception:
+            df_tl = pd.DataFrame()
+        if not df_tl.empty:
+            ht_data = [
+                {
+                    "id":              str(r.get("Id", "")),
+                    "tipo":            str(r.get("Tipo", "relatorio_publicado")),
+                    "titulo":          str(r.get("Titulo", "")),
+                    "descricao":       str(r.get("Descricao", "")),
+                    "data":            str(r.get("Data", "")),
+                    "origem":          str(r.get("Origem", "")),
+                    "link_page":       "relatorios",
+                    "visivel_cliente": str(r.get("Visivel_Cliente", "true")).strip().lower() != "false",
+                    "obs_interna":     str(r.get("Obs_Interna", "")).strip() or None,
+                }
+                for _, r in df_tl.iterrows()
+            ]
+            st.markdown(
+                f"<hr style='border-color:{COLOR_BORDER};margin:1rem 0;'/>",
+                unsafe_allow_html=True,
+            )
+            _render_historico_tecnico(ht_data, ativo_id=ativo_id, is_staff=True, prefix="sv_")
 
     # ── Plano de manutenção ───────────────────────────────────────────────────
     if usando_mock:

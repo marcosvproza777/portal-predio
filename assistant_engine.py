@@ -70,13 +70,27 @@ _INTENTS: dict[str, list[str]] = {
         "reunião com a gerência", "reuniao com a gerencia",
         "o que devo levar para", "o que levar para a reunião",
     ],
+    # "O que mudou desde a última reunião?" — comparativo entre dois
+    # períodos (Etapa timeline/comparativo). Checado ANTES de "gut" — frases
+    # como "o que piorou" não devem cair no intent genérico de prioridade.
+    "mudou_desde_reuniao": [
+        "mudou desde a última reunião", "mudou desde a ultima reuniao",
+        "o que mudou desde", "mudanças desde a última reunião",
+        "mudancas desde a ultima reuniao", "desde a última reunião",
+        "desde a ultima reuniao", "o que mudou no período", "o que mudou no periodo",
+        "ativos pioraram", "quais ativos pioraram", "o que piorou",
+        "ativos melhoraram", "quais ativos melhoraram", "o que melhorou",
+        "comparativo com a última reunião", "comparativo com a ultima reuniao",
+        "comparar com a última reunião", "comparar com a ultima reuniao",
+    ],
     # GUT (Gravidade x Urgência x Tendência) — checar ANTES de manutencao/
     # alertas/chamados/status_ativo, já que perguntas de GUT citam essas
     # mesmas palavras ("qual manutenção é mais crítica" contém "manutenção").
     "gut": [
         "gut", "gravidade", "urgência", "urgencia", "tendência", "tendencia",
         "mais crítico", "mais critico", "mais crítica", "mais critica",
-        "maior prioridade", "prioridade máxima", "prioridade maxima",
+        "maior prioridade", "maiores prioridades", "principais prioridades",
+        "prioridade máxima", "prioridade maxima",
         "o que devo fazer primeiro", "o que fazer primeiro",
         "o que devo resolver primeiro", "o que resolver primeiro", "resolver primeiro",
         "o que devo olhar primeiro", "o que olhar primeiro",
@@ -317,6 +331,7 @@ def detect_intent(pergunta: str) -> str:
     for intent in [
         "identidade",                # "Quem é você?" — antes de qualquer outro intent
         "resumo_periodo",            # Resumo Executivo por Período — antes de relatorio_executivo/gut
+        "mudou_desde_reuniao",       # Comparativo "o que mudou" — antes de gut (evita "o que piorou" cair em gut)
         "gut",                       # Priorização GUT — antes de manutencao/alertas/status_ativo
         "mycold",                    # MYCOLD AB/PAO — antes de qualquer oleo
         "oleo_homologado",           # Tabela de óleos MAYEKAWA/MYCOM
@@ -574,7 +589,7 @@ def get_client_context(client_id: str) -> dict:
                     "palavras_chave":   str(r.get("Palavras_Chave",  "")).strip(),
                     "arquivo_url":      str(r.get("Arquivo_Url",     "")).strip(),
                     "arquivo_nome":     str(r.get("Arquivo_Nome",    "")).strip(),
-                    "status_indexacao": str(r.get("Status_Indexacao","Não indexado")).strip(),
+                    "status_indexacao": str(r.get("Indexado_Para_Ia","Não indexado")).strip(),
                     "chunks":           [],
                 }
                 # Carrega chunks se o documento estiver indexado
@@ -794,6 +809,71 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
             resumo_curto,
             links=[{"label": "📊 Ir para o Dashboard", "page": "dashboard"}],
             actions=[{"label": "📊 Gerar Resumo Executivo completo", "page": "dashboard"}],
+        )
+
+    # ── O que mudou desde a última reunião? ───────────────────────────────────
+    # SEGURANÇA: mesmo padrão de resumo_periodo — sempre modo "cliente"
+    # (nunca observação interna) e client_id sempre da sessão (ctx já vem
+    # montado por get_client_context() com o client_id certo).
+    if intent == "mudou_desde_reuniao":
+        client_id = ctx.get("client_id", "")
+        if not client_id:
+            return _resp("Não foi possível identificar o cliente da sessão para comparar períodos.")
+        try:
+            import comparativo as _cmp
+            periodos = _cmp.resolver_periodo_comparativo(client_id, usar_ultima_reuniao=True)
+            resultado = _cmp.gerar_comparativo(
+                client_id, periodos["atual"], periodos["anterior"],
+                ativo_id=ativo_id or "", modo="cliente",
+            )
+        except Exception:
+            resultado = None
+
+        if not resultado or not resultado.get("ok"):
+            return _resp(
+                "Não consegui gerar o comparativo agora. Tente novamente pela tela do cliente "
+                "usando o botão «O que mudou desde a última reunião?».\n\nFonte: Pred.IO",
+                links=[{"label": "📊 Ir para o Dashboard", "page": "dashboard"}],
+            )
+
+        p_ini_a, p_fim_a = resultado["periodo_atual"]
+        p_ini_p, p_fim_p = resultado["periodo_anterior"]
+        melhorou   = resultado["melhorou"]
+        piorou     = resultado["piorou"]
+        novidades  = resultado["novidades"]
+        pendencias = resultado["pendencias"]
+
+        def _bullets(itens: list, vazio: str) -> str:
+            return "\n".join(f"• {i}" for i in itens) if itens else f"• {vazio}"
+
+        partes = [
+            f"**Comparando {p_ini_a.strftime('%d/%m/%Y')} a {p_fim_a.strftime('%d/%m/%Y')} com "
+            f"{p_ini_p.strftime('%d/%m/%Y')} a {p_fim_p.strftime('%d/%m/%Y')}"
+            + (" (período da última reunião)" if periodos.get("usando_reuniao") else "")
+            + f":**\n",
+            f"**✅ Melhorou:**\n{_bullets(melhorou, 'Nenhuma melhoria identificada no período.')}",
+            f"**⚠️ Piorou:**\n{_bullets(piorou, 'Nenhuma piora identificada no período.')}",
+            f"**🆕 Novidades:**\n{_bullets(novidades, 'Nenhuma novidade no período.')}",
+            f"**📌 Pendências:**\n{_bullets(pendencias, 'Nenhuma pendência em aberto.')}",
+        ]
+        if not periodos.get("usando_reuniao"):
+            partes.append(
+                "\n_Nenhuma reunião registrada ainda — comparação usando os últimos 30 dias "
+                "vs os 30 dias anteriores. Registre uma reunião na Supervisão para comparações "
+                "mais precisas no futuro._"
+            )
+        partes.append(f"\n{GUT_DISCLAIMER}\n\nFonte: Pred.IO")
+
+        try:
+            from security import log_acesso
+            log_acesso(acao="comparativo_gerado", recurso_tipo="comparativo",
+                      recurso_id="", resultado="permitido", client_id=client_id,
+                      detalhe="via assistente")
+        except Exception:
+            pass
+        return _resp(
+            "\n\n".join(partes),
+            links=[{"label": "📊 Ir para o Dashboard", "page": "dashboard"}],
         )
 
     # ── MYCOLD AB 68 / MYCOLD PAO ─────────────────────────────────────────────

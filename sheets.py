@@ -489,11 +489,21 @@ _HEADERS_ALERTAS_SV = [
     # GUT — ver _HEADERS_GUT / gut.py
     "Gut_Gravidade", "Gut_Urgencia", "Gut_Tendencia",
     "Gut_Score", "Gut_Prioridade", "Gut_Observacao",
+    # Resolução (Etapa timeline/comparativo) — alertas antigos sem estas
+    # colunas têm Status="" (tratado como não-resolvido, mesmo comportamento
+    # de antes desta coluna existir).
+    "Status", "Resolvido_Em", "Resolvido_Por",
 ]
 
 
-def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
-    """Alertas criados pela supervisão. Filtra por client_id se fornecido."""
+def get_alertas_sv(client_id: str | None = None, incluir_resolvidos: bool = False) -> pd.DataFrame:
+    """Alertas criados pela supervisão. Filtra por client_id se fornecido.
+
+    incluir_resolvidos=False (padrão, mesmo comportamento de antes da coluna
+    Status existir): esconde alertas com Status=="Resolvido" — a lista
+    principal de alertas continua mostrando só os ativos/não resolvidos.
+    Quem precisa do histórico completo (timeline, comparativo) passa True.
+    """
     df = load_sheet("AlertasSV")
     if df.empty:
         return pd.DataFrame()
@@ -502,6 +512,8 @@ def get_alertas_sv(client_id: str | None = None) -> pd.DataFrame:
             df[col] = ""
     if client_id:
         df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
+    if not incluir_resolvidos:
+        df = df[df["Status"].astype(str).str.strip() != "Resolvido"]
     return df.reset_index(drop=True)
 
 
@@ -512,18 +524,75 @@ def add_alerta_sv(client_id: str, empresa: str, titulo: str,
     em falha (continua "truthy" em `if add_alerta_sv(...):`, compatível com
     chamadores existentes que só checavam sucesso/falha)."""
     _ensure_tab_headers("AlertasSV", _HEADERS_ALERTAS_SV)
+    _ensure_extra_cols("AlertasSV", ["Status", "Resolvido_Em", "Resolvido_Por"])
     alerta_id = _gerar_id("ALS")
     ok = append_row("AlertasSV", [
         alerta_id, client_id.strip().lower(), empresa,
         titulo, descricao, prioridade,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
         whatsapp.strip(), ativo_id.strip(),
+        "", "", "", "", "", "",  # Gut_* — preenchidos depois via update_alerta_gut, se houver
+        "", "", "",              # Status, Resolvido_Em, Resolvido_Por
     ])
+    if ok and ativo_id.strip():
+        try:
+            add_report_timeline_event({
+                "ativo_id": ativo_id.strip(), "cliente_id": client_id.strip().lower(),
+                "tipo": "alerta_gerado", "titulo": titulo, "descricao": descricao,
+                "origem": "Alertas", "visivel_cliente": "true",
+            })
+        except Exception:
+            pass
     return alerta_id if ok else None
 
 
 def delete_alerta_sv(alerta_id: str) -> bool:
     return delete_row_by_id("AlertasSV", "Id", alerta_id)
+
+
+def resolver_alerta_sv(alerta_id: str, resolvido_por: str = "") -> bool:
+    """Marca um alerta como Resolvido (soft — não apaga a linha, diferente de
+    delete_alerta_sv). Alerta resolvido some da lista principal
+    (get_alertas_sv padrão) mas continua visível na timeline/comparativo/
+    histórico. Grava evento alerta_resolvido na timeline do ativo, se houver."""
+    _ensure_extra_cols("AlertasSV", ["Status", "Resolvido_Em", "Resolvido_Por"])
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("AlertasSV")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        cell = ws.find(alerta_id, in_column=headers.index("Id") + 1)
+        if not cell:
+            return False
+        row_vals = ws.row_values(cell.row)
+
+        def _get(col):
+            idx = headers.index(col) if col in headers else -1
+            return row_vals[idx] if 0 <= idx < len(row_vals) else ""
+
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        for campo, valor in {
+            "Status": "Resolvido", "Resolvido_Em": agora, "Resolvido_Por": resolvido_por,
+        }.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, valor)
+        load_sheet.clear()
+
+        ativo_id = _get("Ativo_Id").strip()
+        if ativo_id:
+            try:
+                add_report_timeline_event({
+                    "ativo_id": ativo_id, "cliente_id": _get("Client_Id"),
+                    "tipo": "alerta_resolvido", "titulo": _get("Titulo"),
+                    "descricao": _get("Descricao"),
+                    "origem": "Alertas", "visivel_cliente": "true",
+                })
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
 
 
 # ── Biblioteca Técnica ────────────────────────────────────────────────────────
@@ -534,8 +603,35 @@ _HEADERS_BIBLIOTECA = [
     "Arquivo_Url", "Arquivo_Nome", "Resumo", "Palavras_Chave",
     "Visibilidade", "Status", "Observacoes_Internas",
     "Texto_Extraido", "Embedding_Id", "Data_Indexacao",
-    "Status_Indexacao", "Erro_Indexacao", "Quantidade_Paginas", "Origem_Arquivo",
+    # Indexado_Para_Ia é o nome REAL já em produção na planilha (não
+    # "Status_Indexacao" — um nome que o código usava mas nunca existiu
+    # de verdade na aba, fazendo toda atualização de status ser
+    # silenciosamente ignorada por update_status_indexacao). BUG CORRIGIDO
+    # (nº 2): a planilha tinha o cabeçalho escrito "Indexado_Para_IA"
+    # (com "IA" maiúsculo), mas load_sheet() normaliza todo nome de coluna
+    # com `.strip().title()` — e `"Indexado_Para_IA".title()` vira
+    # "Indexado_Para_Ia" ("IA" perde a maiúscula do segundo caractere).
+    # Isso fazia o DataFrame nunca ter uma coluna com esse nome exato,
+    # então get_documentos_tecnicos() sempre injetava uma coluna em
+    # branco por cima do dado real. Corrigido o CABEÇALHO da planilha
+    # (só o rótulo, sem tocar em dado nenhum) para já nascer com a grafia
+    # que .title() produz — evita manter duas grafias (uma para leitura
+    # via DataFrame, outra para escrita via ws.update_cell) em paralelo.
+    # Fonte_Original já existe na planilha real, sem uso até agora.
+    "Indexado_Para_Ia", "Fonte_Original",
+    # Erro_Indexacao/Quantidade_Paginas/Origem_Arquivo NÃO existem ainda na
+    # planilha real — criadas via _ensure_extra_cols quando necessário.
+    "Erro_Indexacao", "Quantidade_Paginas", "Origem_Arquivo",
     "Created_At", "Updated_At",
+    # Etapa Assistente/Biblioteca no chat — aditivos:
+    # Storage_Path: path privado no GCS (drive_storage.upload_document_pdf),
+    # usado só por uploads NOVOS — documentos antigos continuam só com
+    # Arquivo_Url (URL assinada de ~10 anos, sem como tornar privada
+    # retroativamente).
+    "Storage_Path",
+    # Uso_Pela_Ia: ausente/branco = permitido (preserva o comportamento
+    # atual, onde todo documento "Ativo" já é usado pelo Assistente).
+    "Uso_Pela_Ia",
 ]
 
 _HEADERS_CHUNKS = [
@@ -575,9 +671,24 @@ def get_documentos_tecnicos(
 
     if client_id:
         cid = client_id.strip().lower()
-        mask_publico  = df["Visibilidade"].str.strip() == "Público para clientes autorizados"
-        mask_cliente  = df["Cliente_Id"].str.strip().str.lower() == cid
-        df = df[mask_publico | mask_cliente]
+        vis = df["Visibilidade"].str.strip()
+        mask_publico = vis == "Público para clientes autorizados"
+        mask_cliente = (vis == "Vinculado a cliente específico") & (
+            df["Cliente_Id"].str.strip().str.lower() == cid
+        )
+        # "Vinculado a ativo específico": não existia nenhuma resolução
+        # ativo→cliente — só "funcionava" se o Cliente_Id também tivesse
+        # sido preenchido à parte (não garantido pelo formulário). Resolve
+        # de verdade agora: pega os ativos que pertencem a este cliente e
+        # libera os documentos vinculados a qualquer um deles.
+        try:
+            ativos_do_cliente = set(get_ativos(client_id)["Id"].astype(str).str.strip())
+        except Exception:
+            ativos_do_cliente = set()
+        mask_ativo = (vis == "Vinculado a ativo específico") & (
+            df["Ativo_Id"].astype(str).str.strip().isin(ativos_do_cliente)
+        )
+        df = df[mask_publico | mask_cliente | mask_ativo]
 
     # Nunca expõe observações internas para clientes
     if "Observacoes_Internas" in df.columns:
@@ -587,38 +698,81 @@ def get_documentos_tecnicos(
 
 
 def add_documento_tecnico(dados: dict) -> str | None:
-    """Cadastra novo documento técnico. Retorna o Id criado ou None em caso de erro."""
+    """Cadastra novo documento técnico. Retorna o Id criado ou None em caso de erro.
+
+    BUG CORRIGIDO: esta função gravava a linha por POSIÇÃO (append_row com
+    uma lista fixa), assumindo uma ordem de colunas que não bate com a
+    planilha real — Created_At ficava sempre em branco e Storage_Path/
+    Uso_Pela_Ia recebiam o timestamp que deveria ir em Created_At/
+    Updated_At. Agora a linha é montada por NOME, lendo o cabeçalho real
+    da planilha — imune a colunas fora de ordem ou extras (ex.:
+    Fonte_Original, que existe na planilha mas não em _HEADERS_BIBLIOTECA
+    até esta etapa)."""
     _ensure_tab_headers("BibliotecaTecnica", _HEADERS_BIBLIOTECA)
+    _ensure_extra_cols("BibliotecaTecnica", _HEADERS_BIBLIOTECA)
     doc_id = _gerar_id("DOC")
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    ok = append_row("BibliotecaTecnica", [
-        doc_id,
-        dados.get("titulo",               ""),
-        dados.get("tipo_documento",        ""),
-        dados.get("cliente_id",            ""),
-        dados.get("planta_id",             ""),
-        dados.get("ativo_id",              ""),
-        dados.get("componente_id",         ""),
-        dados.get("fabricante",            ""),
-        dados.get("modelo",                ""),
-        dados.get("numero_serie",          ""),
-        dados.get("arquivo_url",           ""),
-        dados.get("arquivo_nome",          ""),
-        dados.get("resumo",                ""),
-        dados.get("palavras_chave",        ""),
-        dados.get("visibilidade",          "Vinculado a cliente específico"),
-        dados.get("status",                "Ativo"),
-        dados.get("observacoes_internas",  ""),
-        "",  # Texto_Extraido
-        "",  # Embedding_Id
-        "",  # Data_Indexacao
-        "Não indexado",  # Status_Indexacao
-        "",  # Erro_Indexacao
-        "",  # Quantidade_Paginas
-        dados.get("origem_arquivo", ""),  # Origem_Arquivo
-        now, now,
-    ])
+    valores_por_coluna = {
+        "Id":                   doc_id,
+        "Titulo":               dados.get("titulo",               ""),
+        "Tipo_Documento":       dados.get("tipo_documento",        ""),
+        "Cliente_Id":           dados.get("cliente_id",            ""),
+        "Planta_Id":            dados.get("planta_id",             ""),
+        "Ativo_Id":             dados.get("ativo_id",              ""),
+        "Componente_Id":        dados.get("componente_id",         ""),
+        "Fabricante":           dados.get("fabricante",            ""),
+        "Modelo":               dados.get("modelo",                ""),
+        "Numero_Serie":         dados.get("numero_serie",          ""),
+        "Arquivo_Url":          dados.get("arquivo_url",           ""),
+        "Arquivo_Nome":         dados.get("arquivo_nome",          ""),
+        "Resumo":               dados.get("resumo",                ""),
+        "Palavras_Chave":       dados.get("palavras_chave",        ""),
+        "Visibilidade":         dados.get("visibilidade",          "Vinculado a cliente específico"),
+        "Status":               dados.get("status",                "Ativo"),
+        "Observacoes_Internas": dados.get("observacoes_internas",  ""),
+        "Texto_Extraido":       "",
+        "Embedding_Id":         "",
+        "Data_Indexacao":       "",
+        "Indexado_Para_Ia":     "Não indexado",
+        "Fonte_Original":       dados.get("fonte_original",        ""),
+        "Erro_Indexacao":       "",
+        "Quantidade_Paginas":   "",
+        "Origem_Arquivo":       dados.get("origem_arquivo",        ""),
+        "Created_At":           now,
+        "Updated_At":           now,
+        "Storage_Path":         dados.get("storage_path",          ""),
+        "Uso_Pela_Ia":          "",
+    }
+    ss = get_spreadsheet()
+    ws = ss.worksheet("BibliotecaTecnica")
+    headers_reais = ws.row_values(1)
+    linha = [valores_por_coluna.get(col, "") for col in headers_reais]
+    ok = append_row("BibliotecaTecnica", linha)
     return doc_id if ok else None
+
+
+def update_documento_tecnico(doc_id: str, campos: dict) -> bool:
+    """Atualiza campos de um documento técnico (ex.: Storage_Path após
+    upload, Arquivo_Nome). Mesmo padrão de update_technical_report."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("BibliotecaTecnica")
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell   = ws.find(doc_id, in_column=id_col)
+        if not cell:
+            return False
+        campos = dict(campos)
+        campos.setdefault("Updated_At", datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
 
 
 def delete_documento_tecnico(doc_id: str) -> bool:
@@ -632,7 +786,15 @@ def update_status_indexacao(
     quantidade_paginas: int = 0,
     erro: str = "",
 ) -> bool:
-    """Atualiza campos de indexação de um documento na BibliotecaTecnica."""
+    """Atualiza campos de indexação de um documento na BibliotecaTecnica.
+
+    BUG CORRIGIDO: escrevia em "Status_Indexacao", um nome que nunca
+    existiu na planilha real (a coluna real, após corrigir também a
+    grafia do cabeçalho — ver comentário em _HEADERS_BIBLIOTECA — é
+    "Indexado_Para_Ia") — a escrita do status era sempre ignorada
+    silenciosamente (só grava `if col_name in headers`). Chunks eram
+    criados normalmente, mas o status ficava "Não indexado" pra sempre."""
+    _ensure_extra_cols("BibliotecaTecnica", ["Erro_Indexacao", "Quantidade_Paginas"])
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet("BibliotecaTecnica")
@@ -647,7 +809,7 @@ def update_status_indexacao(
             if str(v).strip() == doc_id.strip():
                 now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                 updates = {
-                    "Status_Indexacao":  status,
+                    "Indexado_Para_Ia":  status,
                     "Erro_Indexacao":    erro,
                     "Data_Indexacao":    now,
                     "Updated_At":        now,
@@ -678,6 +840,61 @@ def get_chunks_documento(doc_id: str) -> pd.DataFrame:
             df[col] = ""
     df = df[df["Documento_Id"].str.strip() == doc_id.strip()]
     return df.reset_index(drop=True)
+
+
+def buscar_chunks_documentos(client_id: str, query: str, top_n: int = 5) -> list[dict]:
+    """Busca textual nos chunks da Biblioteca Técnica mantendo o
+    Documento_Id em cada resultado — diferente de buscar_chunks()/
+    get_chunks_para_assistente() (que removem o id para o payload minimizado
+    do assistente em JS). Usada para "qual documento fala sobre X",
+    onde é preciso saber DE QUAL documento o trecho encontrado veio.
+
+    SEGURANÇA: filtra pelos documentos já autorizados para o client_id via
+    get_documentos_tecnicos(staff=False) — nunca lê DocumentoChunks direto
+    sem esse filtro (documentos internos/de outro cliente não entram)."""
+    import re as _re
+    import unicodedata as _ud
+
+    def _norm(s: str) -> str:
+        n = _ud.normalize("NFD", s.lower())
+        return _re.sub(r"[̀-ͯ]", "", n)
+
+    docs_permitidos = get_documentos_tecnicos(client_id=client_id, staff=False)
+    if docs_permitidos.empty or "Id" not in docs_permitidos.columns:
+        return []
+    ids_permitidos = set(docs_permitidos["Id"].astype(str).str.strip())
+
+    df = load_sheet("DocumentoChunks")
+    if df.empty:
+        return []
+    for col in _HEADERS_CHUNKS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[df["Documento_Id"].astype(str).str.strip().isin(ids_permitidos)]
+    if df.empty:
+        return []
+
+    terms = [t for t in _norm(query).split() if len(t) > 2]
+    scored = []
+    for _, row in df.iterrows():
+        conteudo = str(row.get("Conteudo", "")).strip()
+        if not conteudo:
+            continue
+        item = {
+            "documento_id": str(row.get("Documento_Id", "")).strip(),
+            "titulo_secao": str(row.get("Titulo_Secao", "")).strip(),
+            "conteudo": conteudo,
+            "palavras_chave": str(row.get("Palavras_Chave", "")).strip(),
+        }
+        if not terms:
+            scored.append((0, item))
+            continue
+        haystack = _norm(item["titulo_secao"] + " " + conteudo + " " + item["palavras_chave"])
+        score = sum(1 for t in terms if t in haystack)
+        if score > 0:
+            scored.append((score, item))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored[:top_n]]
 
 
 def add_chunks_lote(chunks: list[dict]) -> bool:
@@ -1331,9 +1548,12 @@ def get_historico_cliente(client_id: str) -> dict:
     chamados   = get_chamados(client_id)
     relatorios = get_relatorios(client_id)
     if chamados.empty:
-        # tenta no mock
+        # tenta no mock — _mock_chamados() está vazio hoje (dados de teste
+        # removidos), então "Client_Id" nem existe como coluna; sem esse
+        # guard, todo cliente sem chamado real quebrava a página inteira.
         mock = _mock_chamados()
-        chamados = mock[mock["Client_Id"].str.lower() == client_id.lower()].copy()
+        if not mock.empty and "Client_Id" in mock.columns:
+            chamados = mock[mock["Client_Id"].str.lower() == client_id.lower()].copy()
     return {
         "chamados":   chamados,
         "relatorios": relatorios,
@@ -1363,6 +1583,25 @@ def get_historico_assistente(client_id: str, limit: int = 20) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def get_logs_assistente_staff(limit: int = 100) -> pd.DataFrame:
+    """Retorna os logs mais recentes do chat de PRODUÇÃO (AssistenteLogs,
+    escrito por salvar_log_assistente()) de TODOS os clientes — uso
+    exclusivo da Supervisão (chamador já protegido por require_staff()).
+
+    Diferente de get_assistant_logs() (aba AssistantLogs, separada — é a
+    ferramenta de teste/auditoria em page_sv_assistente.py, não reflete o
+    chat real do cliente)."""
+    df = load_sheet("AssistenteLogs")
+    if df.empty:
+        return df
+    for col in ("Report_Ids_Usados", "Document_Ids_Usados",
+                "Current_Report_Id", "Current_Document_Id",
+                "Confidence", "Sources_Json"):
+        if col not in df.columns:
+            df[col] = ""
+    return df.tail(limit).iloc[::-1].reset_index(drop=True)
+
+
 def salvar_log_assistente(
     client_id: str,
     email: str,
@@ -1371,11 +1610,39 @@ def salvar_log_assistente(
     fontes: str = "",
     confidence: str = "",
     sources_json: str = "",
+    report_ids_usados: str = "",
+    document_ids_usados: str = "",
+    current_report_id: str = "",
+    current_document_id: str = "",
 ) -> None:
+    """report_ids_usados/document_ids_usados: Ids (separados por vírgula)
+    dos relatórios/documentos que embasaram esta resposta — auditoria de
+    fonte pro Assistente localizar/resumir Relatórios e Biblioteca no chat.
+    current_report_id/current_document_id: qual ficou "atual" na sessão
+    após esta pergunta (para acompanhar o contexto conversacional).
+
+    ORDEM DAS COLUNAS SEGUE O CABEÇALHO REAL DA PLANILHA — append_row()
+    escreve por posição, não por nome. O cabeçalho original do chat de
+    produção é Empresa/Email/Data/Pergunta/Resposta/Fontes (nessa ordem);
+    Report_Ids_Usados/Document_Ids_Usados/Current_Report_Id/
+    Current_Document_Id já existem como colunas extras desta etapa;
+    Confidence/Sources_Json são novas aqui. BUG CORRIGIDO: uma versão
+    anterior desta função escrevia confidence/sources_json ANTES da data,
+    deslocando pergunta/resposta/fontes/data uma coluna para a direita e
+    corrompendo Report_Ids_Usados/Document_Ids_Usados com dados errados —
+    linhas antigas gravadas com esse bug não são migradas retroativamente."""
+    _ensure_extra_cols("AssistenteLogs", [
+        "Report_Ids_Usados", "Document_Ids_Usados",
+        "Current_Report_Id", "Current_Document_Id",
+        "Confidence", "Sources_Json",
+    ])
     append_row("AssistenteLogs", [
-        client_id, email, pergunta, resposta, fontes,
-        confidence, sources_json,
+        client_id, email,
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        pergunta, resposta, fontes,
+        report_ids_usados, document_ids_usados,
+        current_report_id, current_document_id,
+        confidence, sources_json,
     ])
 
 
@@ -2424,8 +2691,21 @@ def _get_ativo_score(ativo_id: str) -> int | None:
         return None
 
 
+def _faixa_score(score: int) -> str:
+    """Faixa textual do score — mesmos limiares usados em page_ativos.py
+    (_score_band), duplicado aqui porque sheets.py não deve importar módulo
+    de UI. Se um dia os limiares mudarem, atualizar os dois lugares."""
+    if score >= 85: return "Bom"
+    if score >= 60: return "Atenção"
+    if score >= 30: return "Crítico"
+    return "Urgente"
+
+
 def _update_ativo_score(ativo_id: str, new_score: int) -> bool:
-    """Atualiza Score do ativo na aba Ativos."""
+    """Atualiza Score do ativo na aba Ativos. Se a FAIXA (Bom/Atenção/
+    Crítico/Urgente) mudar, grava um evento status_alterado na timeline —
+    sinal de mudança relevante mesmo sem esperar o snapshot periódico do
+    comparativo (Etapa timeline/comparativo)."""
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet("Ativos")
@@ -2437,8 +2717,33 @@ def _update_ativo_score(ativo_id: str, new_score: int) -> bool:
         cell = ws.find(ativo_id, in_column=id_col)
         if not cell:
             return False
+
+        old_score = None
+        row_vals = ws.row_values(cell.row)
+        try:
+            old_score_raw = row_vals[score_col - 1] if len(row_vals) >= score_col else ""
+            old_score = int(float(old_score_raw)) if old_score_raw not in ("", "nan") else None
+        except Exception:
+            old_score = None
+
         ws.update_cell(cell.row, score_col, str(new_score))
         load_sheet.clear()
+
+        if old_score is not None and _faixa_score(old_score) != _faixa_score(new_score):
+            try:
+                tag_col = headers.index("Tag") + 1 if "Tag" in headers else None
+                cid_col = headers.index("Client_Id") + 1 if "Client_Id" in headers else None
+                nome = row_vals[tag_col - 1] if tag_col and len(row_vals) >= tag_col else ativo_id
+                cliente_id = row_vals[cid_col - 1] if cid_col and len(row_vals) >= cid_col else ""
+                add_report_timeline_event({
+                    "ativo_id": ativo_id, "cliente_id": cliente_id,
+                    "tipo": "status_alterado",
+                    "titulo": f"{nome}: {_faixa_score(old_score)} → {_faixa_score(new_score)}",
+                    "descricao": f"Score de saúde: {old_score} → {new_score}.",
+                    "origem": "Score de Saúde", "visivel_cliente": "true",
+                })
+            except Exception:
+                pass
         return True
     except Exception:
         return False
@@ -2660,8 +2965,13 @@ def get_report_timeline_events(
     ativo_id: str = "",
     cliente_id: str = "",
     staff: bool = True,
+    limit: int | None = None,
 ) -> pd.DataFrame:
-    """Retorna eventos da timeline de relatórios."""
+    """Retorna eventos da timeline de relatórios.
+
+    limit (opcional): corta para os N eventos mais recentes DEPOIS de
+    ordenar — usado por telas como "Atividade recente" (visão agregada do
+    cliente) que nunca devem carregar o histórico completo de uma vez."""
     df = load_sheet("ReportTimeline")
     if df.empty:
         return pd.DataFrame()
@@ -2687,6 +2997,8 @@ def get_report_timeline_events(
 
     df["_s"] = df["Data"].apply(_dtkey)
     df = df.sort_values("_s", ascending=False).drop(columns=["_s"])
+    if limit:
+        df = df.head(limit)
     return df.reset_index(drop=True)
 
 
@@ -2737,7 +3049,7 @@ _HEADERS_MAINT_EXEC = [
 ]
 
 
-def calc_task_status(task: dict, horimetro_atual: int = 0) -> str:
+def calc_task_status(task: dict, horimetro_atual: int = 0, as_of=None) -> str:
     """Calcula status dinâmico de uma tarefa de manutenção (sem chamada ao Sheets).
 
     Funciona com o formato do Sheets (campos Title_Case):
@@ -2748,8 +3060,16 @@ def calc_task_status(task: dict, horimetro_atual: int = 0) -> str:
     - Condição → "Depende de análise preditiva" (sempre)
     - Calendário: diff dias → Vencida (<0) / Próxima do vencimento (≤15) / Em dia
     - Horímetro: diff horas → Vencida (h≥prox) / Próxima do vencimento (h≥prox-500) / Em dia
+
+    as_of (date, opcional): calcula o status COMO ESTARIA numa data passada,
+    em vez de hoje — só afeta o ramo Calendário (comparação de datas). Usado
+    pelo comparativo "o que mudou" pra saber se uma tarefa JÁ estava vencida
+    no período anterior. Não existe equivalente para Horímetro: não há log
+    histórico de leitura de horímetro, só o valor atual (`horimetro_atual`)
+    — retroatividade por horímetro não é possível com os dados de hoje.
     """
     from datetime import datetime as _dt, timedelta as _td
+    _agora = _dt.combine(as_of, _dt.min.time()) if as_of is not None else _dt.now()
 
     tipo = str(task.get("Tipo_Manutencao", "")).strip()
     if not tipo:
@@ -2782,7 +3102,7 @@ def calc_task_status(task: dict, horimetro_atual: int = 0) -> str:
             else:
                 return "Em dia"
         try:
-            diff = (_dt.strptime(prox, "%d/%m/%Y") - _dt.now()).days
+            diff = (_dt.strptime(prox, "%d/%m/%Y") - _agora).days
             if diff < 0:
                 return "Vencida"
             if diff <= 15:
@@ -2979,6 +3299,17 @@ def add_maintenance_task(dados: dict, created_by: str = "") -> str | None:
         now,
         now,
     ])
+    if ok and tipo == "Condição" and dados.get("ativo_id"):
+        try:
+            add_report_timeline_event({
+                "ativo_id": dados.get("ativo_id", ""), "cliente_id": dados.get("cliente_id", ""),
+                "tipo": "recomendacao_tecnica",
+                "titulo": dados.get("nome_tarefa", "Recomendação por condição"),
+                "descricao": dados.get("recomendacao", "") or dados.get("descricao", ""),
+                "origem": "Manutenção por Condição", "visivel_cliente": "true",
+            })
+        except Exception:
+            pass
     return task_id if ok else None
 
 
@@ -3217,17 +3548,29 @@ def _ensure_extra_cols(tab_name: str, needed_cols: list) -> None:
     """Garante que colunas extras existam num sheet já existente, sem apagar
     nem reordenar dados — adiciona ao final do cabeçalho as que faltarem.
     Mesmo padrão usado por _ensure_chamados_v2_cols, generalizado para
-    qualquer aba (usado pelas colunas GUT em várias abas)."""
+    qualquer aba (usado pelas colunas GUT em várias abas).
+
+    BUG CORRIGIDO: a grade da planilha (ws.col_count) tem um limite físico
+    fixo (visto na prática: BibliotecaTecnica tinha só 28 colunas) — tentar
+    escrever além dele lança APIError "exceeds grid limits", e como esta
+    função sempre engoliu a exceção (try/except: pass), a coluna faltante
+    ficava faltando pra sempre, sem nenhum aviso. Agora expande a grade
+    (ws.add_cols) antes de tentar escrever, quando necessário."""
     try:
         ss = get_spreadsheet()
         ws = ss.worksheet(tab_name)
         headers = ws.row_values(1)
         if not headers:
             return
-        for col in needed_cols:
-            if col not in headers:
-                ws.update_cell(1, len(headers) + 1, col)
-                headers.append(col)
+        faltantes = [col for col in needed_cols if col not in headers]
+        if not faltantes:
+            return
+        vagas_livres = ws.col_count - len(headers)
+        if len(faltantes) > vagas_livres:
+            ws.add_cols(len(faltantes) - vagas_livres)
+        for col in faltantes:
+            ws.update_cell(1, len(headers) + 1, col)
+            headers.append(col)
         load_sheet.clear()
     except Exception:
         pass
@@ -3426,6 +3769,191 @@ def get_recomendacoes_condicao(client_id: str) -> list[dict]:
     por horímetro, sempre dependem de avaliação técnica)."""
     return [i for i in get_gut_summary(client_id)
             if i["origem"] == "manutencao" and i.get("subtipo") == "Condição"]
+
+
+# ── Snapshots do cliente (GUT/Score) — base para o comparativo ────────────────
+# GUT e Score de saúde não têm histórico (sempre recalculados na leitura —
+# ver docstring de get_gut_summary). snapshot_cliente() grava uma foto leve
+# a cada reunião registrada / primeiro comparativo sem reunião anterior, pra
+# que comparativos FUTUROS tenham uma base real de "antes". O snapshot mais
+# antigo nunca é apagado automaticamente (histórico cresce devagar — 1 linha
+# por reunião/comparativo, não por dia).
+_HEADERS_CLIENT_SNAPSHOTS = [
+    "Id", "Cliente_Id", "Data", "Score_Medio", "Gut_Top_Json",
+    "Ativos_Criticos", "Ativos_Atencao", "Created_At",
+]
+
+
+def snapshot_cliente(cliente_id: str) -> str | None:
+    """Grava um snapshot leve de GUT/score do cliente. Retorna o Id gerado.
+
+    Se o snapshot ANTERIOR mostrar uma mudança relevante no maior item GUT
+    (score mudou, ou prioridade Alta/Crítica mudou de quantidade), grava um
+    evento gut_alterado na timeline do ativo do item de maior GUT — sinal de
+    mudança sem esperar o usuário abrir o comparativo.
+    """
+    if not cliente_id:
+        return None
+    cliente_id = cliente_id.strip().lower()
+    import json as _json
+
+    try:
+        df_ativos = get_all_ativos_sv()
+        if not df_ativos.empty and "Client_Id" in df_ativos.columns:
+            df_ativos = df_ativos[df_ativos["Client_Id"].astype(str).str.strip().str.lower() == cliente_id]
+        scores = pd.to_numeric(df_ativos.get("Score", pd.Series(dtype=float)), errors="coerce").dropna()
+        score_medio = round(float(scores.mean()), 1) if len(scores) else None
+        st_norm = df_ativos.get("Status", pd.Series(dtype=str)).astype(str).str.strip().str.lower()
+        ativos_criticos = int(st_norm.isin(["critico", "crítico", "urgente"]).sum())
+        ativos_atencao  = int(st_norm.isin(["atencao", "atenção"]).sum())
+    except Exception:
+        score_medio, ativos_criticos, ativos_atencao = None, 0, 0
+
+    try:
+        gut_itens = get_gut_summary(cliente_id)
+        gut_top = gut_itens[:10]
+    except Exception:
+        gut_top = []
+
+    _ensure_tab_headers("ClientSnapshots", _HEADERS_CLIENT_SNAPSHOTS)
+    snap_id = _gerar_id("SNAP")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("ClientSnapshots", [
+        snap_id, cliente_id, datetime.now().strftime("%d/%m/%Y"),
+        str(score_medio) if score_medio is not None else "",
+        _json.dumps(gut_top, ensure_ascii=False),
+        str(ativos_criticos), str(ativos_atencao), now,
+    ])
+    if not ok:
+        return None
+
+    # Compara com o snapshot anterior (se houver) pra sinalizar gut_alterado
+    try:
+        anterior = get_last_snapshot(cliente_id, excluir_id=snap_id)
+        if anterior and gut_top:
+            top_novo = gut_top[0]
+            top_antigo_lista = anterior.get("gut_top", [])
+            top_antigo = top_antigo_lista[0] if top_antigo_lista else None
+            mudou = (
+                top_antigo is None
+                or top_antigo.get("id") != top_novo.get("id")
+                or top_antigo.get("score") != top_novo.get("score")
+            )
+            if mudou and top_novo.get("ativo_id"):
+                add_report_timeline_event({
+                    "ativo_id": top_novo["ativo_id"], "cliente_id": cliente_id,
+                    "tipo": "gut_alterado",
+                    "titulo": f"Maior GUT: {top_novo.get('titulo', 'item')} (score {top_novo.get('score')})",
+                    "descricao": top_novo.get("descricao", ""),
+                    "origem": "GUT", "visivel_cliente": "true",
+                })
+    except Exception:
+        pass
+
+    return snap_id
+
+
+def get_last_snapshot(cliente_id: str, excluir_id: str = "") -> dict | None:
+    """Snapshot mais recente do cliente (por Data/Created_At), ou None se
+    nunca houve um. excluir_id evita comparar o snapshot que acabou de ser
+    criado com ele mesmo."""
+    if not cliente_id:
+        return None
+    import json as _json
+    df = load_sheet("ClientSnapshots")
+    if df.empty or "Cliente_Id" not in df.columns:
+        return None
+    df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id.strip().lower()]
+    if excluir_id:
+        df = df[df["Id"].astype(str).str.strip() != excluir_id]
+    if df.empty:
+        return None
+    df = df.copy()
+    df["_dt"] = pd.to_datetime(df.get("Created_At", ""), dayfirst=True, errors="coerce", format="%d/%m/%Y %H:%M:%S")
+    df = df.sort_values("_dt", ascending=False)
+    row = df.iloc[0]
+    try:
+        gut_top = _json.loads(row.get("Gut_Top_Json", "") or "[]")
+    except Exception:
+        gut_top = []
+    score_medio = row.get("Score_Medio", "")
+    try:
+        score_medio = float(score_medio) if score_medio not in ("", "nan") else None
+    except Exception:
+        score_medio = None
+    return {
+        "id": str(row.get("Id", "")), "data": str(row.get("Data", "")),
+        "score_medio": score_medio,
+        "ativos_criticos": int(float(row.get("Ativos_Criticos", 0) or 0)),
+        "ativos_atencao": int(float(row.get("Ativos_Atencao", 0) or 0)),
+        "gut_top": gut_top,
+    }
+
+
+# ── Reuniões com o cliente (client_meetings) ──────────────────────────────────
+# Permite que o comparativo "O que mudou desde a última reunião?" saiba qual
+# foi a última reunião registrada, sem precisar de escolha manual de período
+# toda vez. Observacao é sempre interna — nunca aparece pro cliente (mesmo
+# padrão de Obs_Interna usado no resto do projeto).
+_HEADERS_CLIENT_MEETINGS = [
+    "Id", "Cliente_Id", "Titulo", "Data_Reuniao",
+    "Periodo_Inicio", "Periodo_Fim", "Observacao", "Criado_Por", "Created_At",
+]
+
+
+def add_client_meeting(
+    cliente_id: str, titulo: str, data_reuniao: str,
+    periodo_inicio: str, periodo_fim: str,
+    observacao: str = "", criado_por: str = "",
+) -> str | None:
+    """Registra uma reunião com o cliente. Retorna o Id ou None em falha.
+    SEGURANÇA: cliente_id sempre da seleção do staff na Supervisão (nunca de
+    input livre do cliente comum — reuniões só são registradas ali)."""
+    if not cliente_id:
+        return None
+    _ensure_tab_headers("ClientMeetings", _HEADERS_CLIENT_MEETINGS)
+    meeting_id = _gerar_id("MTG")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("ClientMeetings", [
+        meeting_id, cliente_id.strip().lower(), titulo, data_reuniao,
+        periodo_inicio, periodo_fim, observacao, criado_por, now,
+    ])
+    return meeting_id if ok else None
+
+
+def get_client_meetings(cliente_id: str, limit: int = 50) -> pd.DataFrame:
+    """Histórico de reuniões do cliente, mais recentes primeiro."""
+    if not cliente_id:
+        return pd.DataFrame(columns=_HEADERS_CLIENT_MEETINGS)
+    df = load_sheet("ClientMeetings")
+    if df.empty:
+        return pd.DataFrame(columns=_HEADERS_CLIENT_MEETINGS)
+    for col in _HEADERS_CLIENT_MEETINGS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id.strip().lower()]
+    if df.empty:
+        return df
+    df = df.copy()
+    df["_dt"] = pd.to_datetime(df["Data_Reuniao"], dayfirst=True, errors="coerce")
+    df = df.sort_values("_dt", ascending=False).drop(columns=["_dt"])
+    return df.head(limit).reset_index(drop=True)
+
+
+def get_last_meeting(cliente_id: str) -> dict | None:
+    """Reunião mais recente do cliente, ou None se nunca houve uma."""
+    df = get_client_meetings(cliente_id, limit=1)
+    if df.empty:
+        return None
+    row = df.iloc[0]
+    return {
+        "id": str(row.get("Id", "")), "titulo": str(row.get("Titulo", "")),
+        "data_reuniao": str(row.get("Data_Reuniao", "")),
+        "periodo_inicio": str(row.get("Periodo_Inicio", "")),
+        "periodo_fim": str(row.get("Periodo_Fim", "")),
+        "observacao": str(row.get("Observacao", "")),
+        "criado_por": str(row.get("Criado_Por", "")),
+    }
 
 
 _HEADERS_CHAMADOS_V2 = [
@@ -3990,7 +4518,10 @@ _HEADERS_REPORT_CHUNKS = [
 def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados: dict) -> bool:
     """
     Cria/atualiza chunks do relatório técnico na aba TechnicalReportChunks.
-    Extrai Resumo e Recomendacoes como chunks para uso pelo assistente.
+    Extrai Resumo/Recomendacoes/Conclusao (dados estruturados, sempre
+    tentado primeiro) e, se houver PDF em Storage_Path, também extrai e
+    chunka o texto do PDF (fonte adicional — nunca a única: falha ao ler o
+    PDF não impede a indexação dos campos estruturados).
 
     SEGURANÇA: Obs_Interna nunca é indexada.
     """
@@ -4039,6 +4570,45 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
             "3", "Conclusão", conclusao, f"conclusao,{sev},{tipo}", agora,
         ])
 
+    # ── PDF do relatório (Etapa 6) ───────────────────────────────────────────
+    # Prioridade: campos estruturados acima sempre são indexados primeiro,
+    # independente do PDF. O PDF é uma fonte ADICIONAL — nunca a única
+    # dependência: se o download/extração falhar, os chunks estruturados
+    # já montados continuam sendo salvos normalmente (guard isolado abaixo).
+    # has_conteudo_estruturado / pdf_status decidem o Status_Indexacao final
+    # mais abaixo (não inventa texto se o PDF for escaneado sem OCR).
+    has_conteudo_estruturado = bool(resumo or recomend or conclusao)
+    storage_path = str(dados.get("Storage_Path", "")).strip()
+    arquivo_nome_pdf = str(dados.get("Arquivo_Nome", "")).strip()
+    pdf_status = None  # None (sem PDF) | "ok" | "sem_texto" | "erro"
+    if storage_path:
+        try:
+            import drive_storage
+            import document_processor
+            pdf_bytes = drive_storage.download_report_pdf_bytes(storage_path)
+            texto_pdf, _n_pags = document_processor.extrair_texto_pdf_bytes(
+                pdf_bytes, arquivo_nome_pdf,
+            )
+            if texto_pdf.strip():
+                pdf_status = "ok"
+                doc_chunks = document_processor.criar_chunks(
+                    doc_id=report_id, cliente_id=client_id, ativo_id=ativo_id,
+                    componente_id="", arquivo_url=storage_path,
+                    arquivo_nome=arquivo_nome_pdf, texto=texto_pdf,
+                )
+                base_idx = len(chunks_to_insert)
+                for i, c in enumerate(doc_chunks):
+                    titulo_secao = f"PDF — {c.get('titulo_secao', 'trecho')}"[:80]
+                    chunks_to_insert.append([
+                        _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
+                        str(base_idx + i), titulo_secao,
+                        c.get("conteudo", ""), f"pdf,{tipo},{sev}", agora,
+                    ])
+            else:
+                pdf_status = "sem_texto"  # PDF escaneado, sem texto extraível
+        except Exception:
+            pdf_status = "erro"
+
     try:
         ss = get_spreadsheet()
         try:
@@ -4070,13 +4640,26 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
 
         load_sheet.clear()
 
-        # Etapa 2 — marca o relatório como preparado para o Assistente Técnico.
-        # Indexação hoje é só dos campos de texto (Resumo/Recomendações/Conclusão);
-        # extração do conteúdo do PDF em si fica para uma etapa futura.
+        # Etapa 2/6 — marca o relatório como preparado para o Assistente
+        # Técnico. Status reflete o que de fato foi indexado: campos
+        # estruturados sempre entram quando preenchidos; PDF é adicional e
+        # nunca impede a indexação dos campos estruturados se falhar.
+        if pdf_status == "ok":
+            status_indexacao = "Indexado (texto+pdf)"
+        elif has_conteudo_estruturado:
+            status_indexacao = "Indexado (texto)"
+        elif pdf_status == "sem_texto":
+            status_indexacao = "Requer OCR"
+        elif pdf_status == "erro":
+            status_indexacao = "Falhou"
+        else:
+            # Sem PDF e sem Resumo/Recomendacoes/Conclusao preenchidos — só a
+            # ficha técnica (sempre gerada) foi indexada.
+            status_indexacao = "Indexado (texto)"
         try:
             _ensure_extra_cols("TechnicalReports", _HEADERS_TECH_REPORTS)
             update_technical_report(report_id, {
-                "Status_Indexacao":  "Indexado (texto)",
+                "Status_Indexacao":  status_indexacao,
                 "Quantidade_Chunks": str(len(chunks_to_insert)),
                 "Uso_Pela_Ia":       "true",
             })
@@ -4138,6 +4721,58 @@ def get_chunks_relatorio(report_id: str, client_id: str = "") -> pd.DataFrame:
         df = df[df["Client_Id"].str.strip().str.lower() == client_id.strip().lower()]
 
     return df.reset_index(drop=True)
+
+
+def buscar_chunks_relatorios(client_id: str, query: str, top_n: int = 5) -> list[dict]:
+    """Busca textual simples nos chunks de relatórios técnicos indexados de
+    um cliente — mesmo algoritmo de buscar_chunks() (Biblioteca), mas em
+    TechnicalReportChunks. Diferente de buscar_chunks(), mantém o Report_Id
+    em cada resultado (aqui o objetivo é descobrir QUAL relatório fala
+    sobre um assunto, não só mostrar um trecho solto).
+
+    SEGURANÇA: filtra só pelos chunks do client_id — não valida Status do
+    relatório (chunks só existem pra relatórios Publicados, já que
+    reindex_technical_report() exige isso antes de indexar — ver
+    index_relatorio_tecnico())."""
+    import re as _re
+    import unicodedata as _ud
+
+    def _norm(s: str) -> str:
+        n = _ud.normalize("NFD", s.lower())
+        return _re.sub(r"[̀-ͯ]", "", n)
+
+    df = load_sheet("TechnicalReportChunks")
+    if df.empty:
+        return []
+    for col in _HEADERS_REPORT_CHUNKS:
+        if col not in df.columns:
+            df[col] = ""
+    cid = (client_id or "").strip().lower()
+    df = df[df["Client_Id"].astype(str).str.strip().str.lower() == cid]
+    if df.empty:
+        return []
+
+    terms = [t for t in _norm(query).split() if len(t) > 2]
+    scored = []
+    for _, row in df.iterrows():
+        conteudo = str(row.get("Conteudo", "")).strip()
+        if not conteudo:
+            continue
+        item = {
+            "report_id": str(row.get("Report_Id", "")).strip(),
+            "titulo_secao": str(row.get("Titulo_Secao", "")).strip(),
+            "conteudo": conteudo,
+            "palavras_chave": str(row.get("Palavras_Chave", "")).strip(),
+        }
+        if not terms:
+            scored.append((0, item))
+            continue
+        haystack = _norm(item["titulo_secao"] + " " + conteudo + " " + item["palavras_chave"])
+        score = sum(1 for t in terms if t in haystack)
+        if score > 0:
+            scored.append((score, item))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored[:top_n]]
 
 
 def delete_chunks_relatorio(report_id: str) -> bool:
@@ -4335,7 +4970,7 @@ _HEADERS_EXEC_SUMMARY = [
     "Id", "Cliente_Id", "Ativo_Id", "Gerado_Por_Usuario_Id",
     "Tipo_Resumo", "Modo", "Periodo_Inicio", "Periodo_Fim",
     "Titulo", "Resumo_Texto", "Dados_Usados", "Arquivo_Url",
-    "Status", "Created_At", "Updated_At",
+    "Status", "Created_At", "Updated_At", "Report_Ids_Usados",
 ]
 
 
@@ -4350,20 +4985,30 @@ def add_executive_summary(
     periodo_inicio: str = "",
     periodo_fim: str = "",
     dados_usados: str = "",
+    report_ids_usados: str = "",
 ) -> str | None:
     """Registra um resumo executivo gerado. Retorna o Id ou None.
+
+    report_ids_usados: Ids (separados por vírgula) dos TechnicalReports que
+    entraram neste resumo — auditoria de fonte, permite saber exatamente de
+    onde vieram as informações mostradas.
+
     SEGURANÇA: cliente_id sempre da sessão (ou do cliente selecionado pelo
     staff na Supervisão) — nunca de input livre do cliente comum."""
     if not cliente_id:
         return None
     _ensure_tab_headers("ExecutiveSummaries", _HEADERS_EXEC_SUMMARY)
+    # Sheets criadas antes desta coluna existir não a têm no cabeçalho —
+    # _ensure_tab_headers só cria cabeçalho do zero, não adiciona coluna
+    # nova a uma aba já existente.
+    _ensure_extra_cols("ExecutiveSummaries", ["Report_Ids_Usados"])
     summary_id = _gerar_id("RES")
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     ok = append_row("ExecutiveSummaries", [
         summary_id, cliente_id, ativo_id, gerado_por_usuario_id,
         tipo_resumo, modo, periodo_inicio, periodo_fim,
         titulo, resumo_texto, dados_usados, "",
-        "Gerado", now, now,
+        "Gerado", now, now, report_ids_usados,
     ])
     return summary_id if ok else None
 

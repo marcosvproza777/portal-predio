@@ -1,9 +1,10 @@
 """Supervisão — Biblioteca Técnica (cadastro de documentos técnicos)."""
 import streamlit as st
-from auth import require_staff
+from auth import require_staff, current_email, current_perfil
 from sheets import (
     get_all_clientes, get_documentos_tecnicos,
-    add_documento_tecnico, delete_documento_tecnico,
+    add_documento_tecnico, update_documento_tecnico, delete_documento_tecnico,
+    delete_chunks_documento, log_audit, ativo_pertence_cliente,
 )
 from ui import (
     sv_page_header, empty_state, COLOR_NAVY, COLOR_CARD, COLOR_BORDER,
@@ -239,6 +240,10 @@ def _render_form_cadastro() -> None:
         elif empresa_sel != "— nenhum —":
             client_id = empresa_sel.strip().lower()
 
+        if ativo_id.strip() and client_id and not ativo_pertence_cliente(ativo_id.strip(), client_id):
+            st.warning("O Ativo ID informado não pertence ao cliente selecionado.")
+            return
+
         # Arquivo enviado do PC tem prioridade sobre URL
         _usar_upload = bool(_file_bytes)
         _nome_final  = (arquivo_nome.strip()
@@ -268,33 +273,206 @@ def _render_form_cadastro() -> None:
         })
 
         if doc_id:
+            log_audit(current_email(), current_perfil(), client_id,
+                      "documento_criado", recurso_tipo="documento_tecnico", recurso_id=doc_id)
             if _usar_upload:
-                with st.spinner("Indexando documento…"):
-                    from document_processor import processar_documento_from_bytes
-                    result = processar_documento_from_bytes(
-                        doc_id=doc_id,
-                        cliente_id=client_id,
-                        ativo_id=ativo_id.strip(),
-                        componente_id=componente_id.strip(),
-                        file_bytes=_file_bytes,
-                        arquivo_nome=_nome_final,
-                    )
-                if result["ok"]:
-                    st.toast(
-                        f"✅ Arquivo salvo e indexado — "
-                        f"{result['n_chunks']} chunks, {result['n_paginas']} página(s).",
-                        icon="✅",
-                    )
+                _erro_upload_doc = None
+                with st.spinner("Enviando arquivo…"):
+                    try:
+                        from drive_storage import upload_document_pdf
+                        storage_path = upload_document_pdf(
+                            _file_bytes, client_id, ativo_id.strip(), doc_id, _nome_final,
+                        )
+                        update_documento_tecnico(doc_id, {
+                            "Storage_Path": storage_path,
+                            "Arquivo_Nome": _nome_final,
+                            "Arquivo_Url":  "",
+                        })
+                    except Exception as exc:
+                        _erro_upload_doc = str(exc)
+
+                if _erro_upload_doc:
+                    st.toast(f"⚠️ Falha ao salvar o arquivo: {_erro_upload_doc}", icon="⚠️")
                 else:
-                    st.toast(
-                        f"⚠️ Arquivo salvo no storage, mas indexação falhou: {result['erro']}",
-                        icon="⚠️",
-                    )
+                    with st.spinner("Indexando documento…"):
+                        from document_processor import processar_documento_from_bytes
+                        result = processar_documento_from_bytes(
+                            doc_id=doc_id,
+                            cliente_id=client_id,
+                            ativo_id=ativo_id.strip(),
+                            componente_id=componente_id.strip(),
+                            file_bytes=_file_bytes,
+                            arquivo_nome=_nome_final,
+                        )
+                    if result["ok"]:
+                        log_audit(current_email(), current_perfil(), client_id,
+                                  "documento_processado", recurso_tipo="documento_tecnico", recurso_id=doc_id)
+                        st.toast(
+                            f"✅ Arquivo salvo e indexado — "
+                            f"{result['n_chunks']} chunks, {result['n_paginas']} página(s).",
+                            icon="✅",
+                        )
+                    else:
+                        log_audit(current_email(), current_perfil(), client_id,
+                                  "falha_indexacao", recurso_tipo="documento_tecnico",
+                                  recurso_id=doc_id, resultado="falha")
+                        _msg_erro = result["erro"]
+                        if "Texto não extraído" in _msg_erro:
+                            _msg_erro = ("Este PDF parece ser escaneado e não possui texto extraível. "
+                                         "Será necessário OCR para indexação pela IA.")
+                        st.toast(
+                            f"⚠️ Arquivo salvo no storage, mas indexação falhou: {_msg_erro}",
+                            icon="⚠️",
+                        )
             else:
                 st.toast("✅ Documento cadastrado com sucesso.", icon="✅")
             st.rerun()
         else:
             st.error("Erro ao cadastrar. Verifique as credenciais do Google Sheets.")
+
+
+def _render_form_edicao(doc_id: str, row) -> None:
+    """Edição de um documento já cadastrado — mesmo padrão de
+    page_sv_ativos.py's _render_edit_ativo() (expander + form
+    pré-preenchido, chamando a função de update já existente)."""
+    df_cli = get_all_clientes()
+    empresas = (
+        sorted(df_cli["Empresa"].dropna().unique().tolist())
+        if not df_cli.empty and "Empresa" in df_cli.columns
+        else []
+    )
+
+    cliente_atual_id = str(row.get("Cliente_Id", "")).strip().lower()
+    empresa_atual = "— nenhum —"
+    if cliente_atual_id and not df_cli.empty and "Cliente_Id" in df_cli.columns:
+        m = df_cli[df_cli["Cliente_Id"].str.strip().str.lower() == cliente_atual_id]
+        if not m.empty:
+            empresa_atual = str(m.iloc[0]["Empresa"]).strip()
+
+    cli_opcoes = ["— nenhum —"] + empresas
+    _safe_idx = lambda opts, val: opts.index(val) if val in opts else 0
+
+    with st.form(f"form_edit_doc_{doc_id}"):
+        c1, c2 = st.columns(2)
+        with c1:
+            novo_titulo = st.text_input("Título *", value=str(row.get("Titulo", "")).strip())
+        with c2:
+            novo_tipo = st.selectbox(
+                "Tipo de documento *", _TIPOS_DOC,
+                index=_safe_idx(_TIPOS_DOC, str(row.get("Tipo_Documento", "")).strip()),
+            )
+
+        c3, c4 = st.columns(2)
+        with c3:
+            novo_fab = st.text_input("Fabricante", value=str(row.get("Fabricante", "")).strip())
+        with c4:
+            novo_modelo = st.text_input("Modelo", value=str(row.get("Modelo", "")).strip())
+
+        c5, c6 = st.columns(2)
+        with c5:
+            nova_vis = st.selectbox(
+                "Visibilidade *", _VISIBILIDADE_OPTS,
+                index=_safe_idx(_VISIBILIDADE_OPTS, str(row.get("Visibilidade", "")).strip()),
+            )
+        with c6:
+            nova_empresa_sel = st.selectbox(
+                "Cliente (se vinculado)", cli_opcoes, index=_safe_idx(cli_opcoes, empresa_atual),
+            )
+
+        c7, c8 = st.columns(2)
+        with c7:
+            novo_ativo_id = st.text_input("Ativo ID (opcional)", value=str(row.get("Ativo_Id", "")).strip())
+        with c8:
+            novo_status = st.selectbox(
+                "Status", _STATUS_OPTS,
+                index=_safe_idx(_STATUS_OPTS, str(row.get("Status", "")).strip() or "Ativo"),
+            )
+
+        novo_resumo = st.text_area(
+            "Resumo", value=str(row.get("Resumo", "")).strip(), height=75,
+        )
+        novas_palavras = st.text_input(
+            "Palavras-chave (separadas por vírgula)",
+            value=str(row.get("Palavras_Chave", "")).strip(),
+        )
+
+        uso_ia_atual = str(row.get("Uso_Pela_Ia", "")).strip().lower()
+        uso_ia_opts = ["Permitido (padrão)", "Bloqueado para o Assistente"]
+        novo_uso_ia = st.selectbox(
+            "Uso pelo Assistente IA", uso_ia_opts,
+            index=1 if uso_ia_atual == "false" else 0,
+        )
+
+        st.markdown(
+            f"<p style='font-size:0.78rem;color:{COLOR_MUTED};margin:10px 0 4px;'>"
+            f"Substituir arquivo (opcional) — envia um PDF novo, remove os chunks "
+            f"antigos e marca o documento para reprocessar.</p>",
+            unsafe_allow_html=True,
+        )
+        novo_arquivo = st.file_uploader("Novo PDF", type=["pdf"], key=f"_edit_file_{doc_id}")
+        _novo_bytes = novo_arquivo.read() if novo_arquivo else None
+        _novo_nome = novo_arquivo.name if novo_arquivo else ""
+
+        salvar = st.form_submit_button("💾 Salvar alterações", type="primary", use_container_width=True)
+
+    if not salvar:
+        return
+
+    if not novo_titulo.strip():
+        st.warning("O título do documento é obrigatório.")
+        return
+
+    novo_client_id = ""
+    if nova_empresa_sel != "— nenhum —" and not df_cli.empty and "Cliente_Id" in df_cli.columns:
+        m = df_cli[df_cli["Empresa"].str.strip() == nova_empresa_sel.strip()]
+        novo_client_id = str(m.iloc[0]["Cliente_Id"]).strip().lower() if not m.empty else nova_empresa_sel.strip().lower()
+    elif nova_empresa_sel != "— nenhum —":
+        novo_client_id = nova_empresa_sel.strip().lower()
+
+    if novo_ativo_id.strip() and novo_client_id and not ativo_pertence_cliente(novo_ativo_id.strip(), novo_client_id):
+        st.warning("O Ativo ID informado não pertence ao cliente selecionado.")
+        return
+
+    campos = {
+        "Titulo":         novo_titulo.strip(),
+        "Tipo_Documento": novo_tipo,
+        "Fabricante":     novo_fab.strip(),
+        "Modelo":         novo_modelo.strip(),
+        "Visibilidade":   nova_vis,
+        "Cliente_Id":     novo_client_id,
+        "Ativo_Id":       novo_ativo_id.strip(),
+        "Status":         novo_status,
+        "Resumo":         novo_resumo.strip(),
+        "Palavras_Chave": novas_palavras.strip(),
+        "Uso_Pela_Ia":    "false" if novo_uso_ia == uso_ia_opts[1] else "",
+    }
+
+    if _novo_bytes:
+        try:
+            from drive_storage import upload_document_pdf
+            novo_storage_path = upload_document_pdf(_novo_bytes, novo_client_id, novo_ativo_id.strip(), doc_id, _novo_nome)
+            delete_chunks_documento(doc_id)
+            campos.update({
+                "Storage_Path":       novo_storage_path,
+                "Arquivo_Nome":       _novo_nome,
+                "Arquivo_Url":        "",
+                "Indexado_Para_Ia":   "Não indexado",
+                "Erro_Indexacao":     "",
+                "Quantidade_Paginas": "",
+            })
+        except Exception as exc:
+            st.error(f"Falha ao enviar o novo arquivo: {exc}")
+            return
+
+    if update_documento_tecnico(doc_id, campos):
+        log_audit(current_email(), current_perfil(), novo_client_id,
+                  "arquivo_substituido" if _novo_bytes else "documento_editado",
+                  recurso_tipo="documento_tecnico", recurso_id=doc_id)
+        st.session_state.pop(f"_edit_open_{doc_id}", None)
+        st.toast("✅ Documento atualizado.", icon="✅")
+        st.rerun()
+    else:
+        st.error("Erro ao salvar as alterações.")
 
 
 def _render_card(row) -> None:
@@ -309,13 +487,34 @@ def _render_card(row) -> None:
     resumo    = str(row.get("Resumo",         "")).strip()
     arq_nome  = str(row.get("Arquivo_Nome",   "")).strip()
     arq_url   = str(row.get("Arquivo_Url",    "")).strip()
+    storage_path = str(row.get("Storage_Path", "")).strip()
+    # Storage privado tem prioridade — gera link assinado de curta duração
+    # sob demanda (nunca reaproveita entre reruns); Arquivo_Url só é usado
+    # para documentos cadastrados antes deste mecanismo existir.
+    if storage_path and storage_path.lower() not in ("", "nan"):
+        try:
+            from drive_storage import get_document_pdf_url
+            arq_url = get_document_pdf_url(storage_path)
+        except Exception:
+            pass  # mantém arq_url original (Arquivo_Url) se o storage_path for inválido
     vis       = str(row.get("Visibilidade",   "")).strip()
     status    = str(row.get("Status",         "")).strip()
     obs       = str(row.get("Observacoes_Internas", "")).strip()
-    st_idx    = str(row.get("Status_Indexacao", "")).strip() or STATUS_NAO_INDEXADO
+    st_idx    = str(row.get("Indexado_Para_Ia", "")).strip() or STATUS_NAO_INDEXADO
     dt_idx    = str(row.get("Data_Indexacao",  "")).strip()
     n_pags    = str(row.get("Quantidade_Paginas", "")).strip()
     erro_idx  = str(row.get("Erro_Indexacao",  "")).strip()
+
+    # Arquivo prometido na planilha (Storage_Path) mas ausente de verdade
+    # no storage — nunca deve deixar processar/reprocessar um PDF que não
+    # existe.
+    arquivo_ausente = bool(storage_path) and storage_path.startswith("biblioteca/")
+    if arquivo_ausente:
+        try:
+            from drive_storage import document_pdf_exists
+            arquivo_ausente = not document_pdf_exists(storage_path)
+        except Exception:
+            arquivo_ausente = False
 
     vis_bg, vis_tc   = _VIS_BADGE.get(vis,    ("#E2E8F022", "#64748B"))
     stat_bg, stat_tc = _STATUS_BADGE.get(status, ("#E2E8F022", "#64748B"))
@@ -377,6 +576,11 @@ def _render_card(row) -> None:
             + (f"<p style='font-size:0.72rem;margin:0 0 4px;'>{link_html}</p>" if link_html else "")
             + f"<div style='margin-top:6px;display:flex;align-items:center;gap:6px;'>{idx_html}</div>"
             + obs_html
+            + (
+                "<p style='color:#DC2626;font-size:0.75rem;margin:6px 0 0;'>"
+                "⚠️ Arquivo não encontrado no storage. Substitua ou envie novamente o PDF "
+                "(veja Editar).</p>" if arquivo_ausente else ""
+            )
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -385,7 +589,11 @@ def _render_card(row) -> None:
         if doc_id:
             col_proc, col_test, _ = st.columns([3, 3, 4])
             with col_proc:
-                if arq_url:
+                if arquivo_ausente:
+                    st.button("⚙️ Processar documento", key=f"proc_{doc_id}_x",
+                              disabled=True, use_container_width=True,
+                              help="Arquivo ausente no storage — substitua o arquivo antes de processar.")
+                elif arq_url:
                     btn_label = "🔄 Reprocessar" if st_idx == STATUS_INDEXADO else "⚙️ Processar documento"
                     if st.button(btn_label, key=f"proc_{doc_id}", use_container_width=True):
                         with st.spinner("Processando…"):
@@ -399,13 +607,23 @@ def _render_card(row) -> None:
                                 arquivo_nome=arq_nome,
                             )
                         if result["ok"]:
+                            log_audit(current_email(), current_perfil(), cliente,
+                                      "documento_reprocessado" if st_idx == STATUS_INDEXADO else "documento_processado",
+                                      recurso_tipo="documento_tecnico", recurso_id=doc_id)
                             st.success(
                                 f"✅ Indexado: {result['n_chunks']} chunks, "
                                 f"{result['n_paginas']} páginas."
                             )
                             st.rerun()
                         else:
-                            st.error(f"❌ {result['erro']}")
+                            log_audit(current_email(), current_perfil(), cliente,
+                                      "falha_indexacao", recurso_tipo="documento_tecnico",
+                                      recurso_id=doc_id, resultado="falha")
+                            _msg_erro = result["erro"]
+                            if "Texto não extraído" in _msg_erro:
+                                _msg_erro = ("Este PDF parece ser escaneado e não possui texto extraível. "
+                                             "Será necessário OCR para indexação pela IA.")
+                            st.error(f"❌ {_msg_erro}")
                 elif st_idx != STATUS_INDEXADO:
                     if st.button("📤 Reindexar arquivo", key=f"reup_{doc_id}", use_container_width=True):
                         st.session_state[f"_reup_open_{doc_id}"] = not st.session_state.get(f"_reup_open_{doc_id}", False)
@@ -414,6 +632,29 @@ def _render_card(row) -> None:
                 if st_idx == STATUS_INDEXADO:
                     if st.button("🔍 Testar no Assistente", key=f"test_{doc_id}", use_container_width=True):
                         st.session_state[f"_test_open_{doc_id}"] = not st.session_state.get(f"_test_open_{doc_id}", False)
+
+            col_edit, col_arq, _sp = st.columns([3, 3, 4])
+            with col_edit:
+                if st.button("✏️ Editar", key=f"edit_{doc_id}", use_container_width=True):
+                    st.session_state[f"_edit_open_{doc_id}"] = not st.session_state.get(f"_edit_open_{doc_id}", False)
+            with col_arq:
+                if status != "Arquivado":
+                    if st.button("📦 Arquivar", key=f"arq_{doc_id}", use_container_width=True):
+                        if update_documento_tecnico(doc_id, {"Status": "Arquivado"}):
+                            log_audit(current_email(), current_perfil(), cliente,
+                                      "documento_arquivado", recurso_tipo="documento_tecnico", recurso_id=doc_id)
+                            st.toast("📦 Documento arquivado.")
+                            st.rerun()
+
+            if st.session_state.get(f"_edit_open_{doc_id}"):
+                with st.container():
+                    st.markdown(
+                        "<div style='background:#F8FAFC;border:1px solid #CBD5E1;"
+                        "border-radius:10px;padding:12px 16px;margin:6px 0 8px;'>",
+                        unsafe_allow_html=True,
+                    )
+                    _render_form_edicao(doc_id, row)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
             # Painel de re-upload (documentos enviados via upload com indexação pendente ou falhou)
             if not arq_url and st.session_state.get(f"_reup_open_{doc_id}") and st_idx != STATUS_INDEXADO:
