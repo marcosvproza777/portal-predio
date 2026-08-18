@@ -4886,8 +4886,14 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
                 for row_num in reversed(rows_to_delete):
                     ws.delete_rows(row_num)
 
-        for chunk_row in chunks_to_insert:
-            ws.append_row(chunk_row)
+        for _i_chunk, chunk_row in enumerate(chunks_to_insert):
+            try:
+                ws.append_row(chunk_row)
+            except Exception as e:
+                import sys as _sys
+                print(f"[index_relatorio_tecnico] falhou ao gravar chunk {_i_chunk + 1}/{len(chunks_to_insert)} "
+                      f"do report {report_id}: {type(e).__name__}: {e}", file=_sys.stderr, flush=True)
+                raise
 
         load_sheet.clear()
 
@@ -4918,7 +4924,10 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
             pass
 
         return True
-    except Exception:
+    except Exception as e:
+        import sys as _sys
+        print(f"[index_relatorio_tecnico] falhou para report {report_id}: {type(e).__name__}: {e}",
+              file=_sys.stderr, flush=True)
         return False
 
 
@@ -4949,6 +4958,12 @@ def reindex_technical_report(report_id: str) -> dict:
         rep.get("Ativo_Id", ""),
         rep,
     )
+    if not ok:
+        return {
+            "ok": False,
+            "erro": "Falha ao gravar no Google Sheets — pode ser limite temporário de "
+                    "requisições da API. Aguarde alguns segundos e tente novamente.",
+        }
     return {"ok": ok}
 
 
