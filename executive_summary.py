@@ -42,16 +42,23 @@ MODOS = ("cliente", "admin_cliente", "interno_predio")
 # tanto pra tela de Relatórios da Supervisão quanto pro filtro de tipo do
 # Resumo Executivo, evitando duas listas de aliases divergindo com o tempo.
 
-CATEGORIAS_RELATORIO = ["Vibração", "Termografia", "Ordem de Serviço",
-                        "Análise de Óleo", "Alinhamento a Laser", "Outros"]
+CATEGORIAS_RELATORIO = ["Vibração", "Termografia", "OAT", "Ordem de Serviço",
+                        "Análise de Óleo", "Alinhamento a Laser",
+                        "Relatório Executivo", "Outros"]
 
+# Ordem de inserção importa: categoria_relatorio() retorna a primeira que
+# bater — "OAT" precisa vir ANTES de "Ordem de Serviço" para que relatórios
+# de Ordem de Assistência Técnica (OAT) tenham categoria própria em vez de
+# caírem no balaio genérico de "Ordem de Serviço".
 _ALIASES_CATEGORIA = {
     "Vibração":            ["vibracao", "vibração"],
     "Termografia":         ["termografia", "termografico", "térmico", "termico"],
-    "Ordem de Serviço":    ["ordem de servico", "ordem de serviço", " os ",
-                            "ordem de assistencia", "ordem de assistência", "oat"],
+    "OAT":                 ["oat", "ordem de assistencia", "ordem de assistência",
+                            "relatorio oat", "relatório oat"],
+    "Ordem de Serviço":    ["ordem de servico", "ordem de serviço", " os "],
     "Análise de Óleo":     ["oleo", "óleo"],
     "Alinhamento a Laser": ["alinhamento"],
+    "Relatório Executivo": ["executivo"],
 }
 
 
@@ -699,7 +706,12 @@ def _montar_texto(cliente_nome: str, ativo_nome: str, periodo_inicio: _dt.date,
     achados = []
     if df_rel is not None and not df_rel.empty:
         for _, r in df_rel.head(6).iterrows():
+            # Resumo Técnico (resumo_tecnico) é a fonte prioritária quando
+            # preenchido; Diagnóstico só entra como fallback quando o
+            # relatório ainda não tem resumo técnico.
             resumo = str(r.get("Resumo", "")).strip()
+            if not resumo or resumo.lower() == "nan":
+                resumo = str(r.get("Diagnostico", "")).strip()
             if resumo and resumo.lower() not in ("nan", ""):
                 achados.append(f"  • {str(r.get('Titulo','Relatório')).strip()}: {resumo[:220]}")
     if achados:

@@ -1646,6 +1646,198 @@ def salvar_log_assistente(
     ])
 
 
+# ── Chats do Assistente Técnico — Novo chat / Apagar último chat ──────────
+#
+# Diferente de AssistenteLogs (log plano por pergunta, usado só para
+# auditoria/"Ver histórico completo" — nunca tocado aqui), estas duas abas
+# agrupam as mensagens em CONVERSAS que podem ser criadas e apagadas pelo
+# usuário. AssistenteLogs continua sendo gravado normalmente em paralelo
+# (trilha de auditoria permanente, sobrevive mesmo que o chat seja apagado).
+
+_HEADERS_ASSISTANT_CHATS = [
+    "Id", "Usuario_Id", "Cliente_Id", "Titulo",
+    "Created_At", "Updated_At", "Last_Message_At",
+    "Status", "Deleted_At", "Deleted_By",
+]
+_HEADERS_ASSISTANT_CHAT_MESSAGES = [
+    "Id", "Chat_Id", "Usuario_Id", "Cliente_Id", "Role", "Content",
+    "Report_Id", "Document_Id", "Created_At",
+]
+
+
+def _update_assistant_row_by_id(tab_name: str, row_id: str, campos: dict) -> bool:
+    """Helper interno — acha a linha pelo Id e atualiza só os campos
+    informados, por nome de coluna (nunca por posição). Mesmo padrão de
+    update_technical_report(), restrito às duas abas de chat do Assistente."""
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet(tab_name)
+        headers = ws.row_values(1)
+        if "Id" not in headers:
+            return False
+        id_col = headers.index("Id") + 1
+        cell = ws.find(row_id, in_column=id_col)
+        if not cell:
+            return False
+        for campo, valor in campos.items():
+            if campo in headers:
+                ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
+        load_sheet.clear()
+        return True
+    except Exception:
+        return False
+
+
+def create_assistant_chat(usuario_id: str, cliente_id: str, titulo: str = "Nova conversa") -> str | None:
+    """Cria uma conversa vazia para o usuário/cliente da sessão.
+    SEGURANÇA: usuario_id/cliente_id DEVEM vir da sessão — nunca de input livre."""
+    usuario_id = (usuario_id or "").strip()
+    cliente_id = (cliente_id or "").strip()
+    if not usuario_id or not cliente_id:
+        return None
+    _ensure_tab_headers("AssistantChats", _HEADERS_ASSISTANT_CHATS)
+    chat_id = _gerar_id("CHAT")
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("AssistantChats", [
+        chat_id, usuario_id, cliente_id, titulo,
+        now, now, "", "Ativo", "", "",
+    ])
+    return chat_id if ok else None
+
+
+def update_assistant_chat_titulo(chat_id: str, titulo: str) -> bool:
+    return _update_assistant_row_by_id("AssistantChats", chat_id, {
+        "Titulo": titulo,
+        "Updated_At": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    })
+
+
+def add_assistant_chat_message(
+    chat_id: str, usuario_id: str, cliente_id: str, role: str, content: str,
+    report_id: str = "", document_id: str = "",
+) -> bool:
+    """Grava uma mensagem (role='user'|'assistant') numa conversa existente
+    e atualiza Last_Message_At/Updated_At do chat. SEGURANÇA: quem chama já
+    validou que chat_id pertence a usuario_id/cliente_id (criado nesta
+    mesma sessão) — esta função só grava, não decide propriedade."""
+    if not chat_id or not usuario_id or not cliente_id:
+        return False
+    _ensure_tab_headers("AssistantChatMessages", _HEADERS_ASSISTANT_CHAT_MESSAGES)
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = append_row("AssistantChatMessages", [
+        _gerar_id("MSG"), chat_id, usuario_id, cliente_id, role, content,
+        report_id, document_id, now,
+    ])
+    if ok:
+        _update_assistant_row_by_id("AssistantChats", chat_id, {
+            "Last_Message_At": now, "Updated_At": now,
+        })
+    return ok
+
+
+def get_ultimo_chat_ativo(usuario_id: str, cliente_id: str) -> dict | None:
+    """Retorna a conversa Ativa mais recente do usuário/cliente, ou None.
+    SEGURANÇA: usuario_id/cliente_id sempre da sessão."""
+    usuario_id = (usuario_id or "").strip().lower()
+    cliente_id = (cliente_id or "").strip().lower()
+    if not usuario_id or not cliente_id:
+        return None
+    df = load_sheet("AssistantChats")
+    if df.empty:
+        return None
+    for col in _HEADERS_ASSISTANT_CHATS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[
+        (df["Usuario_Id"].astype(str).str.strip().str.lower() == usuario_id)
+        & (df["Cliente_Id"].astype(str).str.strip().str.lower() == cliente_id)
+        & (df["Status"].astype(str).str.strip() == "Ativo")
+    ]
+    if df.empty:
+        return None
+    df = df.copy()
+    ordenar_por = "Last_Message_At" if df["Last_Message_At"].astype(str).str.strip().any() else "Updated_At"
+    df["_dt"] = pd.to_datetime(df[ordenar_por].astype(str), dayfirst=True, errors="coerce")
+    df = df.sort_values("_dt", ascending=False)
+    row = df.iloc[0]
+    return {col: str(row.get(col, "")).strip() for col in _HEADERS_ASSISTANT_CHATS}
+
+
+def get_chat_messages(chat_id: str, usuario_id: str, cliente_id: str) -> pd.DataFrame:
+    """Mensagens de uma conversa — SEMPRE filtra por Usuario_Id/Cliente_Id
+    além do chat_id (nunca confia só no chat_id, mesma disciplina de
+    get_chunks_relatorio/summarize_technical_report)."""
+    df = load_sheet("AssistantChatMessages")
+    if df.empty:
+        return df
+    for col in _HEADERS_ASSISTANT_CHAT_MESSAGES:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[
+        (df["Chat_Id"].astype(str).str.strip() == (chat_id or "").strip())
+        & (df["Usuario_Id"].astype(str).str.strip().str.lower() == (usuario_id or "").strip().lower())
+        & (df["Cliente_Id"].astype(str).str.strip().str.lower() == (cliente_id or "").strip().lower())
+    ]
+    return df.reset_index(drop=True)
+
+
+def delete_assistant_chat(chat_id: str, usuario_id: str, cliente_id: str) -> dict:
+    """Apaga (soft delete) uma conversa do Assistente Técnico.
+
+    SEGURANÇA: revalida que o chat pertence a usuario_id/cliente_id ANTES
+    de qualquer alteração — nunca confia que o chat_id recebido já foi
+    checado por quem chamou. Cliente A nunca apaga chat do Cliente B.
+
+    Remove de fato as mensagens (AssistantChatMessages não é registro de
+    auditoria — quem preserva isso é AssistenteLogs, não tocado aqui);
+    marca o chat como Status="Excluído" (soft delete, com Deleted_At/
+    Deleted_By) em vez de apagar a linha do chat.
+    """
+    chat_id = (chat_id or "").strip()
+    usuario_id = (usuario_id or "").strip()
+    cliente_id = (cliente_id or "").strip()
+    if not chat_id or not usuario_id or not cliente_id:
+        return {"ok": False, "erro": "Conversa não encontrada."}
+
+    df = load_sheet("AssistantChats")
+    if df.empty or "Id" not in df.columns:
+        return {"ok": False, "erro": "Conversa não encontrada."}
+    match = df[df["Id"].astype(str).str.strip() == chat_id]
+    if match.empty:
+        return {"ok": False, "erro": "Conversa não encontrada."}
+    row = match.iloc[0]
+    if (str(row.get("Usuario_Id", "")).strip().lower() != usuario_id.lower()
+            or str(row.get("Cliente_Id", "")).strip().lower() != cliente_id.lower()):
+        return {"ok": False, "erro": "Conversa não encontrada."}
+    if str(row.get("Status", "")).strip() == "Excluído":
+        return {"ok": False, "erro": "Esta conversa já foi apagada."}
+
+    # Remove as mensagens desta conversa (mesmo padrão de delete_chunks_relatorio)
+    try:
+        ss = get_spreadsheet()
+        ws = ss.worksheet("AssistantChatMessages")
+        headers = ws.row_values(1)
+        if "Chat_Id" in headers:
+            col_idx = headers.index("Chat_Id") + 1
+            all_vals = ws.col_values(col_idx)
+            to_delete = [
+                i + 1 for i, v in enumerate(all_vals)
+                if i > 0 and str(v).strip() == chat_id
+            ]
+            for row_num in reversed(to_delete):
+                ws.delete_rows(row_num)
+            load_sheet.clear()
+    except Exception:
+        pass  # aba pode não existir ainda se o chat nunca teve mensagem
+
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ok = _update_assistant_row_by_id("AssistantChats", chat_id, {
+        "Status": "Excluído", "Deleted_At": now, "Deleted_By": usuario_id,
+        "Updated_At": now,
+    })
+    return {"ok": ok, "erro": None if ok else "Falha ao apagar a conversa."}
+
+
 # ── Auditoria — Modo Admin "Ver como Cliente" ──────────────────────────────
 
 _HEADERS_AUDIT = [
@@ -2453,6 +2645,11 @@ _HEADERS_TECH_REPORTS = [
     # App_Report_Id é o report.id do App (Firestore/IndexedDB) — usado para
     # idempotência: reenviar o mesmo report_id atualiza em vez de duplicar.
     "App_Report_Id", "Medicoes_Json", "Sincronizado_Em",
+    # Assistente Técnico IA — resumo técnico manual. Diagnóstico é um campo
+    # próprio (distinto de Resumo/Conclusao); "resumo_tecnico" pedido pela
+    # Supervisão é a própria coluna Resumo — já existia e já era prioridade
+    # na indexação (ver index_relatorio_tecnico), só reaproveitada aqui.
+    "Diagnostico",
 ]
 
 # Origem do relatório — usado pelo seletor na Supervisão e pela integração.
@@ -2576,6 +2773,7 @@ def add_technical_report(dados: dict, created_by: str = "") -> str | None:
         dados.get("app_report_id", ""),
         dados.get("medicoes_json", ""),
         dados.get("sincronizado_em", ""),
+        dados.get("diagnostico", ""),
     ])
     return rep_id if ok else None
 
@@ -4512,16 +4710,26 @@ def get_relatorios_executivos_publicados(client_id: str, ativo_id: str = "") -> 
 _HEADERS_REPORT_CHUNKS = [
     "Id", "Report_Id", "Client_Id", "Ativo_Id",
     "Chunk_Index", "Titulo_Secao", "Conteudo", "Palavras_Chave", "Indexado_Em",
+    # Assistente Técnico IA — metadados de filtro/auditoria por chunk
+    # (colunas adicionadas de forma não-destrutiva por _ensure_extra_cols,
+    # mesmo padrão de _HEADERS_TECH_REPORTS). Fonte é sempre "Pred.IO".
+    "Tipo_Relatorio", "Severidade", "Data_Relatorio", "Fonte",
 ]
+
+# Fonte exibida ao cliente — constante, nunca outro valor.
+_FONTE_PREDIO = "Pred.IO"
 
 
 def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados: dict) -> bool:
     """
     Cria/atualiza chunks do relatório técnico na aba TechnicalReportChunks.
-    Extrai Resumo/Recomendacoes/Conclusao (dados estruturados, sempre
-    tentado primeiro) e, se houver PDF em Storage_Path, também extrai e
-    chunka o texto do PDF (fonte adicional — nunca a única: falha ao ler o
-    PDF não impede a indexação dos campos estruturados).
+
+    Ordem de prioridade dos chunks estruturados (o Assistente Técnico lê
+    nesta ordem, ver ai_assistant._SYSTEM_PROMPT): Resumo Técnico (fonte
+    prioritária quando preenchido) → Diagnóstico → Conclusão →
+    Recomendações → medições estruturadas (Medicoes_Json). O PDF em
+    Storage_Path é indexado por último — fonte ADICIONAL, nunca a única:
+    falha ao ler o PDF nunca impede a indexação dos campos estruturados.
 
     SEGURANÇA: Obs_Interna nunca é indexada.
     """
@@ -4529,46 +4737,70 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
         return False
 
     _ensure_tab_headers("TechnicalReportChunks", _HEADERS_REPORT_CHUNKS)
+    _ensure_extra_cols("TechnicalReportChunks", _HEADERS_REPORT_CHUNKS)
 
-    agora     = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    titulo    = str(dados.get("Titulo",         "")).strip()
-    tipo      = str(dados.get("Tipo_Servico",   "")).strip()
-    sev       = str(dados.get("Severidade",     "")).strip()
-    data_rel  = str(dados.get("Data_Relatorio", "")).strip()
-    equip     = str(dados.get("Equipamento",    "")).strip() or ativo_id
-    resumo    = str(dados.get("Resumo",         "")).strip()
-    recomend  = str(dados.get("Recomendacoes",  "")).strip()
-    conclusao = str(dados.get("Conclusao",      "")).strip()
+    agora      = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    titulo     = str(dados.get("Titulo",         "")).strip()
+    tipo       = str(dados.get("Tipo_Servico",   "")).strip()
+    sev        = str(dados.get("Severidade",     "")).strip()
+    data_rel   = str(dados.get("Data_Relatorio", "")).strip()
+    equip      = str(dados.get("Equipamento",    "")).strip() or ativo_id
+    resumo     = str(dados.get("Resumo",         "")).strip()
+    recomend   = str(dados.get("Recomendacoes",  "")).strip()
+    conclusao  = str(dados.get("Conclusao",      "")).strip()
+    diagnostico = str(dados.get("Diagnostico",   "")).strip()
+    cid_lower  = client_id.strip().lower()
 
     chunks_to_insert: list[list] = []
+
+    def _add_chunk(indice: str, titulo_secao: str, conteudo: str, palavras_chave: str) -> None:
+        chunks_to_insert.append([
+            _gerar_id("RCK"), report_id, cid_lower, ativo_id,
+            indice, titulo_secao, conteudo, palavras_chave, agora,
+            tipo, sev, data_rel, _FONTE_PREDIO,
+        ])
 
     # Chunk 0 — ficha técnica
     meta_conteudo = (
         f"Relatório: {titulo}. "
         f"Tipo: {tipo}. Severidade: {sev}. Data: {data_rel}. Equipamento/Ativo: {equip}."
     )
-    chunks_to_insert.append([
-        _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
-        "0", "Ficha técnica", meta_conteudo, f"{titulo},{tipo},{sev}", agora,
-    ])
+    _add_chunk("0", "Ficha técnica", meta_conteudo, f"{titulo},{tipo},{sev}")
 
+    # Resumo Técnico — fonte prioritária (resumo_tecnico), sempre o primeiro
+    # chunk de conteúdo quando preenchido.
     if resumo:
-        chunks_to_insert.append([
-            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
-            "1", "Resumo", resumo, f"resumo,{sev},{tipo}", agora,
-        ])
+        _add_chunk("1", "Resumo Técnico (fonte prioritária)", resumo, f"resumo,resumo_tecnico,{sev},{tipo}")
 
-    if recomend:
-        chunks_to_insert.append([
-            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
-            "2", "Recomendações", recomend, f"recomendacoes,acao,{tipo}", agora,
-        ])
+    if diagnostico:
+        _add_chunk("2", "Diagnóstico", diagnostico, f"diagnostico,{sev},{tipo}")
 
     if conclusao:
-        chunks_to_insert.append([
-            _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
-            "3", "Conclusão", conclusao, f"conclusao,{sev},{tipo}", agora,
-        ])
+        _add_chunk("3", "Conclusão", conclusao, f"conclusao,{sev},{tipo}")
+
+    if recomend:
+        _add_chunk("4", "Recomendações", recomend, f"recomendacoes,acao,{tipo}")
+
+    # Medições estruturadas (Medicoes_Json) — pontos de vibração/inspeção
+    # cadastrados manualmente na Supervisão viram texto legível para a IA.
+    medicoes_json = str(dados.get("Medicoes_Json", "")).strip()
+    if medicoes_json:
+        try:
+            import json as _json
+            pontos = _json.loads(medicoes_json)
+            if isinstance(pontos, list) and pontos:
+                linhas_medicao = []
+                for p in pontos:
+                    if not isinstance(p, dict):
+                        continue
+                    partes_p = [f"{k}: {v}" for k, v in p.items() if str(v).strip()]
+                    if partes_p:
+                        linhas_medicao.append("; ".join(partes_p))
+                if linhas_medicao:
+                    _add_chunk("5", "Medições estruturadas", "\n".join(linhas_medicao),
+                              f"medicoes,{tipo}")
+        except Exception:
+            pass
 
     # ── PDF do relatório (Etapa 6) ───────────────────────────────────────────
     # Prioridade: campos estruturados acima sempre são indexados primeiro,
@@ -4577,7 +4809,7 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
     # já montados continuam sendo salvos normalmente (guard isolado abaixo).
     # has_conteudo_estruturado / pdf_status decidem o Status_Indexacao final
     # mais abaixo (não inventa texto se o PDF for escaneado sem OCR).
-    has_conteudo_estruturado = bool(resumo or recomend or conclusao)
+    has_conteudo_estruturado = bool(resumo or diagnostico or recomend or conclusao)
     storage_path = str(dados.get("Storage_Path", "")).strip()
     arquivo_nome_pdf = str(dados.get("Arquivo_Nome", "")).strip()
     pdf_status = None  # None (sem PDF) | "ok" | "sem_texto" | "erro"
@@ -4599,11 +4831,8 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
                 base_idx = len(chunks_to_insert)
                 for i, c in enumerate(doc_chunks):
                     titulo_secao = f"PDF — {c.get('titulo_secao', 'trecho')}"[:80]
-                    chunks_to_insert.append([
-                        _gerar_id("RCK"), report_id, client_id.strip().lower(), ativo_id,
-                        str(base_idx + i), titulo_secao,
-                        c.get("conteudo", ""), f"pdf,{tipo},{sev}", agora,
-                    ])
+                    _add_chunk(str(base_idx + i), titulo_secao,
+                              c.get("conteudo", ""), f"pdf,{tipo},{sev}")
             else:
                 pdf_status = "sem_texto"  # PDF escaneado, sem texto extraível
         except Exception:

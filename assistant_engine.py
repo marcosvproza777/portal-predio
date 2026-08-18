@@ -385,6 +385,43 @@ def get_client_context(client_id: str) -> dict:
     from assistant_mock_data import get_mock_context
     ctx = get_mock_context(client_id)
 
+    # Carrega ATIVOS reais do cliente — substitui os ativos fictícios do
+    # mock. BUG CORRIGIDO: get_client_context() carregava relatórios,
+    # tarefas, chamados, alertas e GUT reais, mas nunca sobrescrevia
+    # ctx["ativos"] — o Assistente respondia perguntas de status sempre
+    # com os 2 ativos mock ("Unidade Compressora Parafuso 200 VLD",
+    # "Motor WEG 350 CV"), nunca com a operação real do cliente.
+    # SEGURANÇA: client_id da sessão; get_ativos() já filtra pelo cliente.
+    try:
+        from sheets import get_ativos as _get_ativos_sheet
+        _SCORE_FALLBACK = {
+            "bom": 90, "normal": 90, "atenção": 70, "atencao": 70,
+            "crítico": 40, "critico": 40, "urgente": 20,
+        }
+        df_ativos_reais = _get_ativos_sheet(client_id)
+        if not df_ativos_reais.empty and "Id" in df_ativos_reais.columns:
+            ativos_reais = []
+            for _, ar in df_ativos_reais.iterrows():
+                status_at = str(ar.get("Status", "")).strip()
+                sc_raw = ar.get("Score", None)
+                try:
+                    score_at = int(float(str(sc_raw))) if sc_raw and str(sc_raw).strip() not in ("", "nan") else None
+                except (ValueError, TypeError):
+                    score_at = None
+                if score_at is None:
+                    score_at = _SCORE_FALLBACK.get(status_at.strip().lower(), 75)
+                ativos_reais.append({
+                    "id":          str(ar.get("Id", "")).strip(),
+                    "nome":        str(ar.get("Tag", "") or ar.get("Nome", "")).strip(),
+                    "status":      status_at or "—",
+                    "score":       score_at,
+                    "componentes": [],
+                })
+            if ativos_reais:
+                ctx["ativos"] = ativos_reais
+    except Exception:
+        pass  # mantém ativos do mock se a carga real falhar
+
     # Tenta carregar documentos reais do Sheets.
     # SEGURANÇA: client_id da sessão; get_documentos_tecnicos() filtra
     # documentos internos e de outros clientes antes de retornar.
@@ -535,20 +572,28 @@ def get_client_context(client_id: str) -> dict:
                 rep_id  = str(r.get("Id",     "")).strip()
                 titulo  = str(r.get("Titulo",  "")).strip()
                 resumo  = str(r.get("Resumo",  "")).strip()
+                diag    = str(r.get("Diagnostico", "")).strip()
+                conclu  = str(r.get("Conclusao", "")).strip()
                 recom   = str(r.get("Recomendacoes","")).strip()
                 sev     = str(r.get("Severidade","")).strip()
                 data    = str(r.get("Data_Relatorio","")).strip()
                 ativo   = str(r.get("Ativo_Id", r.get("Equipamento",""))).strip()
+                gut_sc  = str(r.get("Gut_Score", "")).strip()
+                gut_pr  = str(r.get("Gut_Prioridade", "")).strip()
                 if not titulo:
                     continue
                 entry = {
                     "id":            rep_id,
                     "titulo":        titulo,
                     "resumo":        resumo,
+                    "diagnostico":   diag,
+                    "conclusao":     conclu,
                     "recomendacoes": recom,
                     "severidade":    sev,
                     "data":          data,
                     "ativo":         ativo,
+                    "gut_score":     gut_sc,
+                    "gut_prioridade": gut_pr,
                     "chunks":        [],
                 }
                 if rep_id:
@@ -1987,16 +2032,65 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
                 "Nenhum ativo monitorado cadastrado ainda para sua operação.",
                 links=[{"label": "⚙️ Ver Ativos", "page": "ativos"}],
             )
-        ativo = ativos[0]
-        criticos = [c for c in ativo.get("componentes", []) if c.get("status") == "Crítico"]
+
+        # Um único ativo — resposta direta, sem precisar de ranking.
+        if len(ativos) == 1:
+            ativo = ativos[0]
+            criticos = [c for c in ativo.get("componentes", []) if c.get("status") == "Crítico"]
+            answer = (
+                f"A {ativo['nome']} está com status {ativo['status']} "
+                f"e score de saúde {ativo['score']}/100."
+            )
+            if criticos:
+                nomes = ", ".join(c["nome"] for c in criticos)
+                answer += f" O componente {nomes} está sinalizado como crítico."
+            return _resp(answer, links=[{"label": "⚙️ Ver Ativos Monitorados", "page": "ativos"}])
+
+        # Múltiplos ativos — lista todos + aponta o de maior prioridade,
+        # cruzando com GUT (maior score primeiro) e relatórios publicados.
+        # Consulta dados reais (ctx["ativos"] já vem de sheets.get_ativos()),
+        # nunca só FAQ/conhecimento genérico — ver item 7 do pedido.
+        gut_por_ativo: dict = {}
+        for g in ctx.get("gut_summary", []):
+            aid = g.get("ativo_id", "")
+            if aid and (aid not in gut_por_ativo or g.get("score", 0) > gut_por_ativo[aid].get("score", 0)):
+                gut_por_ativo[aid] = g
+
+        linhas = [
+            f"• {a['nome']} — {a['status']} — score {a['score']}"
+            for a in ativos
+        ]
+
+        def _rank(a: dict) -> tuple:
+            gut = gut_por_ativo.get(a.get("id", ""))
+            gut_score = gut.get("score", 0) if gut else 0
+            return (gut_score, -int(a.get("score", 100) or 100))
+
+        prioritario = max(ativos, key=_rank)
+        gut_prior = gut_por_ativo.get(prioritario.get("id", ""))
+
+        motivo = f"score de saúde {prioritario['score']}/100 ({prioritario['status']})"
+        if gut_prior and gut_prior.get("prioridade") in ("Alta", "Crítica"):
+            motivo = (
+                f"{gut_prior.get('titulo', 'recomendação técnica')} com GUT "
+                f"{gut_prior.get('score', '')} ({gut_prior.get('prioridade', '')})"
+            )
+        else:
+            for rep in ctx.get("relatorios_tecnicos_indexados", []):
+                if rep.get("ativo") == prioritario.get("id") and rep.get("severidade", "").strip().lower() in (
+                    "crítico", "critico", "urgente"):
+                    motivo = f"relatório de {rep.get('titulo', 'relatório técnico')} com severidade {rep.get('severidade')}"
+                    break
+
         answer = (
-            f"A {ativo['nome']} está com status {ativo['status']} "
-            f"e score de saúde {ativo['score']}/100."
+            f"Você possui {len(ativos)} ativos monitorados:\n\n" + "\n".join(linhas) +
+            f"\n\nO ativo com maior prioridade atualmente é {prioritario['nome']}, devido a {motivo}.\n\n"
+            f"{GUT_DISCLAIMER}\n\nFonte: Pred.IO"
         )
-        if criticos:
-            nomes = ", ".join(c["nome"] for c in criticos)
-            answer += f" O componente {nomes} está sinalizado como crítico."
-        return _resp(answer, links=[{"label": "⚙️ Ver Ativos Monitorados", "page": "ativos"}])
+        links = [{"label": "⚙️ Ver Ativos Monitorados", "page": "ativos"}]
+        if prioritario["status"].strip().lower() in ("crítico", "critico", "urgente"):
+            links.append({"label": "🔧 Abrir Chamado", "page": "chamados"})
+        return _resp(answer, links=links)
 
     # ── Chamados ──────────────────────────────────────────────────────────────
     if intent == "chamados":

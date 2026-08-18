@@ -87,6 +87,21 @@ REGRA ESPECIAL — PRIORIZAÇÃO GUT (Gravidade x Urgência x Tendência):
 - Frase obrigatória ao explicar GUT: "GUT é uma ferramenta de priorização e não substitui
   a avaliação técnica da equipe Pred.IO."
 
+REGRA ESPECIAL — PRIORIDADE DE LEITURA DO RELATÓRIO TÉCNICO:
+- Cada relatório técnico pode ter um Resumo Técnico preenchido manualmente
+  pela equipe Pred.IO na Supervisão — é a fonte PRIORITÁRIA sobre aquele
+  relatório quando presente (marcado no contexto como "Resumo Técnico
+  (fonte prioritária)").
+- Ordem de prioridade ao responder sobre um relatório: (1) Resumo Técnico,
+  (2) Diagnóstico, (3) Conclusão, (4) Recomendações, (5) Severidade e GUT,
+  (6) medições estruturadas, (7) trechos indexados do relatório (chunks),
+  (8) texto extraído do PDF.
+- Se o Resumo Técnico existir, use-o como base principal da resposta sobre
+  aquele relatório — os demais campos complementam, nunca substituem.
+- Se o PDF de um relatório não estiver indexado, mas houver Resumo Técnico,
+  Diagnóstico, Conclusão ou Recomendações preenchidos, responda normalmente
+  com base neles — nunca bloqueie a resposta só por falta de PDF indexado.
+
 REGRA ESPECIAL — FONTE:
 - A fonte exibida ao cliente deve ser sempre "Pred.IO".
 - Não inventar informação técnica. Se não houver base suficiente, responder:
@@ -174,19 +189,34 @@ def _build_context_str(ctx: dict) -> str:
     if reps_idx:
         parts.append("\n=== RELATÓRIOS TÉCNICOS — CONTEÚDO INDEXADO ===")
         for rep in reps_idx:
-            parts.append(
-                f"• {rep.get('titulo','')} — Sev: {rep.get('severidade','')} — Data: {rep.get('data','')} — Ativo: {rep.get('ativo','')}"
+            linha_rep = (
+                f"• {rep.get('titulo','')} — Sev: {rep.get('severidade','')} — "
+                f"Data: {rep.get('data','')} — Ativo: {rep.get('ativo','')}"
             )
+            if rep.get("gut_prioridade"):
+                linha_rep += f" — GUT: {rep.get('gut_score','')} ({rep['gut_prioridade']})"
+            parts.append(linha_rep)
             chunks = rep.get("chunks", [])
             if chunks:
+                # Chunks já refletem a ordem de prioridade (Resumo Técnico →
+                # Diagnóstico → Conclusão → Recomendações → medições → PDF),
+                # ver sheets.index_relatorio_tecnico().
                 for ch in chunks:
                     secao    = ch.get("titulo_secao", "")
                     conteudo = ch.get("conteudo", "")
                     if conteudo:
                         parts.append(f"  [{secao}]: {conteudo}")
             else:
+                # Sem chunks (PDF ainda não indexado, ou relatório antigo) —
+                # ainda assim responde com os campos estruturados disponíveis,
+                # na mesma ordem de prioridade: resumo técnico → diagnóstico →
+                # conclusão → recomendações. Nunca bloqueia a resposta.
                 if rep.get("resumo"):
-                    parts.append(f"  [Resumo]: {rep['resumo']}")
+                    parts.append(f"  [Resumo Técnico (fonte prioritária)]: {rep['resumo']}")
+                if rep.get("diagnostico"):
+                    parts.append(f"  [Diagnóstico]: {rep['diagnostico']}")
+                if rep.get("conclusao"):
+                    parts.append(f"  [Conclusão]: {rep['conclusao']}")
                 if rep.get("recomendacoes"):
                     parts.append(f"  [Recomendações]: {rep['recomendacoes']}")
 

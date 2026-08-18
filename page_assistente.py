@@ -1,14 +1,21 @@
 """Assistente Técnico Pred.IO — chat com IA controlada e histórico."""
 import json
+import re
 import streamlit as st
-from auth import current_client_id, current_empresa, current_email
+from auth import current_client_id, current_empresa, current_email, current_perfil
 from ai_assistant import query_ai, is_critical_question
-from sheets import salvar_log_assistente, get_historico_assistente
+from sheets import (
+    salvar_log_assistente, get_historico_assistente,
+    create_assistant_chat, add_assistant_chat_message, update_assistant_chat_titulo,
+    get_ultimo_chat_ativo, delete_assistant_chat, log_audit,
+)
 from ui import page_header, COLOR_NAVY, COLOR_BLUE, COLOR_CYAN, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
 import assistant_lookup
 
 _KEY_CUR_REPORT = "assistente_current_report_id"
 _KEY_CUR_DOC = "assistente_current_document_id"
+_KEY_CHAT_ID = "assistente_chat_id"
+_KEY_CONFIRM_DEL_CHAT = "assistente_confirmar_apagar_chat"
 
 _AVISO = (
     "ℹ️ As respostas são baseadas nos dados disponíveis no portal. "
@@ -43,6 +50,42 @@ def _sugestoes_para(ativo_nome: str) -> list:
     ]
 
 
+_STOPWORDS_TITULO_INICIO = (
+    "qual", "quais", "quando", "como", "existe", "há", "ha", "tem", "tenho",
+    "o que", "quero", "preciso", "poderia", "pode", "me diga", "mostre",
+)
+
+
+def _titulo_automatico(pergunta: str) -> str:
+    """Gera um título curto para a conversa a partir da primeira pergunta —
+    sem chamada de IA extra, só normalização de texto. Ex.: "Qual o status
+    dos ativos?" -> "Status dos ativos"."""
+    texto = (pergunta or "").strip()
+    if not texto:
+        return "Nova conversa"
+    texto = texto.rstrip("?!. ").strip()
+    texto_l = texto.lower()
+    for stop in sorted(_STOPWORDS_TITULO_INICIO, key=len, reverse=True):
+        if texto_l.startswith(stop + " "):
+            texto = texto[len(stop):].strip()
+            texto_l = texto.lower()
+            break
+    # Artigo/pronome residual que sobra após remover a palavra interrogativa
+    # (ex.: "qual O status..." -> "o status..." -> "status...").
+    for artigo in ("o ", "a ", "os ", "as "):
+        if texto_l.startswith(artigo):
+            texto = texto[len(artigo):].strip()
+            texto_l = texto.lower()
+            break
+    texto = re.sub(r"\s+", " ", texto).strip()
+    if not texto:
+        return "Nova conversa"
+    texto = texto[0].upper() + texto[1:]
+    if len(texto) > 48:
+        texto = texto[:48].rstrip() + "…"
+    return texto
+
+
 def render() -> None:
     page_header("🤖 Assistente Técnico Pred.IO",
                 "Tire dúvidas sobre seus equipamentos e relatórios")
@@ -56,6 +99,8 @@ def render() -> None:
 
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
+
+    _render_chat_controls(client_id, email)
 
     # ── Contexto de ativo — vindo do botão "Perguntar ao Assistente" no
     # detalhe do ativo (page_ativos.py). Não some sozinho: fica até o
@@ -122,17 +167,133 @@ def render() -> None:
                 st.rerun()
 
 
+def _limpar_conversa_atual() -> None:
+    """Limpa o contexto conversacional exibido na tela — nunca apaga dados
+    salvos (relatórios/documentos/chats anteriores continuam intactos)."""
+    st.session_state["chat_history"] = []
+    st.session_state.pop(_KEY_CUR_REPORT, None)
+    st.session_state.pop(_KEY_CUR_DOC, None)
+    st.session_state.pop("assistente_ativo_contexto", None)
+
+
+def _iniciar_novo_chat(client_id: str, email: str) -> None:
+    """"Novo chat": finaliza o contexto atual (sem apagar nada salvo) e
+    cria uma conversa nova, que passa a ser o contexto atual da sessão."""
+    _limpar_conversa_atual()
+    novo_id = create_assistant_chat(email, client_id)
+    st.session_state[_KEY_CHAT_ID] = novo_id or ""
+    if novo_id:
+        try:
+            log_audit(email, current_perfil(), client_id, "assistant_chat_created",
+                      recurso_tipo="assistente_chat", recurso_id=novo_id)
+        except Exception:
+            pass
+
+
+def _get_or_create_chat_id(client_id: str, email: str) -> str:
+    """Garante que exista um chat_id para a sessão atual — cria um de forma
+    lazy na primeira pergunta, para quem nunca clicou em "Novo chat" também
+    ter uma conversa persistida (necessário para "Apagar último chat")."""
+    chat_id = st.session_state.get(_KEY_CHAT_ID, "")
+    if chat_id:
+        return chat_id
+    novo_id = create_assistant_chat(email, client_id)
+    st.session_state[_KEY_CHAT_ID] = novo_id or ""
+    return novo_id or ""
+
+
+def _salvar_mensagens_chat(chat_id: str, client_id: str, email: str, pergunta: str, resposta: str,
+                           report_id: str = "", document_id: str = "") -> None:
+    """Persiste pergunta+resposta em AssistantChatMessages e, na primeira
+    mensagem da conversa, atualiza o título automático. Nunca interrompe o
+    fluxo do chat em caso de falha (mesma tolerância de salvar_log_assistente)."""
+    if not chat_id:
+        return
+    try:
+        primeira_mensagem = len(st.session_state.get("chat_history", [])) <= 1
+        add_assistant_chat_message(chat_id, email, client_id, "user", pergunta)
+        add_assistant_chat_message(chat_id, email, client_id, "assistant", resposta,
+                                   report_id=report_id, document_id=document_id)
+        if primeira_mensagem:
+            update_assistant_chat_titulo(chat_id, _titulo_automatico(pergunta))
+    except Exception:
+        pass
+
+
+def _render_chat_controls(client_id: str, email: str) -> None:
+    """Cabeçalho do Assistente: [ Novo chat ] [ ⋯ com Apagar último chat ].
+    Compacto, sem sidebar — funciona igual em mobile (colunas estreitas)."""
+    col_novo, col_menu = st.columns([1, 1])
+    with col_novo:
+        if st.button("🆕 Novo chat", use_container_width=True, key="_ast_novo_chat"):
+            _iniciar_novo_chat(client_id, email)
+            st.rerun()
+
+    # Alvo do "Apagar último chat": o chat atual da sessão, ou — se a
+    # sessão ainda não tem um chat aberto — a última conversa Ativa salva
+    # deste usuário/cliente (item 3 do pedido).
+    chat_alvo_id = st.session_state.get(_KEY_CHAT_ID, "")
+    if not chat_alvo_id:
+        try:
+            ultimo = get_ultimo_chat_ativo(email, client_id)
+            chat_alvo_id = (ultimo or {}).get("Id", "")
+        except Exception:
+            chat_alvo_id = ""
+
+    with col_menu:
+        with st.popover("⋯", use_container_width=True):
+            if chat_alvo_id:
+                if st.button("🗑️ Apagar último chat", use_container_width=True, key="_ast_apagar_chat"):
+                    st.session_state[_KEY_CONFIRM_DEL_CHAT] = chat_alvo_id
+                    st.rerun()
+            else:
+                st.caption("Nenhuma conversa para apagar ainda.")
+
+    # Confirmação em 2 passos — nunca apaga direto no primeiro clique.
+    confirm_id = st.session_state.get(_KEY_CONFIRM_DEL_CHAT, "")
+    if confirm_id:
+        st.warning(
+            "Deseja apagar o último chat? Esta ação excluirá apenas a "
+            "conversa selecionada e não afetará relatórios, documentos ou "
+            "dados do Portal Pred.IO."
+        )
+        col_ok, col_no, _ = st.columns([1, 1, 3])
+        with col_ok:
+            if st.button("🗑️ Apagar chat", type="primary", use_container_width=True, key="_ast_apagar_chat_ok"):
+                resultado = delete_assistant_chat(confirm_id, email, client_id)
+                st.session_state.pop(_KEY_CONFIRM_DEL_CHAT, None)
+                if resultado.get("ok"):
+                    try:
+                        log_audit(email, current_perfil(), client_id, "assistant_chat_deleted",
+                                  recurso_tipo="assistente_chat", recurso_id=confirm_id)
+                    except Exception:
+                        pass
+                    # Chat apagado era o da sessão (ou passou a ser, por ser o
+                    # único alvo possível) — abre um chat novo vazio automaticamente.
+                    if st.session_state.get(_KEY_CHAT_ID, "") == confirm_id or not st.session_state.get(_KEY_CHAT_ID):
+                        _iniciar_novo_chat(client_id, email)
+                    st.success("Conversa apagada.")
+                    st.rerun()
+                else:
+                    st.error(resultado.get("erro", "Erro ao apagar a conversa."))
+        with col_no:
+            if st.button("Cancelar", use_container_width=True, key="_ast_apagar_chat_no"):
+                st.session_state.pop(_KEY_CONFIRM_DEL_CHAT, None)
+                st.rerun()
+
+
 def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str) -> None:
     # Antes de acionar a IA genérica, verifica se a pergunta é sobre
     # localizar/exibir/resumir um Relatório Técnico ou documento da
     # Biblioteca — se for, resolve aqui e nem chama query_ai(). Se não for
     # (retorna None), segue o fluxo normal sem nenhuma mudança.
+    chat_id = _get_or_create_chat_id(client_id, email)
     current_report_id = st.session_state.get(_KEY_CUR_REPORT, "")
     current_document_id = st.session_state.get(_KEY_CUR_DOC, "")
     with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
         lookup = assistant_lookup.rotear_pergunta(pergunta, client_id, current_report_id, current_document_id)
     if lookup is not None:
-        _registrar_lookup(pergunta, lookup, client_id, email)
+        _registrar_lookup(pergunta, lookup, client_id, email, chat_id)
         st.rerun()
         return
 
@@ -175,6 +336,8 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     except Exception:
         pass
 
+    _salvar_mensagens_chat(chat_id, client_id, email, pergunta, result.get("answer", ""))
+
     # Modo Admin "Ver como Cliente": registra em auditoria que um staff
     # consultou o Assistente em nome do cliente selecionado.
     try:
@@ -190,7 +353,7 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     st.rerun()
 
 
-def _registrar_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None:
+def _registrar_lookup(pergunta: str, lookup: dict, client_id: str, email: str, chat_id: str = "") -> None:
     """Adiciona ao histórico da sessão um resultado de
     assistant_lookup.rotear_pergunta() (card/lista/resumo/etc.) e atualiza
     current_report_id/current_document_id — SEMPRE os valores que vieram
@@ -208,6 +371,12 @@ def _registrar_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -
     }
     st.session_state["chat_history"].append(item)
     _log_lookup(pergunta, lookup, client_id, email)
+
+    resposta_txt = lookup.get("texto") or lookup.get("mensagem") or f"[{lookup.get('tipo', '')}]"
+    _salvar_mensagens_chat(
+        chat_id or st.session_state.get(_KEY_CHAT_ID, ""), client_id, email, pergunta, resposta_txt,
+        report_id=lookup.get("current_report_id", ""), document_id=lookup.get("current_document_id", ""),
+    )
 
 
 def _log_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None:

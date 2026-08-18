@@ -423,11 +423,17 @@ def summarize_technical_report(report_id: str, client_id: str, tipo_resumo: str 
         f"Data: {rep.get('Data_Relatorio','')}",
     ]
     if rep.get("Resumo"):
-        partes.append(f"Resumo estruturado: {rep['Resumo']}")
-    if rep.get("Recomendacoes"):
-        partes.append(f"Recomendações: {rep['Recomendacoes']}")
+        partes.append(f"Resumo Técnico (fonte prioritária): {rep['Resumo']}")
+    if rep.get("Diagnostico"):
+        partes.append(f"Diagnóstico: {rep['Diagnostico']}")
     if rep.get("Conclusao"):
         partes.append(f"Conclusão: {rep['Conclusao']}")
+    if rep.get("Recomendacoes"):
+        partes.append(f"Recomendações: {rep['Recomendacoes']}")
+    if rep.get("Severidade"):
+        partes.append(f"Severidade: {rep['Severidade']}")
+    if rep.get("Gut_Prioridade"):
+        partes.append(f"GUT: {rep.get('Gut_Score','')} ({rep['Gut_Prioridade']})")
 
     chunks_df = sheets.get_chunks_relatorio(report_id, client_id)
     tem_chunks = not chunks_df.empty
@@ -438,7 +444,7 @@ def summarize_technical_report(report_id: str, client_id: str, tipo_resumo: str 
             if conteudo:
                 partes.append(f"[{ch.get('Titulo_Secao','')}]: {conteudo}")
 
-    tem_conteudo_estruturado = any(rep.get(k) for k in ("Resumo", "Recomendacoes", "Conclusao"))
+    tem_conteudo_estruturado = any(rep.get(k) for k in ("Resumo", "Diagnostico", "Recomendacoes", "Conclusao"))
     if not tem_conteudo_estruturado and not tem_chunks:
         return {
             "ok": False, "resumo": "",

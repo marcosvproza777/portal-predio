@@ -34,6 +34,9 @@ _TIPOS_SERVICO = [
     "Análise de Vibração",
     "Análise de Óleo",
     "Termografia",
+    "OAT",
+    "Ordem de Serviço",
+    "Alinhamento a Laser",
     "Inspeção Técnica",
     "Análise Preditiva",
     "Relatório de Alarme",
@@ -420,6 +423,7 @@ def _render_card(row, key_prefix: str = "") -> None:
     score_imp  = str(row.get("Score_Impacto",  "")).strip()
     resumo     = str(row.get("Resumo",         "")).strip()
     status_idx = str(row.get("Status_Indexacao", "")).strip()
+    qtd_chunks = str(row.get("Quantidade_Chunks", "")).strip()
 
     sc, sb, sbo, st_ = _sev_cfg(sev)
     stc, stb, stbo   = _status_cfg(status)
@@ -452,11 +456,25 @@ def _render_card(row, key_prefix: str = "") -> None:
     # dos badges de Severidade/Status acima.
     idx_html = ""
     if status_idx:
+        chunks_txt = f" · {qtd_chunks} chunk(s)" if qtd_chunks and qtd_chunks not in ("0", "nan") else ""
         idx_html = (
             f"<span style='background:{idxb};color:{idxc};-webkit-text-fill-color:{idxc};"
             f"border:1px solid {idxbo};font-size:0.67rem;font-weight:700;"
-            f"padding:2px 10px;border-radius:12px;'>🧠 {status_idx}</span>"
+            f"padding:2px 10px;border-radius:12px;'>🧠 IA: {status_idx}{chunks_txt}</span>"
         )
+
+    # Badge de Resumo Técnico (resumo_tecnico) — fonte prioritária do
+    # Assistente Técnico IA e do Resumo Executivo (ver campo Resumo).
+    tem_resumo = bool(resumo and resumo.lower() not in ("", "nan"))
+    resumo_html = (
+        "<span style='background:#F0FDF4;color:#065F46;-webkit-text-fill-color:#065F46;"
+        "border:1px solid #86EFAC;font-size:0.67rem;font-weight:700;"
+        "padding:2px 10px;border-radius:12px;'>📝 Resumo técnico: preenchido</span>"
+        if tem_resumo else
+        "<span style='background:#F8FAFC;color:#64748B;-webkit-text-fill-color:#64748B;"
+        "border:1px solid #CBD5E1;font-size:0.67rem;font-weight:700;"
+        "padding:2px 10px;border-radius:12px;'>📝 Resumo técnico: não preenchido</span>"
+    )
 
     col_info, col_btns = st.columns([6, 2])
     with col_info:
@@ -474,6 +492,7 @@ def _render_card(row, key_prefix: str = "") -> None:
             f"<span style='background:{stb};color:{stc};-webkit-text-fill-color:{stc};"
             f"border:1px solid {stbo};font-size:0.67rem;font-weight:700;"
             f"padding:2px 10px;border-radius:12px;'>{status}</span>"
+            + resumo_html
             + idx_html
             + score_html
             + f"</div></div>"
@@ -503,14 +522,14 @@ def _render_card(row, key_prefix: str = "") -> None:
             # (idempotente, sempre substitui os chunks antigos do mesmo
             # relatório), então não precisa de confirmação em 2 passos como
             # Publicar/Arquivar/Excluir.
-            if st.button("🔄 Reindexar", key=f"_svrel_reidx_{key_prefix}{rep_id}", use_container_width=True):
+            if st.button("🔄 Reindexar IA", key=f"_svrel_reidx_{key_prefix}{rep_id}", use_container_width=True):
                 from sheets import reindex_technical_report as _reidx
-                with st.spinner("Reindexando..."):
+                with st.spinner("Reindexando para o Assistente Técnico IA..."):
                     result = _reidx(rep_id)
                 from sheets import load_sheet as _ls
                 _ls.clear()
                 if result.get("ok"):
-                    st.success("Relatório reindexado.")
+                    st.success("Relatório reindexado para o Assistente Técnico IA.")
                     st.rerun()
                 else:
                     st.error(result.get("erro", "Erro ao reindexar."))
@@ -797,8 +816,15 @@ def _render_form(report: dict | None) -> None:
     )
 
     resumo = st.text_area(
-        "Resumo / Diagnóstico (visível ao cliente) *",
+        "Resumo Técnico (visível ao cliente) *",
         value=_d("Resumo"), height=120, key="_svrel_f_resumo",
+    )
+    st.caption(
+        "Este resumo será utilizado pelo Assistente Técnico IA e pelo Resumo Executivo."
+    )
+    diagnostico = st.text_area(
+        "Diagnóstico (visível ao cliente)",
+        value=_d("Diagnostico"), height=100, key="_svrel_f_diagnostico",
     )
     conclusao = st.text_area(
         "Conclusão (visível ao cliente)",
@@ -958,6 +984,7 @@ def _render_form(report: dict | None) -> None:
             "planta":        planta.strip(),
             "equipamento":   equipamento.strip(),
             "resumo":        resumo.strip(),
+            "diagnostico":   diagnostico.strip(),
             "recomendacoes": recomendacoes.strip(),
             "conclusao":     conclusao.strip(),
             "arquivo_url":   arquivo_url.strip(),
@@ -998,6 +1025,7 @@ def _render_form(report: dict | None) -> None:
         "tipo_servico": "Tipo_Servico", "severidade": "Severidade",
         "data_relatorio": "Data_Relatorio", "planta": "Planta",
         "equipamento": "Equipamento", "resumo": "Resumo",
+        "diagnostico": "Diagnostico",
         "recomendacoes": "Recomendacoes", "conclusao": "Conclusao",
         "arquivo_url": "Arquivo_Url", "obs_interna": "Obs_Interna",
         "origem": "Origem", "tecnico": "Tecnico",
