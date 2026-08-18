@@ -329,6 +329,21 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     }
     st.session_state["chat_history"].append(item)
 
+    # Diagnóstico (item 13/16): usou_resumo_tecnico vem de
+    # ai_assistant._detectar_uso_resumo_tecnico() — compara a resposta
+    # final com o resumo_tecnico de cada relatório do contexto (não dá
+    # pra instrumentar a chamada à IA por dentro, é um serviço externo).
+    usou_resumo_ia = bool(result.get("usou_resumo_tecnico"))
+    tipo_relatorio_ia = ""
+    rep_id_usado = result.get("report_id_resumo_usado", "")
+    if rep_id_usado:
+        try:
+            rep_usado = get_technical_report_by_id(rep_id_usado)
+            if rep_usado:
+                tipo_relatorio_ia = rep_usado.get("Tipo_Servico", "")
+        except Exception:
+            pass
+
     # Log seguro: nunca salva dados de outro cliente
     try:
         salvar_log_assistente(
@@ -339,7 +354,10 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
             fontes=", ".join(s.get("titulo", "") for s in result.get("sources", [])),
             confidence=result.get("confidence", ""),
             sources_json=json.dumps(result.get("sources", []), ensure_ascii=False)[:2000],
+            report_ids_usados=rep_id_usado,
             intent_detectada="ia_generica",
+            tipo_relatorio_detectado=tipo_relatorio_ia,
+            usou_resumo_tecnico="true" if usou_resumo_ia else "false",
         )
     except Exception:
         pass

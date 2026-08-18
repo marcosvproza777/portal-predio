@@ -22,8 +22,59 @@ SEGURANÇA OBRIGATÓRIA:
 from __future__ import annotations
 import json
 import os
+import re as _re
+import unicodedata as _ud
 
 from assistant_engine import get_client_context, detect_intent, _build_response
+
+_STOP_TOKENS_RESUMO = {
+    "que", "para", "com", "uma", "das", "dos", "por", "sem", "mais",
+    "esta", "esse", "essa", "isso", "foi", "sao", "tem", "nos", "nas",
+    "dentro", "esta", "sobre",
+}
+
+
+def _tokenizar_resumo(texto: str) -> set[str]:
+    n = _ud.normalize("NFD", (texto or "").lower())
+    n = "".join(c for c in n if _ud.category(c) != "Mn")
+    palavras = _re.findall(r"[a-z0-9]+", n)
+    return {p for p in palavras if len(p) > 3 and p not in _STOP_TOKENS_RESUMO}
+
+
+def _detectar_uso_resumo_tecnico(ctx: dict, answer: str) -> dict:
+    """Auditoria (item 13/16): detecta se resumo_tecnico foi mesmo a base
+    da resposta final — sem isso não dá pra saber, pela planilha de logs,
+    se o Assistente realmente usou o campo ou só tinha acesso a ele.
+
+    Não há como instrumentar a chamada à Anthropic API por dentro (é uma
+    chamada de terceiro, a resposta já vem pronta) — a heurística compara
+    a resposta final com o resumo_tecnico de cada relatório publicado no
+    contexto do cliente: se uma fração relevante das palavras do resumo
+    aparece na resposta, considera que aquele resumo foi usado. Funciona
+    tanto para a resposta da IA quanto para o motor de fallback (mesma
+    função, mesmo critério, sem duplicar lógica nos dois caminhos)."""
+    answer_tokens = _tokenizar_resumo(answer)
+    disponiveis: list[str] = []
+    usado_em = ""
+    if answer_tokens:
+        for rep in ctx.get("relatorios_tecnicos_indexados", []):
+            resumo = (rep.get("resumo") or "").strip()
+            if not resumo:
+                continue
+            rep_id = rep.get("id", "")
+            if rep_id:
+                disponiveis.append(rep_id)
+            resumo_tokens = _tokenizar_resumo(resumo)
+            if not resumo_tokens:
+                continue
+            overlap = len(resumo_tokens & answer_tokens) / len(resumo_tokens)
+            if overlap >= 0.35 and not usado_em:
+                usado_em = rep_id
+    return {
+        "usou_resumo_tecnico": bool(usado_em),
+        "report_id_resumo_usado": usado_em,
+        "reports_com_resumo_disponivel": disponiveis,
+    }
 
 _SYSTEM_PROMPT = """\
 Você é o Assistente Técnico Pred.IO.
@@ -349,7 +400,7 @@ def _fallback_engine(
     ctx = get_client_context(client_id)
     intent = detect_intent(pergunta)
     result = _build_response(intent, ctx, pergunta, ativo_id)
-    return {
+    resposta = {
         "answer":            result.get("answer", ""),
         "confidence":        "media",
         "sources":           [],
@@ -357,6 +408,8 @@ def _fallback_engine(
         "related_reports":   result.get("related_reports", []),
         "suggested_actions": result.get("related_links", []),
     }
+    resposta.update(_detectar_uso_resumo_tecnico(ctx, resposta["answer"]))
+    return resposta
 
 
 def query_ai(
@@ -427,6 +480,7 @@ def query_ai(
         )
         raw = message.content[0].text
         result = _parse_ai_response(raw, ctx)
+        result.update(_detectar_uso_resumo_tecnico(ctx, result.get("answer", "")))
         return result
 
     except ImportError:
