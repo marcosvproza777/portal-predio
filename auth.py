@@ -184,6 +184,25 @@ def current_empresa() -> str:
 
 # ── Modo Admin — "Ver como Cliente" ─────────────────────────────────────────
 
+# Chaves de session_state com dado ESPECÍFICO do cliente sendo visualizado
+# (nunca válidas para outro cliente) — precisam ser limpas em toda troca de
+# contexto (entrar OU sair do preview), senão o próximo cliente visualizado
+# herda estado do anterior. BUG CORRIGIDO: só o cache de logo
+# (_clogo_loaded/client_logo_b64) era limpo aqui; o histórico e o contexto
+# do Assistente Técnico (page_assistente.py) não eram — trocar de "Ver como
+# Cliente" de um cliente para outro (ou voltar à Supervisão e entrar de novo)
+# fazia o chat mostrar a conversa e os relatórios do cliente visto
+# anteriormente, um vazamento de dado entre clientes.
+_CHAVES_ESTADO_POR_CLIENTE = (
+    "_clogo_loaded", "client_logo_b64",
+    # Assistente Técnico (page_assistente.py)
+    "chat_history",
+    "assistente_current_report_id", "assistente_current_document_id",
+    "assistente_chat_id", "assistente_confirmar_apagar_chat",
+    "assistente_ativo_contexto", "assistente_ativo_id_contexto",
+)
+
+
 def enter_admin_preview(client_id: str, client_empresa: str) -> bool:
     """Ativa o modo de visualização 'Ver como Cliente' para o staff logado.
 
@@ -197,10 +216,11 @@ def enter_admin_preview(client_id: str, client_empresa: str) -> bool:
     st.session_state["admin_preview_client_empresa"] = client_empresa
     st.session_state["admin_preview_admin_email"]    = current_email()
     st.session_state["admin_preview_admin_nome"]     = current_nome()
-    # Força recarregar o logo do cliente certo — sem isso, o cache de logo
-    # (por sessão, não por cliente) mostraria o logo do cliente visto antes.
-    st.session_state.pop("_clogo_loaded", None)
-    st.session_state.pop("client_logo_b64", None)
+    # Força recarregar o logo do cliente certo e limpa qualquer estado do
+    # Assistente Técnico do cliente visto anteriormente (ver comentário em
+    # _CHAVES_ESTADO_POR_CLIENTE) — sem isso, o cliente novo herdaria o chat.
+    for k in _CHAVES_ESTADO_POR_CLIENTE:
+        st.session_state.pop(k, None)
     st.session_state["portal_page"] = "dashboard"
     return True
 
@@ -209,7 +229,7 @@ def exit_admin_preview() -> None:
     """Sai do modo 'Ver como Cliente', voltando para a Supervisão normal."""
     for k in ("admin_preview_client_id", "admin_preview_client_empresa",
               "admin_preview_admin_email", "admin_preview_admin_nome",
-              "_clogo_loaded", "client_logo_b64"):
+              *_CHAVES_ESTADO_POR_CLIENTE):
         st.session_state.pop(k, None)
 
 
