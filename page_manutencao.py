@@ -403,6 +403,7 @@ def _render_task_card_client(e: dict) -> None:
             elif acao == "assistente":
                 if st.button("🤖 Perguntar ao Assistente", key=f"man_ast_{key_base}", use_container_width=True):
                     st.session_state["assistente_ativo_contexto"] = nome
+                    st.session_state["assistente_ativo_id_contexto"] = at_id
                     st.session_state["portal_page"] = "assistente"
                     st.rerun()
 

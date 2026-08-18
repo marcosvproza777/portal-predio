@@ -1636,12 +1636,20 @@ def salvar_log_assistente(
     document_ids_usados: str = "",
     current_report_id: str = "",
     current_document_id: str = "",
+    intent_detectada: str = "",
+    tipo_relatorio_detectado: str = "",
+    usou_resumo_tecnico: str = "",
 ) -> None:
     """report_ids_usados/document_ids_usados: Ids (separados por vírgula)
     dos relatórios/documentos que embasaram esta resposta — auditoria de
     fonte pro Assistente localizar/resumir Relatórios e Biblioteca no chat.
     current_report_id/current_document_id: qual ficou "atual" na sessão
     após esta pergunta (para acompanhar o contexto conversacional).
+    intent_detectada/tipo_relatorio_detectado/usou_resumo_tecnico: para
+    diagnosticar se o Assistente realmente usou resumo_tecnico de um
+    relatório ao responder — sem isso não dá pra saber pela planilha se
+    uma resposta "errada" foi por o resumo não existir ou por o robô nunca
+    ter chegado a olhar o relatório certo.
 
     ORDEM DAS COLUNAS SEGUE O CABEÇALHO REAL DA PLANILHA — append_row()
     escreve por posição, não por nome. O cabeçalho original do chat de
@@ -1657,6 +1665,7 @@ def salvar_log_assistente(
         "Report_Ids_Usados", "Document_Ids_Usados",
         "Current_Report_Id", "Current_Document_Id",
         "Confidence", "Sources_Json",
+        "Intent_Detectada", "Tipo_Relatorio_Detectado", "Usou_Resumo_Tecnico",
     ])
     append_row("AssistenteLogs", [
         client_id, email,
@@ -1665,6 +1674,7 @@ def salvar_log_assistente(
         report_ids_usados, document_ids_usados,
         current_report_id, current_document_id,
         confidence, sources_json,
+        intent_detectada, tipo_relatorio_detectado, usou_resumo_tecnico,
     ])
 
 

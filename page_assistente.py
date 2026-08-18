@@ -8,6 +8,7 @@ from sheets import (
     salvar_log_assistente, get_historico_assistente,
     create_assistant_chat, add_assistant_chat_message, update_assistant_chat_titulo,
     get_ultimo_chat_ativo, delete_assistant_chat, log_audit,
+    get_technical_report_by_id,
 )
 from ui import page_header, COLOR_NAVY, COLOR_BLUE, COLOR_CYAN, COLOR_CARD, COLOR_BORDER, COLOR_MUTED
 import assistant_lookup
@@ -120,6 +121,7 @@ def render() -> None:
         with col_clear:
             if st.button("✕", key="_ast_clear_ctx", help="Limpar contexto do ativo"):
                 st.session_state.pop("assistente_ativo_contexto", None)
+                st.session_state.pop("assistente_ativo_id_contexto", None)
                 st.rerun()
 
     # ── Formulário de pergunta ────────────────────────────────────────────────
@@ -174,6 +176,7 @@ def _limpar_conversa_atual() -> None:
     st.session_state.pop(_KEY_CUR_REPORT, None)
     st.session_state.pop(_KEY_CUR_DOC, None)
     st.session_state.pop("assistente_ativo_contexto", None)
+    st.session_state.pop("assistente_ativo_id_contexto", None)
 
 
 def _iniciar_novo_chat(client_id: str, email: str) -> None:
@@ -290,8 +293,12 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     chat_id = _get_or_create_chat_id(client_id, email)
     current_report_id = st.session_state.get(_KEY_CUR_REPORT, "")
     current_document_id = st.session_state.get(_KEY_CUR_DOC, "")
+    ativo_id_contexto = st.session_state.get("assistente_ativo_id_contexto", "")
     with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
-        lookup = assistant_lookup.rotear_pergunta(pergunta, client_id, current_report_id, current_document_id)
+        lookup = assistant_lookup.rotear_pergunta(
+            pergunta, client_id, current_report_id, current_document_id,
+            ativo_id=ativo_id_contexto,
+        )
     if lookup is not None:
         _registrar_lookup(pergunta, lookup, client_id, email, chat_id)
         st.rerun()
@@ -332,6 +339,7 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
             fontes=", ".join(s.get("titulo", "") for s in result.get("sources", [])),
             confidence=result.get("confidence", ""),
             sources_json=json.dumps(result.get("sources", []), ensure_ascii=False)[:2000],
+            intent_detectada="ia_generica",
         )
     except Exception:
         pass
@@ -398,6 +406,31 @@ def _log_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None
         document_ids = lookup.get("current_document_id", "")
 
     resposta = lookup.get("texto") or lookup.get("mensagem") or f"[{tipo}]"
+
+    # Diagnóstico (item 13): qual intent/tipo foi usado e se resumo_tecnico
+    # (o campo Resumo do relatório) realmente foi a base da resposta —
+    # essencial pra saber se uma resposta "errada" foi por o campo estar
+    # vazio ou por o Assistente nunca ter chegado a olhar o relatório certo.
+    intent_detectada = {
+        "resumo": "relatorio_tecnico_resumo", "resumo_consolidado": "relatorio_tecnico_resumo",
+        "cruzamento": "relatorio_tecnico_resumo", "relatorio_card": "relatorio_tecnico_resumo",
+        "lista_relatorios": "relatorio_tecnico_resumo",
+        "documento_card": "documento_biblioteca", "lista_documentos": "documento_biblioteca",
+        "ambiguo": "localizacao_ambigua",
+    }.get(tipo, "nao_encontrado")
+
+    tipo_relatorio_detectado = ""
+    usou_resumo_tecnico = "false"
+    rep_id_resumido = lookup.get("current_report_id", "") if tipo == "resumo" else ""
+    if rep_id_resumido:
+        try:
+            rep_check = get_technical_report_by_id(rep_id_resumido)
+            if rep_check:
+                tipo_relatorio_detectado = rep_check.get("Tipo_Servico", "")
+                usou_resumo_tecnico = "true" if rep_check.get("Resumo") else "false"
+        except Exception:
+            pass
+
     try:
         salvar_log_assistente(
             client_id=client_id, email=email, pergunta=pergunta,
@@ -405,6 +438,9 @@ def _log_lookup(pergunta: str, lookup: dict, client_id: str, email: str) -> None
             report_ids_usados=report_ids, document_ids_usados=document_ids,
             current_report_id=st.session_state.get(_KEY_CUR_REPORT, ""),
             current_document_id=st.session_state.get(_KEY_CUR_DOC, ""),
+            intent_detectada=intent_detectada,
+            tipo_relatorio_detectado=tipo_relatorio_detectado,
+            usou_resumo_tecnico=usou_resumo_tecnico,
         )
     except Exception:
         pass

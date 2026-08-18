@@ -416,33 +416,8 @@ def summarize_technical_report(report_id: str, client_id: str, tipo_resumo: str 
     if rep.get("Status", "").strip() != "Publicado":
         return {"ok": False, "resumo": "", "erro": "Relatório não encontrado."}
 
-    partes = [
-        f"Título: {rep.get('Titulo','')}",
-        f"Tipo: {rep.get('Tipo_Servico','')}",
-        f"Severidade: {rep.get('Severidade','')}",
-        f"Data: {rep.get('Data_Relatorio','')}",
-    ]
-    if rep.get("Resumo"):
-        partes.append(f"Resumo Técnico (fonte prioritária): {rep['Resumo']}")
-    if rep.get("Diagnostico"):
-        partes.append(f"Diagnóstico: {rep['Diagnostico']}")
-    if rep.get("Conclusao"):
-        partes.append(f"Conclusão: {rep['Conclusao']}")
-    if rep.get("Recomendacoes"):
-        partes.append(f"Recomendações: {rep['Recomendacoes']}")
-    if rep.get("Severidade"):
-        partes.append(f"Severidade: {rep['Severidade']}")
-    if rep.get("Gut_Prioridade"):
-        partes.append(f"GUT: {rep.get('Gut_Score','')} ({rep['Gut_Prioridade']})")
-
     chunks_df = sheets.get_chunks_relatorio(report_id, client_id)
     tem_chunks = not chunks_df.empty
-    if tem_chunks:
-        partes.append("Conteúdo indexado do PDF:")
-        for _, ch in chunks_df.iterrows():
-            conteudo = str(ch.get("Conteudo", "")).strip()
-            if conteudo:
-                partes.append(f"[{ch.get('Titulo_Secao','')}]: {conteudo}")
 
     tem_conteudo_estruturado = any(rep.get(k) for k in ("Resumo", "Diagnostico", "Recomendacoes", "Conclusao"))
     if not tem_conteudo_estruturado and not tem_chunks:
@@ -451,14 +426,50 @@ def summarize_technical_report(report_id: str, client_id: str, tipo_resumo: str 
             "erro": "Este relatório ainda não está indexado — não há conteúdo suficiente para resumir.",
         }
 
-    conteudo = "\n".join(partes)
-    resumo_ia = _chamar_claude_resumo(_SYSTEM_PROMPT_RESUMO, conteudo, tipo_resumo)
-    if resumo_ia:
-        return {"ok": True, "resumo": resumo_ia, "erro": None}
+    # Resumo de UM relatório específico usa sempre o template determinístico
+    # abaixo — nunca depende de a IA "decidir" incluir o resumo_tecnico.
+    # Prioridade de leitura: resumo_tecnico (Resumo) -> diagnostico ->
+    # conclusao -> recomendacoes -> severidade -> GUT -> chunks (complemento).
+    resumo_txt = (
+        rep.get("Resumo") or rep.get("Diagnostico") or rep.get("Conclusao") or ""
+    ).strip()
 
-    # Fallback sem IA: concatena os campos estruturados disponíveis
-    fallback_partes = [p for p in partes if not p.startswith("Conteúdo indexado") and ":" in p]
-    return {"ok": True, "resumo": " | ".join(fallback_partes), "erro": None}
+    linhas = [f"Resumo do relatório de {rep.get('Tipo_Servico','').strip() or 'relatório técnico'}", ""]
+    linhas.append(f"Ativo: {_nome_ativo(rep.get('Ativo_Id', ''))}")
+    if rep.get("Data_Relatorio"):
+        linhas.append(f"Data: {rep['Data_Relatorio']}")
+    if rep.get("Severidade"):
+        linhas.append(f"Severidade: {rep['Severidade']}")
+    linhas.append("")
+
+    if resumo_txt:
+        linhas.append("Resumo técnico:")
+        linhas.append(resumo_txt)
+        linhas.append("")
+
+    if rep.get("Recomendacoes"):
+        linhas.append("Principais recomendações:")
+        linhas.append(rep["Recomendacoes"].strip())
+        linhas.append("")
+
+    if rep.get("Gut_Prioridade"):
+        linhas.append(f"GUT: {rep.get('Gut_Score','')} ({rep['Gut_Prioridade']})")
+        linhas.append("")
+
+    if not resumo_txt and not rep.get("Recomendacoes") and tem_chunks:
+        # Sem nenhum campo estruturado preenchido — usa trechos indexados
+        # do PDF como complemento (nunca como única fonte quando existe
+        # dado estruturado, ver prioridade acima).
+        linhas.append("Trechos indexados do relatório:")
+        for _, ch in chunks_df.head(3).iterrows():
+            conteudo = str(ch.get("Conteudo", "")).strip()
+            if conteudo:
+                linhas.append(f"[{ch.get('Titulo_Secao','')}]: {conteudo[:400]}")
+        linhas.append("")
+
+    linhas.append("Fonte: Pred.IO")
+    resumo_final = "\n".join(linhas).strip()
+    return {"ok": True, "resumo": resumo_final, "erro": None}
 
 
 def summarize_technical_document(document_id: str, client_id: str, tipo_resumo: str = "curto") -> dict:
@@ -553,6 +564,23 @@ _KW_CONTEUDO = [
     "fala sobre", "falam sobre", "menciona", "mencionam", "algo sobre",
     "trata de", "aborda", "abordam",
 ]
+# Perguntas diretas sobre O CONTEÚDO de um relatório específico ("o que diz
+# o relatório de vibração?") — sem palavra de "resumir" nem de "localizar",
+# mas com a mesma intenção: resumir aquele relatório. Tratado igual a
+# quer_resumir (ver rotear_pergunta) para não cair no motor de fallback
+# genérico, que não sabe usar resumo_tecnico.
+_KW_PERGUNTA_DIRETA = [
+    "o que diz", "o que fala", "o que mostra", "o que encontrou", "o que consta",
+]
+# Pergunta de acompanhamento sobre um CAMPO do relatório atual ("qual foi a
+# recomendação?", "qual a severidade?") — sem pronome nem palavra de
+# relatório, mas claramente uma continuação da conversa quando já existe um
+# current_report_id na sessão. Só conta como continuação se houver um
+# relatório atual (ver rotear_pergunta) — nunca decide um alvo novo sozinha.
+_KW_CAMPO_RELATORIO_ATUAL = {
+    "recomendacao", "recomendacoes", "diagnostico", "conclusao",
+    "severidade", "gut",
+}
 
 _STOPWORDS_BUSCA_CONTEUDO = _STOPWORDS_BUSCA_DOC | _KW_REL | _KW_LOCALIZAR | {
     "falam", "fala", "mencionam", "menciona", "algo", "trata",
@@ -672,12 +700,18 @@ def rotear_pergunta(
     client_id: str,
     current_report_id: str = "",
     current_document_id: str = "",
+    ativo_id: str = "",
 ) -> dict | None:
     """Detecta se a pergunta é sobre localizar/exibir/resumir um Relatório
     Técnico ou documento da Biblioteca Técnica; se sim, resolve e retorna
     um dict pronto para a UI do chat. Caso contrário, retorna None — quem
     chama (page_assistente.py) segue para ai_assistant.query_ai() sem
     nenhuma mudança nesse caminho.
+
+    ativo_id: contexto do ativo atual (ex.: veio do botão "Perguntar ao
+    Assistente" no detalhe do ativo) — usado como filtro só quando a
+    própria pergunta não menciona um ativo diferente (texto explícito na
+    pergunta sempre tem prioridade sobre o contexto da tela).
 
     SEGURANÇA: client_id sempre da sessão. current_report_id/
     current_document_id são SEMPRE revalidados aqui (via
@@ -688,28 +722,53 @@ def rotear_pergunta(
     if not client_id or not pergunta or not pergunta.strip():
         return None
 
+    ativo_id_contexto = ativo_id
     q = _norm(pergunta)
     tk = _tokens(pergunta)
 
     quer_resumir = bool(_KW_RESUMIR & tk)
     quer_localizar = bool(_KW_LOCALIZAR & tk)
     quer_conteudo = any(kw in q for kw in _KW_CONTEUDO)
+    quer_pergunta_direta = any(kw in q for kw in _KW_PERGUNTA_DIRETA)
+    # "Qual foi a recomendação?" logo depois de já ter resumido um relatório
+    # — sem pronome, sem palavra de relatório, mas claramente uma
+    # continuação da conversa (só conta com um relatório atual na sessão).
+    quer_campo_continuacao = bool(current_report_id) and any(kw in q for kw in _KW_CAMPO_RELATORIO_ATUAL)
 
     # Gate principal: só entra no fluxo de localizar/resumir com um verbo
     # de ação claro — só mencionar "relatório"/"manual" numa frase (ex.:
     # "o relatório de vibração está atrasado?") não deve virar um card,
-    # cai no fluxo normal do Assistente.
-    if not (quer_resumir or quer_localizar or quer_conteudo):
+    # cai no fluxo normal do Assistente. quer_pergunta_direta cobre "o que
+    # diz/fala/mostra o relatório X?" — mesma intenção de resumir, sem
+    # usar a palavra "resumo".
+    if not (quer_resumir or quer_localizar or quer_conteudo or quer_pergunta_direta or quer_campo_continuacao):
         return None
 
     is_rel = bool(_KW_REL & tk) or bool(normalizar_tipo_relatorio(client_id, pergunta))
     is_doc = bool(_KW_DOC & tk)
     tem_pronome = bool(_KW_PRONOME & tk)
 
+    # "O que diz o relatório de vibração?" — mesma intenção de "resuma o
+    # relatório de vibração", só sem a palavra "resumo". Reaproveita todas
+    # as branches de quer_resumir abaixo.
+    if quer_pergunta_direta and (is_rel or is_doc):
+        quer_resumir = True
+
+    # "Qual foi a recomendação?" — trata como "resuma esse relatório" (a
+    # branch de continuação abaixo usa current_report_id diretamente).
+    if quer_campo_continuacao:
+        quer_resumir = True
+        tem_pronome = True
+
     periodo = parse_periodo_natural(pergunta)
     tipo_rel = normalizar_tipo_relatorio(client_id, pergunta) if is_rel else None
     ativo_candidatos = resolver_ativo_por_nome(client_id, pergunta)
-    ativo_id = ativo_candidatos[0]["id"] if len(ativo_candidatos) == 1 else None
+    # ativo_id_mencionado: só o que a PRÓPRIA pergunta cita (usado para
+    # decidir se "resuma esse relatório" ainda é uma continuação pelo
+    # pronome, ou se virou um alvo novo). ativo_id: mencionado OU contexto
+    # ambiente da tela (usado para filtrar a busca em si).
+    ativo_id_mencionado = ativo_candidatos[0]["id"] if len(ativo_candidatos) == 1 else None
+    ativo_id = ativo_id_mencionado or ativo_id_contexto
 
     # Cruzamento relatório + biblioteca — pergunta menciona as duas fontes
     # juntas (não é simplesmente "resuma esse relatório/manual").
@@ -717,8 +776,10 @@ def rotear_pergunta(
         return _cruzar_relatorio_documento(client_id, pergunta, current_report_id)
 
     # "Resuma esse relatório/manual" — usa o item atual da sessão, sem
-    # tipo/ativo/período novo mencionado (senão seria um alvo novo).
-    if quer_resumir and tem_pronome and not tipo_rel and not ativo_id and not periodo:
+    # tipo/ativo/período novo mencionado (senão seria um alvo novo). Contexto
+    # ambiente de ativo (ativo_id_contexto) não conta como "novo" aqui —
+    # só um ativo citado explicitamente na pergunta muda o alvo.
+    if quer_resumir and tem_pronome and not tipo_rel and not ativo_id_mencionado and not periodo:
         if is_doc and current_document_id:
             return _resumir_documento_atual(current_document_id, client_id)
         if current_report_id:

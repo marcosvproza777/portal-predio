@@ -1606,6 +1606,7 @@ def _render_detalhe(a: dict, mock: bool) -> None:
     with ac4:
         if st.button("🤖 Perguntar ao Assistente", key=f"acao_ast_{a['id']}", use_container_width=True):
             st.session_state["assistente_ativo_contexto"] = a["nome"]
+            st.session_state["assistente_ativo_id_contexto"] = a["id"]
             st.session_state["portal_page"] = "assistente"
             st.rerun()
     with ac5:

@@ -683,6 +683,77 @@ def _empty_context() -> dict:
 
 # ── Motor de resposta ─────────────────────────────────────────────────────────
 
+def _resp_from_lookup(lookup: dict) -> dict:
+    """Adapta o dict de assistant_lookup.rotear_pergunta() (card/lista/
+    resumo/ambíguo/...) para o formato de resposta usado por
+    _build_response()/query_assistant[_audit]() — assim qualquer entrada
+    que passe primeiro pelo lookup (chat real, auditoria da Supervisão,
+    futuro endpoint) devolve exatamente a mesma resposta para a mesma
+    pergunta, incluindo o resumo_tecnico quando houver."""
+    tipo = lookup.get("tipo", "")
+    report_ids: list[str] = []
+    document_ids: list[str] = []
+    related_documents: list[dict] = []
+
+    if tipo == "nao_encontrado":
+        answer = lookup.get("mensagem", "Não encontrei nada com esses critérios.")
+    elif tipo in ("resumo", "resumo_consolidado", "cruzamento"):
+        answer = lookup.get("texto", "")
+        if lookup.get("current_report_id"):
+            report_ids = [lookup["current_report_id"]]
+        if lookup.get("current_document_id"):
+            document_ids = [lookup["current_document_id"]]
+        if lookup.get("relatorios"):
+            report_ids = list(lookup["relatorios"])
+    elif tipo == "ambiguo":
+        itens = lookup.get("itens", [])
+        linhas = []
+        for it in itens:
+            if "tipo_servico" in it:
+                linhas.append(
+                    f"• {it.get('titulo','')} — {it.get('ativo_nome') or it.get('ativo_id','')} "
+                    f"— {it.get('data','')} — {it.get('severidade','')}"
+                )
+                report_ids.append(it.get("id", ""))
+            else:
+                linhas.append(f"• {it.get('titulo','')}")
+                document_ids.append(it.get("id", ""))
+        answer = lookup.get("mensagem", "Encontrei mais de um resultado.")
+        if linhas:
+            answer += "\n\n" + "\n".join(linhas)
+    elif tipo in ("relatorio_card", "documento_card"):
+        item = lookup.get("item", {})
+        answer = item.get("resumo") or item.get("titulo", "")
+        if tipo == "relatorio_card":
+            report_ids = [item.get("id", "")]
+        else:
+            document_ids = [item.get("id", "")]
+        related_documents = [{"titulo": item.get("titulo", ""), "id": item.get("id", "")}]
+    elif tipo in ("lista_relatorios", "lista_documentos"):
+        itens = lookup.get("itens", [])
+        answer = "\n".join(f"• {it.get('titulo','')}" for it in itens) or "Nenhum resultado encontrado."
+        if tipo == "lista_relatorios":
+            report_ids = [it.get("id", "") for it in itens]
+        else:
+            document_ids = [it.get("id", "") for it in itens]
+    else:
+        answer = "Não foi possível processar o resultado."
+
+    if "fonte: pred.io" not in answer.lower():
+        answer = answer.rstrip() + "\n\nFonte: Pred.IO"
+
+    return {
+        "answer": answer,
+        "related_links": [],
+        "related_documents": related_documents,
+        "related_reports": [],
+        "suggested_actions": [],
+        "_lookup_tipo": tipo,
+        "_report_ids": [r for r in report_ids if r],
+        "_document_ids": [d for d in document_ids if d],
+    }
+
+
 def query_assistant(
     client_id: str,
     pergunta: str,
@@ -695,6 +766,14 @@ def query_assistant(
 
     SEGURANÇA: client_id SEMPRE da sessão. Nunca do payload do front-end.
 
+    Fluxo (item 11 — perguntas de relatório sempre passam primeiro por
+    localizar/resumir o relatório real; só cai no motor de intents/IA
+    genérico se a pergunta não for sobre um Relatório Técnico ou
+    documento da Biblioteca específico):
+      1. assistant_lookup.rotear_pergunta() — localizar + resumir
+      2. detect_intent() + _build_response() — motor controlado genérico
+      3. busca web como último recurso
+
     Retorna:
       {
         answer:            str,
@@ -706,6 +785,15 @@ def query_assistant(
 
     FUTURO: será exposto como POST /api/assistant/technical-query
     """
+    try:
+        import assistant_lookup
+        lookup = assistant_lookup.rotear_pergunta(pergunta, client_id, ativo_id=ativo_id)
+    except Exception:
+        lookup = None
+    if lookup is not None:
+        adaptado = _resp_from_lookup(lookup)
+        return {k: v for k, v in adaptado.items() if not k.startswith("_")}
+
     intent  = detect_intent(pergunta)
     context = get_client_context(client_id)
     result  = _build_response(intent, context, pergunta, ativo_id)
@@ -724,11 +812,52 @@ def query_assistant_audit(
     use_web_search: bool = False,
 ) -> dict:
     """
-    Versão estendida de query_assistant() para a tela de auditoria.
-    Adiciona _intent, _confidence e _origem_resposta ao dict de resposta.
+    Versão estendida de query_assistant() para a tela de auditoria
+    (Supervisão → 🧪 Testar Assistente). Adiciona _intent, _confidence e
+    _origem_resposta ao dict de resposta.
+
+    IMPORTANTE: usa o MESMO fluxo do chat real — tenta
+    assistant_lookup.rotear_pergunta() primeiro. Antes esta função pulava
+    direto para o motor de intents genérico, então testar "resuma o
+    relatório de vibração" aqui nunca usava resumo_tecnico/diagnóstico/
+    conclusão/recomendações do relatório, mesmo quando o chat real (que já
+    passava por rotear_pergunta()) respondia corretamente.
+
     SEGURANÇA: client_id SEMPRE da sessão.
     use_web_search: ativa busca web para este teste (mesmo com WEB_SEARCH_ENABLED=false).
     """
+    try:
+        import assistant_lookup
+        lookup = assistant_lookup.rotear_pergunta(pergunta, client_id, ativo_id=ativo_id)
+    except Exception:
+        lookup = None
+
+    if lookup is not None:
+        result = _resp_from_lookup(lookup)
+        tipo = result.pop("_lookup_tipo")
+        result["_intent"] = (
+            "relatorio_tecnico_resumo" if tipo in
+            ("resumo", "resumo_consolidado", "cruzamento", "relatorio_card", "lista_relatorios")
+            else "documento_biblioteca" if tipo in ("documento_card", "lista_documentos")
+            else "localizacao_ambigua" if tipo == "ambiguo"
+            else "nao_encontrado"
+        )
+        result["_confidence"] = (
+            "Baixa" if tipo == "nao_encontrado" else
+            "Média" if tipo == "ambiguo" else "Alta"
+        )
+        result["_origem_resposta"] = (
+            "Relatório Técnico" if result["_report_ids"] else
+            "Biblioteca Técnica" if result["_document_ids"] else
+            "Sem base suficiente" if tipo == "nao_encontrado" else "Base Pred.IO"
+        )
+        result["_usou_internet"]  = False
+        result["_chunks_count"]   = 0
+        result["_exec_reports"]   = 0
+        result["_chamados_count"] = 0
+        result["_alertas_count"]  = 0
+        return result
+
     intent  = detect_intent(pergunta)
     context = get_client_context(client_id)
     result  = _build_response(intent, context, pergunta, ativo_id)
