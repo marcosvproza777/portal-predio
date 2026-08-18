@@ -254,7 +254,25 @@ _HTML = """<!DOCTYPE html>
         pd.body.appendChild(ov);
     }
 
-    /* ── Verificação de atualização (polling a cada 3 min) ───────────── */
+    /* ── Verificação de atualização ────────────────────────────────────
+       Dois avisos, cada um pra um cenário diferente:
+
+       1. "App atualizado" (toast, sem ação) — dispara ao ABRIR o app
+          (carregamento novo) quando a versão é diferente da última vez
+          que o app rodou nesse aparelho (guardada em localStorage). É a
+          resposta direta a "não sei quando atualizou no celular": toda
+          vez que o app é reaberto já com um deploy novo, avisa na hora.
+
+       2. "Nova versão disponível" (banner com botão Atualizar) — dispara
+          quando um deploy novo sobe ENQUANTO o app já está aberto na tela
+          (a aba já carregou uma versão e ela ficou desatualizada depois).
+          Nesse caso precisa de um reload pra pegar o código novo.
+
+       BUG CORRIGIDO: a checagem só rodava num setInterval de 3 em 3
+       minutos — celular costuma suspender timers em segundo plano, então
+       reabrir o app raramente coincidia com o timer disparando. Agora
+       também checa na hora que o app carrega e sempre que volta a ficar
+       visível/em foco (reabrir pelo ícone, trocar de aba e voltar). */
     if (!p._predUpdateReady) {
         p._predUpdateReady = false;
 
@@ -283,23 +301,67 @@ _HTML = """<!DOCTYPE html>
             pd.body.appendChild(bar);
         }
 
-        fetch('/app/static/version.txt?t=' + Date.now())
-            .then(function(r){ return r.text(); })
-            .then(function(v){ p._predVersion = v.trim(); })
-            .catch(function(){});
+        function _predShowUpdatedToast() {
+            if (pd.getElementById('pred-updated-toast')) return;
+            var t = pd.createElement('div');
+            t.id = 'pred-updated-toast';
+            t.style.cssText = [
+                'position:fixed;bottom:76px;left:50%;',
+                'transform:translateX(-50%);z-index:9999999;',
+                'background:#0F1F3D;color:#fff;padding:11px 20px;',
+                'border-radius:999px;font-family:sans-serif;',
+                'font-size:.83rem;font-weight:600;white-space:nowrap;',
+                'box-shadow:0 4px 18px rgba(0,0,0,0.45);',
+                'display:flex;align-items:center;gap:8px;'
+            ].join('');
+            t.innerHTML = '&#9989;&nbsp;App atualizado para a versão mais recente';
+            pd.body.appendChild(t);
+            setTimeout(function() {
+                if (t.parentNode) t.parentNode.removeChild(t);
+            }, 4500);
+        }
 
-        setInterval(function() {
+        /* onLoad=true: primeira checagem do carregamento — compara com o
+           localStorage (persiste entre aberturas do app) e mostra o toast
+           de confirmação se mudou. onLoad=false: checagens seguintes —
+           compara com a versão já vista NESSE carregamento e mostra o
+           banner com botão de recarregar se mudou enquanto a tela estava
+           aberta. */
+        function _predCheckVersion(onLoad) {
             fetch('/app/static/version.txt?t=' + Date.now())
-                .then(function(r){ return r.text(); })
-                .then(function(v){
+                .then(function(r) { return r.text(); })
+                .then(function(v) {
                     v = v.trim();
-                    if (p._predVersion && v && v !== p._predVersion) {
+                    if (!v) return;
+
+                    if (onLoad) {
+                        p._predVersion = v;
+                        var last = null;
+                        try { last = p.localStorage.getItem('predio_last_version'); } catch (e) {}
+                        if (last && last !== v) {
+                            _predShowUpdatedToast();
+                        }
+                        try { p.localStorage.setItem('predio_last_version', v); } catch (e) {}
+                        return;
+                    }
+
+                    if (p._predVersion && v !== p._predVersion) {
                         p._predUpdateReady = true;
                         _predShowUpdateBanner();
                     }
                 })
-                .catch(function(){});
-        }, 3 * 60 * 1000);
+                .catch(function() {});
+        }
+
+        _predCheckVersion(true);
+        setInterval(function() { _predCheckVersion(false); }, 60 * 1000);
+
+        /* Reabrir o app (ícone na tela inicial) ou voltar de outra aba —
+           o momento mais comum de "não saber se atualizou" no celular. */
+        pd.addEventListener('visibilitychange', function() {
+            if (!pd.hidden) _predCheckVersion(false);
+        });
+        p.addEventListener('focus', function() { _predCheckVersion(false); });
     } else if (p._predUpdateReady) {
         /* Mantém o banner visível após reruns do Streamlit */
         (function() {
