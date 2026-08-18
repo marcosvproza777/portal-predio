@@ -20,44 +20,66 @@ SCOPE = [
 
 
 def _build_creds():
-    """Retorna credenciais google-auth (gspread 6.x). Tenta todas as fontes."""
+    """Retorna credenciais google-auth (gspread 6.x). Tenta todas as fontes.
+
+    DIAGNÓSTICO TEMPORÁRIO (18/08/2026): cada fonte tentada loga em
+    stdout/stderr (visível nos Logs do Render) se foi encontrada e, se
+    falhou, a classe+mensagem da exceção — NUNCA o valor da credencial em
+    si. Objetivo: descobrir por que "Credenciais não encontradas" está
+    aparecendo em produção sem nenhum traceback nos logs (as exceções
+    reais estavam sendo engolidas silenciosamente). Remover depois que o
+    problema for identificado e corrigido."""
+    import sys
     from google.oauth2.service_account import Credentials as _SA
+
+    def _diag(msg: str) -> None:
+        print(f"[_build_creds] {msg}", file=sys.stderr, flush=True)
 
     # 1. st.secrets
     try:
         if "gcp_service_account" in st.secrets:
+            _diag("st.secrets[gcp_service_account] encontrado, tentando usar...")
             info = dict(st.secrets["gcp_service_account"])
             info["private_key"] = info["private_key"].replace("\\n", "\n")
             return _SA.from_service_account_info(info, scopes=SCOPE)
-    except Exception:
-        pass
+        _diag("st.secrets[gcp_service_account] ausente.")
+    except Exception as e:
+        _diag(f"st.secrets falhou: {type(e).__name__}: {e}")
 
     # 2. env var base64
     try:
         import base64, json as _json
         raw_b64 = os.environ.get("GCP_CREDENTIALS_B64", "")
         if raw_b64:
+            _diag(f"GCP_CREDENTIALS_B64 presente (len={len(raw_b64)}), tentando decodificar...")
             raw = base64.b64decode(raw_b64).decode("utf-8")
             return _SA.from_service_account_info(_json.loads(raw), scopes=SCOPE)
-    except Exception:
-        pass
+        _diag("GCP_CREDENTIALS_B64 ausente/vazia.")
+    except Exception as e:
+        _diag(f"GCP_CREDENTIALS_B64 falhou: {type(e).__name__}: {e}")
 
     # 3. env var JSON string
     try:
         import json as _json
         raw_j = os.environ.get("GCP_CREDENTIALS_JSON", "")
         if raw_j:
+            _diag(f"GCP_CREDENTIALS_JSON presente (len={len(raw_j)}), tentando usar...")
             return _SA.from_service_account_info(_json.loads(raw_j), scopes=SCOPE)
-    except Exception:
-        pass
+        _diag("GCP_CREDENTIALS_JSON ausente/vazia.")
+    except Exception as e:
+        _diag(f"GCP_CREDENTIALS_JSON falhou: {type(e).__name__}: {e}")
 
     # 4. arquivo em disco
     for path in ("/etc/secrets/credentials.json", "credentials.json"):
         try:
             if os.path.exists(path):
+                _diag(f"Arquivo {path} encontrado, tentando usar...")
                 return _SA.from_service_account_file(path, scopes=SCOPE)
-        except Exception:
-            pass
+            _diag(f"Arquivo {path} não existe.")
+        except Exception as e:
+            _diag(f"Arquivo {path} falhou: {type(e).__name__}: {e}")
+
+    _diag("Nenhuma fonte de credencial funcionou — retornando None.")
 
     return None
 
