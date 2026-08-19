@@ -438,6 +438,8 @@ def get_client_context(client_id: str) -> dict:
                 tipo    = str(r.get("Tipo_Servico",   "")).strip()
                 sev     = str(r.get("Severidade",     "")).strip()
                 resumo  = str(r.get("Resumo",         "")).strip()
+                diagn   = str(r.get("Diagnostico",    "")).strip()
+                concl   = str(r.get("Conclusao",      "")).strip()
                 recomen = str(r.get("Recomendacoes",  "")).strip()
                 ativo   = str(r.get("Ativo_Id",       "")).strip()
                 equip   = str(r.get("Equipamento",    "")).strip()
@@ -448,6 +450,8 @@ def get_client_context(client_id: str) -> dict:
                         "tipo":          tipo,
                         "severidade":    sev,
                         "resumo":        resumo,
+                        "diagnostico":   diagn,
+                        "conclusao":     concl,
                         "recomendacoes": recomen,
                         "ativo":         ativo or equip,
                     })
