@@ -125,10 +125,26 @@ def _render_lista() -> None:
                 unsafe_allow_html=True,
             )
 
-    for _, row in empresas.iterrows():
+    # Quantos contatos cada client_id tem nesta lista — agora que um cliente
+    # pode ter mais de uma pessoa (ver _form_adicionar_pessoa_content), duas
+    # linhas podem cair no mesmo client_id. Usado abaixo pra (1) gerar chaves
+    # de widget únicas por linha, não só por client_id, e (2) decidir se o
+    # botão de excluir pode apagar os ativos do cliente junto (só quando é o
+    # único contato — com mais de um, apagaria ativos que outros contatos
+    # ainda usam).
+    _cid_counts: dict[str, int] = {}
+    for _, _r in empresas.iterrows():
+        _cid = str(_r.get("Client_Id", str(_r.get("Empresa", "")).strip().lower())).strip()
+        _cid_counts[_cid] = _cid_counts.get(_cid, 0) + 1
+
+    for _idx, row in empresas.iterrows():
         empresa    = str(row.get("Empresa",   "")).strip()
         client_id  = str(row.get("Client_Id", empresa.lower())).strip()
         email      = str(row.get("Email",     "")).strip()
+        # Sufixo único por linha (e-mail já é o identificador de login,
+        # portanto naturalmente único por contato; índice como reforço se
+        # faltar e-mail) — client_id sozinho não basta mais como chave.
+        _row_key = (email or str(_idx)).replace("@", "_at_").replace(".", "_")
 
         # Métricas do cliente
         if not df_todos.empty and "Empresa" in df_todos.columns:
@@ -164,7 +180,7 @@ def _render_lista() -> None:
             )
         with col_preview:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            if st.button("👁️ Ver como cliente", key=f"sv_cli_preview_{client_id}",
+            if st.button("👁️ Ver como cliente", key=f"sv_cli_preview_{client_id}_{_row_key}",
                          use_container_width=True,
                          help="Visualizar o Portal do Cliente com os dados deste cliente"):
                 if enter_admin_preview(client_id, empresa):
@@ -176,7 +192,7 @@ def _render_lista() -> None:
                     st.rerun()
         with col_hist:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            if st.button("Histórico →", key=f"sv_cli_{client_id}",
+            if st.button("Histórico →", key=f"sv_cli_{client_id}_{_row_key}",
                          use_container_width=True):
                 st.session_state["sv_view"]          = "cliente_historico"
                 st.session_state["sv_cliente_id"]    = client_id
@@ -185,14 +201,26 @@ def _render_lista() -> None:
                 st.rerun()
         with col_del:
             st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            if st.button("🗑️", key=f"sv_cli_del_{client_id}", use_container_width=True,
-                         help="Excluir este cliente e todos os seus ativos"):
+            _unico_contato = _cid_counts.get(client_id, 1) <= 1
+            _del_help = (
+                "Excluir este cliente e todos os seus ativos" if _unico_contato
+                else "Excluir só o acesso desta pessoa — outros contatos deste "
+                     "cliente continuam com acesso, ativos não são tocados"
+            )
+            if st.button("🗑️", key=f"sv_cli_del_{client_id}_{_row_key}",
+                         use_container_width=True, help=_del_help):
                 ok = delete_usuario(email)
                 if ok:
-                    n_ativos = delete_ativos_por_cliente(client_id)
-                    msg = f"🗑️ Cliente '{empresa}' removido."
-                    if n_ativos:
-                        msg += f" {n_ativos} ativo(s) relacionado(s) também removido(s)."
+                    if _unico_contato:
+                        n_ativos = delete_ativos_por_cliente(client_id)
+                        msg = f"🗑️ Cliente '{empresa}' removido."
+                        if n_ativos:
+                            msg += f" {n_ativos} ativo(s) relacionado(s) também removido(s)."
+                    else:
+                        # Mais de um contato neste cliente — apaga só o acesso
+                        # desta pessoa. Apagar os ativos aqui derrubaria dados
+                        # que os outros contatos do mesmo cliente ainda usam.
+                        msg = f"🗑️ Acesso de '{email or empresa}' removido. Ativos de '{empresa}' preservados."
                     st.toast(msg, icon="🗑️")
                     st.rerun()
                 else:
