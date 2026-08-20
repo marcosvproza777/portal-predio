@@ -7,7 +7,8 @@ from sheets import (get_all_clientes, get_historico_cliente, get_all_chamados,
                     get_contagem_usuarios_global, get_usuarios_staff,
                     add_client_meeting, get_last_meeting, get_client_meetings,
                     snapshot_cliente, get_all_ativos_sv, get_gut_summary,
-                    get_maintenance_tasks, calc_task_status, get_report_timeline_events)
+                    get_maintenance_tasks, calc_task_status, get_report_timeline_events,
+                    verificar_email)
 from ui import (sv_page_header, sv_metric_card, status_badge, status_color, empty_state, app_alert,
                 COLOR_NAVY, COLOR_BLUE, COLOR_BORDER, COLOR_CARD, COLOR_MUTED,
                 COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER)
@@ -44,6 +45,14 @@ def _render_lista() -> None:
 
     # ── Formulário sempre visível no topo ─────────────────────────────────────
     _form_novo_cliente_content(inline=True)
+
+    # ── Adicionar mais uma pessoa a um cliente que já existe ──────────────────
+    # "Novo Cliente" acima sempre cria uma EMPRESA nova — não tinha nenhuma
+    # tela pra dar acesso a uma segunda pessoa da mesma empresa. Reaproveita
+    # cadastrar_usuario() (mesma aba Usuarios), só que com o nome de empresa
+    # já existente, pra cair no mesmo client_id (client_id = empresa em
+    # minúsculas — auth.get_client_id() — sem coluna própria).
+    _form_adicionar_pessoa_content()
 
     st.markdown(
         f"<hr style='border-color:{COLOR_BORDER};margin:1.5rem 0;'/>",
@@ -881,6 +890,100 @@ def _form_novo_cliente_content(inline: bool = False) -> None:
                 "Erro ao cadastrar o cliente. Verifique se a aba 'Usuarios' existe "
                 "na planilha e se as credenciais têm permissão de escrita."
             )
+
+
+def _form_adicionar_pessoa_content() -> None:
+    """Adiciona uma nova pessoa (contato) a um cliente/empresa JÁ cadastrado
+    — mesma aba Usuarios do "Novo Cliente" acima, mas sem criar empresa nova.
+    Usa exatamente o nome de empresa já salvo, pra cair no mesmo client_id do
+    cliente existente."""
+    import hashlib
+
+    clientes = get_all_clientes()
+    if clientes.empty or "Empresa" not in clientes.columns:
+        return
+    empresas_unicas = sorted(
+        e for e in clientes["Empresa"].dropna().astype(str).str.strip().unique() if e
+    )
+    if not empresas_unicas:
+        return
+
+    with st.expander("➕ Adicionar pessoa a um cliente já cadastrado", expanded=False):
+        with st.form("form_add_pessoa_cliente", clear_on_submit=False):
+            empresa_sel = st.selectbox("Empresa *", empresas_unicas)
+
+            col_nome, col_email = st.columns(2)
+            with col_nome:
+                nome = st.text_input("Nome do contato *", placeholder="Ex: Maria Souza")
+            with col_email:
+                email = st.text_input("E-mail", placeholder="Ex: maria@empresa.com")
+
+            col_tel, col_perfil = st.columns(2)
+            with col_tel:
+                telefone = st.text_input("Telefone", placeholder="Ex: 21999990000")
+            with col_perfil:
+                perfil = st.selectbox(
+                    "Perfil de acesso",
+                    ["cliente", "funcionario", "admin"],
+                    format_func=lambda x: {"cliente": "Cliente", "funcionario": "Funcionário", "admin": "Admin"}[x],
+                )
+
+            senha = st.text_input(
+                "Senha inicial (opcional)",
+                type="password",
+                placeholder="Deixe vazio para primeiro acesso",
+                help="Se não informada, a pessoa define a própria senha no primeiro login.",
+            )
+
+            submitted = st.form_submit_button("💾 Adicionar pessoa", type="primary",
+                                              use_container_width=True)
+
+        if submitted:
+            erros = []
+            if not nome.strip():
+                erros.append("Informe o nome do contato.")
+            if not email.strip() and not telefone.strip():
+                erros.append("Informe ao menos e-mail ou telefone para o login.")
+            if erros:
+                for e in erros:
+                    st.warning(e)
+                return
+
+            # Impede duas pessoas compartilhando o mesmo login: o login busca
+            # por e-mail e depois por telefone, parando no primeiro que casar
+            # (auth._find_user) — sem checar aqui, a pessoa nova cairia
+            # sempre na conta da primeira que usar o mesmo contato.
+            login_candidato = email.strip() or telefone.strip()
+            existe, _, dados_existentes = verificar_email(login_candidato)
+            if existe:
+                dono = str((dados_existentes or {}).get("Nome", "")).strip() or "outra pessoa"
+                st.error(
+                    f"Esse e-mail/telefone já está cadastrado para **{dono}**. "
+                    "Use um e-mail ou telefone diferente para esta pessoa."
+                )
+                return
+
+            senha_hash = hashlib.sha256(senha.encode("utf-8")).hexdigest() if senha.strip() else ""
+            ok = cadastrar_usuario(
+                empresa=empresa_sel,
+                email=email.strip().lower(),
+                telefone=telefone.strip(),
+                perfil=perfil,
+                nome=nome.strip(),
+                senha_hash=senha_hash,
+            )
+            if ok:
+                st.success(
+                    f"✅ **{nome.strip()}** adicionado(a) como acesso de **{empresa_sel}**! "
+                    + ("A pessoa deverá definir a senha no primeiro acesso."
+                       if not senha.strip() else "Acesso liberado com a senha informada.")
+                )
+                st.rerun()
+            else:
+                st.error(
+                    "Erro ao adicionar. Verifique se a aba 'Usuarios' existe na planilha "
+                    "e se as credenciais têm permissão de escrita."
+                )
 
 
 def _render_form_novo_cliente() -> None:
