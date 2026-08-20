@@ -1819,6 +1819,46 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
       return {{ text: 'Problemas em rolamento devem ser avaliados com analise de vibracao, termografia, historico de lubrificacao e inspecao tecnica. A recomendacao Pred.IO e nao decidir troca sem diagnostico. Em caso de ruido forte, aquecimento rapido ou vibracao crescente, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
     }}
 
+    /* RELATORIOS — checado ANTES de VIBRACAO/TERMOGRAFIA/MANUTENCAO: essas
+       palavras tambem disparam os blocos de FAQ preditiva abaixo (vibra/
+       termografia sao palavras-chave deles), entao uma pergunta como "resuma
+       o relatorio de vibracao" ou "o que diz o relatorio de termografia"
+       precisa ser resolvida aqui primeiro, senao cai sempre na resposta
+       educativa generica e nunca chega a olhar ctx.relatorios. */
+    if (/relat|laudo|resultado|publicado/.test(ql)) {{
+      var rels = ctx.relatorios || [];
+      if (!rels.length) {{
+        return {{ text: 'Nenhum relatorio tecnico publicado ainda para sua operacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
+      }}
+      var querResumo = /resum|diagnostic|conclus|recomend|o que diz|o que fala|o que mostra|o que consta|o que encontrou/.test(ql);
+      if (querResumo) {{
+        var achados = rels.filter(function(r) {{
+          var tipoWords = norm(r.tipo || '').split(/ +/).filter(function(w) {{ return w.length > 3; }});
+          return tipoWords.some(function(w) {{ return ql.indexOf(w) >= 0; }});
+        }});
+        if (!achados.length && rels.length === 1) {{ achados = rels; }}
+        if (achados.length === 1) {{
+          var rr = achados[0];
+          var corpo = rr.resumo || rr.diagnostico || rr.conclusao || '';
+          var partes = ['<strong>📋 Resumo do relatorio' + (rr.tipo ? ' de ' + rr.tipo : '') + '</strong>'];
+          if (rr.ativo) partes.push('Ativo: ' + rr.ativo);
+          if (rr.data) partes.push('Data: ' + rr.data);
+          if (rr.severidade) partes.push('Severidade: ' + rr.severidade);
+          if (corpo) {{ partes.push(''); partes.push('<strong>Resumo tecnico:</strong>'); partes.push(corpo); }}
+          if (rr.recomendacoes) {{ partes.push(''); partes.push('<strong>Principais recomendacoes:</strong>'); partes.push(rr.recomendacoes); }}
+          partes.push('');
+          partes.push('<strong>Fonte: Pred.IO</strong>');
+          return {{ text: partes.join('<br>'), actions: [{{label:'📋 Ver Relatorio Completo', page:'relatorios'}}] }};
+        }}
+        if (achados.length > 1) {{
+          var rlist3 = achados.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data + (r.ativo ? ' (' + r.ativo + ')' : ''); }}).join('<br>');
+          return {{ text: 'Encontrei mais de um relatorio compativel. Qual deles?<br><br>' + rlist3 + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
+        }}
+      }}
+      var rlist = rels.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data; }}).join('<br>');
+      return {{ text: '<strong>📋 Relatorios tecnicos recentes:</strong><br><br>' + rlist + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios Tecnicos', page:'relatorios'}}] }};
+    }}
+
     /* ANALISE DE VIBRACAO */
     if (/analise.*vibracao|vibracao.*analise|espectro.*vibr|vibr.*espectro|tendencia.*vibr|vibr.*tendencia|o que.*envelope|envelope.*vibr|vibracao.*evita|desbalanceament|desalinhament|ressonanci|alinhamento.*laser|alinhar.*laser|base.*frouxa|quando.*antecipar.*vibracao|apos.*alinhar.*vibracao|apos.*lubrificar.*vibracao/.test(ql)) {{
       if (/por que.*analise.*vibracao|para que.*vibracao|vibracao.*serve/.test(ql)) {{
@@ -1923,44 +1963,6 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
         return {{ text: 'Registrar imagem, temperatura, localizacao, condicao operacional, carga, corrente e historico. Classificar criticidade, correlacionar com vibracao, eletrica ou oleo conforme o caso, e abrir chamado tecnico se houver risco ou tendencia de piora.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
       }}
       return {{ text: 'A termografia identifica aquecimento anormal em componentes eletricos, mecanicos e operacionais. No plano Pred.IO, e prevista como rotina preditiva a cada 4 meses e deve ser antecipada em caso de aquecimento, alarme, corrente elevada ou alteracao operacional. Sempre correlacionar com carga, corrente, vibracao, oleo e historico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* RELATORIOS — checado ANTES de MANUTENCAO: "vibra"/"termografia" tambem
-       disparariam o bloco de manutencao (vibra/termografia sao palavras-chave
-       de manutencao preditiva), entao uma pergunta como "resuma o relatorio
-       de vibracao" precisa ser resolvida aqui primeiro. */
-    if (/relat|laudo|resultado|publicado/.test(ql)) {{
-      var rels = ctx.relatorios || [];
-      if (!rels.length) {{
-        return {{ text: 'Nenhum relatorio tecnico publicado ainda para sua operacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
-      }}
-      var querResumo = /resum|diagnostic|conclus|recomend|o que diz|o que fala|o que mostra|o que consta|o que encontrou/.test(ql);
-      if (querResumo) {{
-        var achados = rels.filter(function(r) {{
-          var tipoWords = norm(r.tipo || '').split(/ +/).filter(function(w) {{ return w.length > 3; }});
-          return tipoWords.some(function(w) {{ return ql.indexOf(w) >= 0; }});
-        }});
-        if (!achados.length && rels.length === 1) {{ achados = rels; }}
-        if (achados.length === 1) {{
-          var rr = achados[0];
-          var corpo = rr.resumo || rr.diagnostico || rr.conclusao || '';
-          var partes = ['<strong>📋 Resumo do relatorio' + (rr.tipo ? ' de ' + rr.tipo : '') + '</strong>'];
-          if (rr.ativo) partes.push('Ativo: ' + rr.ativo);
-          if (rr.data) partes.push('Data: ' + rr.data);
-          if (rr.severidade) partes.push('Severidade: ' + rr.severidade);
-          if (corpo) {{ partes.push(''); partes.push('<strong>Resumo tecnico:</strong>'); partes.push(corpo); }}
-          if (rr.recomendacoes) {{ partes.push(''); partes.push('<strong>Principais recomendacoes:</strong>'); partes.push(rr.recomendacoes); }}
-          partes.push('');
-          partes.push('<strong>Fonte: Pred.IO</strong>');
-          return {{ text: partes.join('<br>'), actions: [{{label:'📋 Ver Relatorio Completo', page:'relatorios'}}] }};
-        }}
-        if (achados.length > 1) {{
-          var rlist3 = achados.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data + (r.ativo ? ' (' + r.ativo + ')' : ''); }}).join('<br>');
-          return {{ text: 'Encontrei mais de um relatorio compativel. Qual deles?<br><br>' + rlist3 + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
-        }}
-      }}
-      var rlist = rels.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data; }}).join('<br>');
-      return {{ text: '<strong>📋 Relatorios tecnicos recentes:</strong><br><br>' + rlist + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios Tecnicos', page:'relatorios'}}] }};
     }}
 
     /* MANUTENCAO */
