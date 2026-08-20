@@ -4,6 +4,7 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /_stcore/health
     envVars:
       - key: GCP_CREDENTIALS_JSON
         sync: false
@@ -20,6 +21,7 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn integration_api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/integrations/health
     envVars:
       # Mesmo valor já usado no serviço portal-predio acima — a API precisa
       # ler/escrever a mesma planilha e o mesmo bucket.
