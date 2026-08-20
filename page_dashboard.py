@@ -83,6 +83,29 @@ def _load_data(client_id: str) -> dict:
         get_chamados_resumo_assistente,
     )
     import datetime
+    from concurrent.futures import ThreadPoolExecutor
+
+    # As 5 leituras abaixo são independentes entre si (nenhuma usa o
+    # resultado da outra) — disparadas em paralelo pra não somar a latência
+    # de rede de 5 chamadas HTTP sequenciais ao Google Sheets. Pool por
+    # requisição (criado e descartado aqui dentro), não persistente.
+    def _safe(fn, *a, **kw):
+        try:
+            return fn(*a, **kw)
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=5) as _ex:
+        _f_at   = _ex.submit(_safe, get_ativos, client_id)
+        _f_mt   = _ex.submit(_safe, get_maintenance_tasks, client_id=client_id, staff=False)
+        _f_cham = _ex.submit(_safe, get_chamados_resumo_assistente, client_id)
+        _f_al   = _ex.submit(_safe, get_alertas_sv, client_id)
+        _f_rel  = _ex.submit(_safe, get_technical_reports, client_id=client_id, staff=False)
+        df_at_fetched  = _f_at.result()
+        df_mt_fetched  = _f_mt.result()
+        chams_fetched  = _f_cham.result()
+        df_al_fetched  = _f_al.result()
+        df_rel_fetched = _f_rel.result()
 
     d = {
         # Ativos
@@ -120,8 +143,8 @@ def _load_data(client_id: str) -> dict:
 
     # ── Ativos ───────────────────────────────────────────────────────────────
     try:
-        df_at = get_ativos(client_id)
-        if not df_at.empty:
+        df_at = df_at_fetched
+        if df_at is not None and not df_at.empty:
             d["ativos_total"] = len(df_at)
             df_at["_st"] = df_at["Status"].astype(str).apply(_ativo_status)
             d["n_bom"]     = int((df_at["_st"] == "Bom").sum())
@@ -148,8 +171,8 @@ def _load_data(client_id: str) -> dict:
 
     # ── Manutenção ───────────────────────────────────────────────────────────
     try:
-        df_mt = get_maintenance_tasks(client_id=client_id, staff=False)
-        if not df_mt.empty:
+        df_mt = df_mt_fetched
+        if df_mt is not None and not df_mt.empty:
             manut_list = []
             for _, row in df_mt.iterrows():
                 task   = row.to_dict()
@@ -193,7 +216,7 @@ def _load_data(client_id: str) -> dict:
 
     # ── Chamados ─────────────────────────────────────────────────────────────
     try:
-        chams = get_chamados_resumo_assistente(client_id)
+        chams = chams_fetched or []
         for ch in chams:
             st_raw = _sem_acento(str(ch.get("status", "")))
             if st_raw in ("concluido", "fechado", "cancelado"):
@@ -219,8 +242,8 @@ def _load_data(client_id: str) -> dict:
 
     # ── Alertas ──────────────────────────────────────────────────────────────
     try:
-        df_al = get_alertas_sv(client_id)
-        if not df_al.empty:
+        df_al = df_al_fetched
+        if df_al is not None and not df_al.empty:
             _prio_ord = {"Urgente": 0, "Crítica": 0, "Alta": 1, "Média": 2, "Baixa": 3}
             alertas_raw = []
             for _, row in df_al.iterrows():
@@ -241,8 +264,8 @@ def _load_data(client_id: str) -> dict:
 
     # ── Relatórios ───────────────────────────────────────────────────────────
     try:
-        df_rel = get_technical_reports(client_id=client_id, staff=False)
-        if not df_rel.empty:
+        df_rel = df_rel_fetched
+        if df_rel is not None and not df_rel.empty:
             _mes_atual = datetime.datetime.now().strftime("%m/%Y")
             d["relatorios_mes"] = int(
                 df_rel["Data_Relatorio"].astype(str).str.strip().str[3:10].eq(_mes_atual).sum()

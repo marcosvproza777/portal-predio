@@ -72,10 +72,13 @@ def _load_alertas(client_id: str) -> list:
         return []
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def get_unread_count(client_id: str = "") -> int:
     """Contagem de alertas com prioridade GUT Crítica — usada no badge do
     topnav ("Alertas · N"). Não há rastreio de lido/não-lido em AlertasSV;
-    o badge sinaliza o que precisa de atenção agora (GUT Crítica)."""
+    o badge sinaliza o que precisa de atenção agora (GUT Crítica).
+    Cache curto (15s) porque antes recalculava do zero em toda navegação —
+    chave inclui client_id, sem risco de misturar clientes."""
     alertas = _load_alertas(client_id)
     criticos = 0
     for a in alertas:

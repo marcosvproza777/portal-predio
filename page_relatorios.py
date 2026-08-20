@@ -99,6 +99,7 @@ def render() -> None:
         return
 
     # ── Relatórios Executivos do Ativo — aparecem em destaque no topo ────────
+    # (seção pequena por natureza — não paginada)
     if df_exec is not None and not df_exec.empty:
         st.markdown(
             f"<p style='font-weight:700;color:{COLOR_NAVY};font-size:0.95rem;"
@@ -110,15 +111,36 @@ def render() -> None:
         st.markdown(f"<hr style='border-color:{COLOR_BORDER};margin:0.75rem 0;'/>",
                     unsafe_allow_html=True)
 
-    # Relatórios técnicos publicados — aparecem antes dos legados
+    # ── Relatórios técnicos + legados — paginados juntos ─────────────────────
+    # Fatia ANTES do loop de render: linhas além da página atual nunca chegam
+    # a montar o card em HTML (diferente de st.expander, que roda o conteúdo
+    # mesmo colapsado).
+    _PAGE_SIZE = 15
+    rows: list[tuple[str, object]] = []
     if df_tech is not None and not df_tech.empty:
-        for _, row in df_tech.iterrows():
-            _render_card_tech(row)
-
-    # Relatórios legados
+        rows.extend(("tech", row) for _, row in df_tech.iterrows())
     if not df_legacy.empty:
-        for _, row in df_legacy.iterrows():
+        rows.extend(("legacy", row) for _, row in df_legacy.iterrows())
+
+    # Reseta a página quando os filtros mudam (senão "página 3" de um filtro
+    # antigo poderia esconder resultados do filtro novo).
+    _filtro_assinatura = tuple(filtros.values())
+    if st.session_state.get("_relatorios_filtro_assinatura") != _filtro_assinatura:
+        st.session_state["_relatorios_filtro_assinatura"] = _filtro_assinatura
+        st.session_state["relatorios_page"] = 1
+    st.session_state.setdefault("relatorios_page", 1)
+
+    visible = rows[: st.session_state["relatorios_page"] * _PAGE_SIZE]
+    for origem, row in visible:
+        if origem == "tech":
+            _render_card_tech(row)
+        else:
             _render_card_legacy(row)
+
+    if len(visible) < len(rows):
+        if st.button("Carregar mais relatórios", key="relatorios_load_more"):
+            st.session_state["relatorios_page"] += 1
+            st.rerun()
 
 
 def _render_card_tech(row) -> None:

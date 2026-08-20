@@ -70,6 +70,7 @@ def main() -> None:
         remove_bottom_nav()
         st.session_state.pop("_clogo_loaded", None)
         st.session_state.pop("client_logo_b64", None)
+        st.session_state.pop("_pred_fab_mounted", None)
         if st.query_params.get("loggedout"):
             from session_persist import inject_session_clear
             inject_session_clear()
@@ -130,7 +131,13 @@ def main() -> None:
 
     # Assistente flutuante — visível em todas as páginas do portal do cliente
     # client_id vem da sessão do servidor (ou do preview, se staff) — NUNCA do front-end
-    inject_floating_assistant(_sid, current_client_id())
+    # Só monta na primeira renderização da sessão: o JS injetado (ui.py, trava
+    # #pred-fab) já ignora montagens repetidas porque o documento pai sobrevive
+    # ao rerun do Streamlit — chamar de novo em toda página só pagava o custo
+    # de get_client_context() (~10 leituras no Sheets) para um resultado descartado.
+    if not st.session_state.get("_pred_fab_mounted"):
+        inject_floating_assistant(_sid, current_client_id())
+        st.session_state["_pred_fab_mounted"] = True
 
     # Botões de navegação suave (ocultos via CSS, acionados pelo JS do assistente flutuante)
     # Quando o JS clica neles, Streamlit dispara rerun via WebSocket (sem reload de página)

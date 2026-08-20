@@ -137,6 +137,27 @@ def load_sheet(tab_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _clear_read_caches() -> None:
+    """Limpa load_sheet() e todas as camadas de cache por função construídas
+    sobre ele (get_ativos, get_alertas_sv, get_technical_reports,
+    get_maintenance_tasks, get_chamados_resumo_assistente,
+    get_documentos_tecnicos, count_portal_notifications_unread).
+
+    Mesma filosofia de invalidação ampla que load_sheet.clear() já tinha
+    sozinho (qualquer escrita limpa tudo, não só a aba afetada) — TTL curto
+    de cada camada já limita o estrago; ter um único ponto central evita
+    esquecer de invalidar uma camada nova em algum ponto de escrita futuro.
+    Chamada em todo lugar que antes chamava só load_sheet.clear()."""
+    load_sheet.clear()
+    get_ativos.clear()
+    get_alertas_sv.clear()
+    get_technical_reports.clear()
+    get_maintenance_tasks.clear()
+    get_chamados_resumo_assistente.clear()
+    get_documentos_tecnicos.clear()
+    count_portal_notifications_unread.clear()
+
+
 def append_row(tab_name: str, values: list) -> bool:
     """Adiciona uma linha ao final da aba. Cria a aba se não existir."""
     try:
@@ -154,7 +175,7 @@ def append_row(tab_name: str, values: list) -> bool:
         # à direita que a anterior em vez de sempre começar na coluna A.
         last_col = gspread.utils.rowcol_to_a1(1, len(values)).rstrip("0123456789")
         ws.append_row(values, value_input_option="USER_ENTERED", table_range=f"A1:{last_col}1")
-        load_sheet.clear()
+        _clear_read_caches()
         try:
             st.session_state.pop("_sheets_last_error", None)
         except Exception:
@@ -372,7 +393,7 @@ def set_user_senha(login: str, senha_hash: str) -> bool:
                         continue
                     if v.strip().lower() == valor:
                         ws.update_cell(row_num, senha_col, senha_hash)
-                        load_sheet.clear()
+                        _clear_read_caches()
                         return True
 
             # Tenta por telefone
@@ -383,7 +404,7 @@ def set_user_senha(login: str, senha_hash: str) -> bool:
                         continue
                     if _digits(v) == digs:
                         ws.update_cell(row_num, senha_col, senha_hash)
-                        load_sheet.clear()
+                        _clear_read_caches()
                         return True
         except Exception:
             continue
@@ -423,6 +444,7 @@ def get_relatorios(client_id: str, filtros: dict | None = None) -> pd.DataFrame:
 
 # ── Ativos ────────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_ativos(client_id: str) -> pd.DataFrame:
     df = load_sheet("Ativos")
     if df.empty:
@@ -449,7 +471,7 @@ def delete_row_by_id(tab_name: str, id_col: str, row_id: str) -> bool:
                 continue
             if str(v).strip() == str(row_id).strip():
                 ws.delete_rows(row_num)
-                load_sheet.clear()
+                _clear_read_caches()
                 return True
         return False
     except Exception:
@@ -494,7 +516,7 @@ def delete_usuario(email: str) -> bool:
                         continue
                     if str(v).strip().lower() == valor:
                         ws.delete_rows(row_num)
-                        load_sheet.clear()
+                        _clear_read_caches()
                         return True
             except Exception:
                 continue
@@ -518,6 +540,7 @@ _HEADERS_ALERTAS_SV = [
 ]
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_alertas_sv(client_id: str | None = None, incluir_resolvidos: bool = False) -> pd.DataFrame:
     """Alertas criados pela supervisão. Filtra por client_id se fornecido.
 
@@ -599,7 +622,7 @@ def resolver_alerta_sv(alerta_id: str, resolvido_por: str = "") -> bool:
         }.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, valor)
-        load_sheet.clear()
+        _clear_read_caches()
 
         ativo_id = _get("Ativo_Id").strip()
         if ativo_id:
@@ -665,6 +688,7 @@ _HEADERS_CHUNKS = [
 _VIS_INTERNO = "Apenas equipe Pred.IO"
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_documentos_tecnicos(
     client_id: str | None = None,
     staff: bool = False,
@@ -683,6 +707,14 @@ def get_documentos_tecnicos(
     for col in _HEADERS_BIBLIOTECA:
         if col not in df.columns:
             df[col] = ""
+
+    # Texto_Extraido nunca é usado nas telas de listagem (Portal ou
+    # Supervisão) — só a busca via DocumentoChunks/buscar_chunks() precisa
+    # do texto completo, um mecanismo separado. Tirar daqui (client e staff)
+    # evita carregar o texto inteiro de todo documento só pra listar título/
+    # fabricante.
+    if "Texto_Extraido" in df.columns:
+        df = df.drop(columns=["Texto_Extraido"])
 
     if staff:
         return df.reset_index(drop=True)
@@ -791,7 +823,7 @@ def update_documento_tecnico(doc_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -843,7 +875,7 @@ def update_status_indexacao(
                 for col_name, value in updates.items():
                     if col_name in headers:
                         ws.update_cell(row_num, headers.index(col_name) + 1, value)
-                load_sheet.clear()
+                _clear_read_caches()
                 return True
         return False
     except Exception:
@@ -945,7 +977,7 @@ def add_chunks_lote(chunks: list[dict]) -> bool:
         ss = get_spreadsheet()
         ws = ss.worksheet("DocumentoChunks")
         ws.append_rows(rows, value_input_option="USER_ENTERED")
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1052,7 +1084,7 @@ def save_assistant_log(
              origem_resposta, "Não avaliada", "", agora],
             value_input_option="USER_ENTERED",
         )
-        load_sheet.clear()
+        _clear_read_caches()
     except Exception as _e:
         import logging
         logging.error("save_assistant_log: %s", _e)
@@ -1104,7 +1136,7 @@ def add_web_search_log(entry: dict) -> None:
             entry.get("erro", ""),
             agora,
         ], value_input_option="USER_ENTERED")
-        load_sheet.clear()
+        _clear_read_caches()
     except Exception as _e:
         import logging
         logging.error("add_web_search_log: %s", _e)
@@ -1139,7 +1171,7 @@ def update_log_avaliacao(log_id: str, avaliacao: str, observacao: str = "") -> b
             ws.update_cell(row_idx, headers.index("Avaliacao_Interna") + 1, avaliacao)
         if observacao and "Observacao_Interna" in headers:
             ws.update_cell(row_idx, headers.index("Observacao_Interna") + 1, observacao)
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1178,7 +1210,7 @@ def save_assistant_faq(
              ativo_id, documento_id, "Ativa", agora, agora],
             value_input_option="USER_ENTERED",
         )
-        load_sheet.clear()
+        _clear_read_caches()
     except Exception as _e:
         import logging
         logging.error("save_assistant_faq: %s", _e)
@@ -1215,7 +1247,7 @@ def delete_chunks_documento(doc_id: str) -> bool:
         ]
         for row_num in reversed(to_delete):
             ws.delete_rows(row_num)
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1270,11 +1302,11 @@ def save_horimetro(ativo_id: str, horimetro: int) -> bool:
             if str(v).strip() == str(ativo_id).strip():
                 ws.update_cell(row_num, h_col,  str(horimetro))
                 ws.update_cell(row_num, dt_col, agora)
-                load_sheet.clear()
+                _clear_read_caches()
                 return True
 
         ws.append_row([ativo_id, horimetro, agora], value_input_option="USER_ENTERED")
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1404,7 +1436,7 @@ def delete_chamado(chamado_id: str) -> tuple[bool, str]:
                 continue
             if str(v).strip() == str(chamado_id).strip():
                 ws.delete_rows(row_num)
-                load_sheet.clear()
+                _clear_read_caches()
                 return True, ""
         return False, f"Chamado '{chamado_id}' não encontrado na planilha."
     except Exception as exc:
@@ -1430,7 +1462,7 @@ def update_chamado(chamado_id: str, campos: dict) -> bool:
             if campo in headers:
                 col_idx = headers.index(campo) + 1
                 ws.update_cell(row_idx, col_idx, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1714,7 +1746,7 @@ def _update_assistant_row_by_id(tab_name: str, row_id: str, campos: dict) -> boo
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -1858,7 +1890,7 @@ def delete_assistant_chat(chat_id: str, usuario_id: str, cliente_id: str) -> dic
             ]
             for row_num in reversed(to_delete):
                 ws.delete_rows(row_num)
-            load_sheet.clear()
+            _clear_read_caches()
     except Exception:
         pass  # aba pode não existir ainda se o chat nunca teve mensagem
 
@@ -1959,13 +1991,13 @@ def _ensure_tab_headers(tab_name: str, headers: list) -> None:
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title=tab_name, rows=1000, cols=len(headers) + 2)
             ws.append_row(headers, value_input_option="USER_ENTERED")
-            load_sheet.clear()
+            _clear_read_caches()
             return
         # Tab existe — verificar se tem cabeçalhos
         first_row = ws.row_values(1)
         if not first_row or first_row[0].strip() == "":
             ws.insert_row(headers, index=1, value_input_option="USER_ENTERED")
-            load_sheet.clear()
+            _clear_read_caches()
     except Exception:
         pass
 
@@ -2065,12 +2097,12 @@ def _ensure_sessions_tab() -> None:
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title="Sessions", rows=10000, cols=12)
             ws.append_row(_HEADERS_SESSIONS, value_input_option="USER_ENTERED")
-            load_sheet.clear()
+            _clear_read_caches()
             return
         first = ws.row_values(1)
         if not first or first[0].strip() != "Token":
             ws.insert_row(_HEADERS_SESSIONS, index=1, value_input_option="USER_ENTERED")
-            load_sheet.clear()
+            _clear_read_caches()
     except Exception:
         pass
 
@@ -2199,8 +2231,11 @@ def get_portal_notifications(
     return df.head(limit).reset_index(drop=True)
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def count_portal_notifications_unread(client_id: str) -> int:
-    """Conta notificações não lidas do portal para o cliente."""
+    """Conta notificações não lidas do portal para o cliente.
+    Cache curto (15s) — usado no badge do topnav, recalculado antes em toda
+    navegação; chave inclui client_id, sem risco de misturar clientes."""
     if not client_id:
         return 0
     df = get_portal_notifications(client_id, apenas_nao_lidas=True)
@@ -2236,7 +2271,7 @@ def mark_portal_notification_read(notif_id: str, client_id: str) -> bool:
         ws.update_cell(cell.row, _c("Status"),  "Lida")
         ws.update_cell(cell.row, _c("Lida_Em"), now)
         ws.update_cell(cell.row, _c("Updated_At"), now)
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -2320,7 +2355,7 @@ def upsert_event_preference(client_id: str, evento: str, dados: dict) -> bool:
                       value_input_option="USER_ENTERED")
         else:
             ws.append_row(row_vals, value_input_option="USER_ENTERED")
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -2456,7 +2491,7 @@ def update_notificacao_status(
                     ws.update_cell(row, _col("Enviado_Em"), enviado_em or now)
                 except Exception:
                     pass
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -2587,7 +2622,7 @@ def upsert_preferencias_notificacao(dados: dict) -> bool:
         else:
             ws.append_row(row_vals, value_input_option="USER_ENTERED")
 
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -2828,6 +2863,7 @@ def get_technical_report_by_app_id(app_report_id: str) -> dict | None:
     return {col: str(row.get(col, "")).strip() for col in _HEADERS_TECH_REPORTS}
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_technical_reports(
     client_id: str = "",
     status: str = "",
@@ -2901,7 +2937,7 @@ def update_technical_report(report_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -2957,7 +2993,7 @@ def _update_ativo_score(ativo_id: str, new_score: int) -> bool:
             old_score = None
 
         ws.update_cell(cell.row, score_col, str(new_score))
-        load_sheet.clear()
+        _clear_read_caches()
 
         if old_score is not None and _faixa_score(old_score) != _faixa_score(new_score):
             try:
@@ -3249,7 +3285,7 @@ def delete_report_timeline_events(report_id: str) -> bool:
         ]
         for row_num in reversed(to_delete):
             ws.delete_rows(row_num)
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -3434,12 +3470,13 @@ def update_maintenance_plan(plan_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_maintenance_tasks(
     client_id: str = "",
     plan_id: str = "",
@@ -3559,7 +3596,7 @@ def update_maintenance_task(task_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -3801,7 +3838,7 @@ def _ensure_extra_cols(tab_name: str, needed_cols: list) -> None:
         for col in faltantes:
             ws.update_cell(1, len(headers) + 1, col)
             headers.append(col)
-        load_sheet.clear()
+        _clear_read_caches()
     except Exception:
         pass
 
@@ -3849,7 +3886,7 @@ def update_alerta_gut(alerta_id: str, gravidade, urgencia, tendencia,
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -4278,7 +4315,7 @@ def abrir_chamado_v2(dados: dict) -> str | None:
                 })
             except Exception:
                 pass
-        load_sheet.clear()
+        _clear_read_caches()
         return chamado_id
     return None
 
@@ -4415,6 +4452,7 @@ def responder_chamado(chamado_id: str, mensagem: str, autor: str,
     return ok
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def get_chamados_resumo_assistente(client_id: str, ativo_id: str = "") -> list[dict]:
     """
     Resumo de chamados para o Assistente Técnico.
@@ -4451,7 +4489,7 @@ def delete_session(token: str) -> None:
         cell = ws.find(token)
         if cell:
             ws.update_cell(cell.row, ativo_col, "0")
-        load_sheet.clear()
+        _clear_read_caches()
     except Exception:
         pass
 
@@ -4469,7 +4507,7 @@ def _ensure_logos_tab() -> None:
         except gspread.exceptions.WorksheetNotFound:
             ws = ss.add_worksheet(title="ClienteLogos", rows=500, cols=3)
             ws.append_row(_HEADERS_CLIENTE_LOGOS, value_input_option="USER_ENTERED")
-            load_sheet.clear()
+            _clear_read_caches()
     except Exception:
         pass
 
@@ -4501,11 +4539,11 @@ def save_client_logo(client_id: str, logo_b64: str) -> bool:
                 if len(row) > cid_col and row[cid_col].strip().lower() == client_id.lower():
                     ws.update_cell(i, logo_col, logo_b64)
                     ws.update_cell(i, upd_col, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-                    load_sheet.clear()
+                    _clear_read_caches()
                     return True
         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         ws.append_row([client_id, logo_b64, now], value_input_option="USER_ENTERED")
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -4533,7 +4571,7 @@ def update_usuario(email: str, campos: dict) -> bool:
             for campo, valor in campos.items():
                 if campo in headers:
                     ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
-            load_sheet.clear()
+            _clear_read_caches()
             return True
         return False
     except Exception:
@@ -4558,7 +4596,7 @@ def update_ativo(ativo_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -4651,7 +4689,7 @@ def add_relatorio_executivo(
 
         new_row = [str(row.get(h, "")) for h in headers]
         ws.append_row(new_row)
-        load_sheet.clear()
+        _clear_read_caches()
         return relatorio_id
     except Exception:
         return None
@@ -4699,7 +4737,7 @@ def update_relatorio_executivo(relatorio_id: str, client_id: str, **campos) -> b
                 except Exception:
                     pass
 
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -4905,7 +4943,7 @@ def index_relatorio_tecnico(report_id: str, client_id: str, ativo_id: str, dados
                       f"do report {report_id}: {type(e).__name__}: {e}", file=_sys.stderr, flush=True)
                 raise
 
-        load_sheet.clear()
+        _clear_read_caches()
 
         # Etapa 2/6 — marca o relatório como preparado para o Assistente
         # Técnico. Status reflete o que de fato foi indexado: campos
@@ -5069,7 +5107,7 @@ def delete_chunks_relatorio(report_id: str) -> bool:
         ]
         for row_num in reversed(to_delete):
             ws.delete_rows(row_num)
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
@@ -5147,7 +5185,7 @@ def update_notification_template(template_id: str, campos: dict) -> bool:
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(cell.row, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         get_notification_templates.clear()
         return True
     except Exception:
@@ -5231,7 +5269,7 @@ def update_notification_queue_status(item_id: str, new_status: str) -> bool:
             ws.update_cell(cell.row, headers.index("Status") + 1, new_status)
         if "Updated_At" in headers:
             ws.update_cell(cell.row, headers.index("Updated_At") + 1, now)
-        load_sheet.clear()
+        _clear_read_caches()
         get_notification_queue.clear()
         return True
     except Exception:
@@ -5348,7 +5386,7 @@ def update_executive_summary(summary_id: str, cliente_id: str, **campos) -> bool
         for campo, valor in campos.items():
             if campo in headers:
                 ws.update_cell(row_idx, headers.index(campo) + 1, str(valor))
-        load_sheet.clear()
+        _clear_read_caches()
         return True
     except Exception:
         return False
