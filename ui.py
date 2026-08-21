@@ -1212,16 +1212,27 @@ def inject_floating_assistant(sid: str = "") -> None:
     via sheets.get_session() — client_id nunca sai do backend.
 
     SECURITY:
-      - client_id vem da sessao (sid), NUNCA do front-end.
+      - client_id vem da sessao (sid), NUNCA do front-end, EXCETO no modo
+        "Ver como Cliente" do staff: aqui mandamos o client_id do preview
+        (auth.current_client_id() ja resolve isso) como uma DICA — o
+        endpoint (integration_api.py) so honra essa dica depois de
+        confirmar, pela PROPRIA sessao no servidor (Perfil em
+        sheets.get_session), que quem pergunta e mesmo staff. Uma sessao de
+        cliente comum nunca consegue fazer esse valor valer nada, mesmo
+        adulterando o JS — mesma trava que auth.current_client_id() ja usa
+        no lado Streamlit, so reimplementada aqui porque o processo FastAPI
+        nao compartilha st.session_state.
       - Nenhum dado do cliente e embutido na pagina antecipadamente — cada
         pergunta busca dado fresco no servidor no momento em que e feita.
     """
     import os as _os
     import streamlit.components.v1 as _comp
+    from auth import is_admin_preview, current_client_id
 
     _api_base = _os.environ.get(
         "INTEGRATIONS_API_URL", "https://portal-predio-integrations-api.onrender.com"
     ).rstrip("/")
+    _preview_client_id = current_client_id() if is_admin_preview() else ""
 
     # --- icones SVG em branco ---
     ROBOT_SVG = (
@@ -1423,7 +1434,7 @@ def inject_floating_assistant(sid: str = "") -> None:
   ].join('');
   pd.body.appendChild(chat);
 
-  var _open=false, _init=false, _sid='{sid}', _apiBase='{_api_base}', _tc=0;
+  var _open=false, _init=false, _sid='{sid}', _apiBase='{_api_base}', _previewCid='{_js(_preview_client_id)}', _tc=0;
 
 """
 
@@ -1455,7 +1466,7 @@ def inject_floating_assistant(sid: str = "") -> None:
     fetch(_apiBase+'/api/assistant/query', {{
       method:'POST',
       headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{sid:_sid, pergunta:t}})
+      body: JSON.stringify({{sid:_sid, pergunta:t, preview_client_id:_previewCid}})
     }}).then(function(resp){{
       if(!resp.ok) throw new Error('http '+resp.status);
       return resp.json();

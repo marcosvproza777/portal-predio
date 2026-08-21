@@ -374,6 +374,7 @@ def _rate_limited(sid: str) -> bool:
 class AssistantQueryPayload(BaseModel):
     sid: str
     pergunta: str
+    preview_client_id: str = ""
 
 
 @app.post("/api/assistant/query")
@@ -390,6 +391,17 @@ def assistant_query(payload: AssistantQueryPayload):
     if not session or not session.get("client_id"):
         raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.")
     client_id = session["client_id"]
+
+    # Modo "Ver como Cliente" do staff: o Streamlit já resolve isso via
+    # auth.current_client_id() (client_id do preview em vez do da sessão),
+    # mas esse processo FastAPI não compartilha st.session_state — o JS
+    # manda o client_id do preview como dica, e só é honrado depois de
+    # confirmar, pela PRÓPRIA sessão validada acima (nunca por algo que o
+    # front-end afirma), que quem pergunta é staff. Mesma trava de
+    # auth.current_client_id(), reimplementada aqui pela mesma razão.
+    preview_cid = payload.preview_client_id.strip().lower()
+    if preview_cid and session.get("perfil") in ("admin", "funcionario"):
+        client_id = preview_cid
 
     if _rate_limited(sid):
         raise HTTPException(status_code=429, detail="Muitas perguntas em pouco tempo — aguarde um instante.")
