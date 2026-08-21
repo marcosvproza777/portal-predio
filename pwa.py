@@ -161,6 +161,29 @@ _HTML = """<!DOCTYPE html>
         ai.rel = 'apple-touch-icon'; ai.href = '/app/static/icons/icon-180.png';
         pd.head.appendChild(ai);
 
+        /* Splash screen no iPhone (Safari/iOS nao gera a partir do manifest
+           como o Android — exige um <link apple-touch-startup-image> por
+           tamanho exato de tela, senao mostra fundo branco liso ate a pagina
+           carregar). Fundo solido (mesma cor do background_color do
+           manifest) + logo centralizada, um arquivo por combinacao de
+           resolucao/pixel-ratio dos iPhones de 2018 em diante. */
+        [
+            ['(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)', 'splash-750x1334.png'],
+            ['(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)', 'splash-828x1792.png'],
+            ['(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1125x2436.png'],
+            ['(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1170x2532.png'],
+            ['(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1179x2556.png'],
+            ['(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1206x2622.png'],
+            ['(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1284x2778.png'],
+            ['(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)', 'splash-1290x2796.png'],
+        ].forEach(function(pair) {
+            var si = pd.createElement('link');
+            si.rel = 'apple-touch-startup-image';
+            si.media = pair[0];
+            si.href = '/app/static/icons/splash/' + pair[1];
+            pd.head.appendChild(si);
+        });
+
         var style = pd.createElement('style');
         style.textContent = [
             /* Posicionado abaixo do header Streamlit (~60px) para evitar que o
