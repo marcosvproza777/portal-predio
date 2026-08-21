@@ -180,7 +180,7 @@ _HTML = """<!DOCTYPE html>
             var si = pd.createElement('link');
             si.rel = 'apple-touch-startup-image';
             si.media = pair[0];
-            si.href = '/app/static/icons/splash/' + pair[1];
+            si.href = '/app/static/icons/' + pair[1];
             pd.head.appendChild(si);
         });
 
