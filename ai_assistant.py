@@ -483,11 +483,13 @@ def query_ai(
         result.update(_detectar_uso_resumo_tecnico(ctx, result.get("answer", "")))
         return result
 
-    except ImportError:
-        # anthropic não instalado
+    except ImportError as exc:
+        import sys as _sys
+        print(f"[query_ai] anthropic nao instalado: {exc}", file=_sys.stderr, flush=True)
         return _fallback_engine(client_id, pergunta, ativo_id)
-    except Exception:
-        # Falha na API: fallback controlado
+    except Exception as exc:
+        import sys as _sys
+        print(f"[query_ai] falha na API: {type(exc).__name__}: {exc}", file=_sys.stderr, flush=True)
         return _fallback_engine(client_id, pergunta, ativo_id)
 
 
@@ -527,7 +529,9 @@ def answer_about_report(pergunta: str, contexto_relatorio: str) -> str | None:
         raw = message.content[0].text
         result = _parse_ai_response(raw, {})
         return result.get("answer") or None
-    except Exception:
+    except Exception as exc:
+        import sys as _sys
+        print(f"[answer_about_report] falhou: {type(exc).__name__}: {exc}", file=_sys.stderr, flush=True)
         return None
 
 
