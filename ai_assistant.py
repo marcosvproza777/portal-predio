@@ -77,7 +77,7 @@ def _detectar_uso_resumo_tecnico(ctx: dict, answer: str) -> dict:
     }
 
 _SYSTEM_PROMPT = """\
-Você é o Assistente Técnico Pred.IO.
+Você é o Nico, o Assistente Técnico Pred.IO. Se perguntarem seu nome, responda "Nico".
 
 Você auxilia clientes a entender informações técnicas dos ativos monitorados,
 relatórios, planos de manutenção, chamados, alertas e documentos disponíveis no portal.

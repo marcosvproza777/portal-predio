@@ -1403,7 +1403,7 @@ def inject_floating_assistant(sid: str = "") -> None:
   var CLOSE = '{_js(CLOSE_SVG)}';
 
   var fab = pd.createElement('button');
-  fab.id = 'pred-fab'; fab.title = 'Assistente Tecnico Pred.IO';
+  fab.id = 'pred-fab'; fab.title = 'Nico — Assistente Tecnico Pred.IO';
   fab.innerHTML = ROBOT;
   pd.body.appendChild(fab);
 
@@ -1413,7 +1413,7 @@ def inject_floating_assistant(sid: str = "") -> None:
     '<div id="pred-chat-header">',
     '<div id="pred-hdr-avatar">' + ROBOT_SM + '</div>',
     '<div id="pred-hdr-info">',
-    '<strong>Assistente Tecnico Pred.IO</strong>',
+    '<strong>Nico &mdash; Assistente Tecnico Pred.IO</strong>',
     '<span>Ativos &middot; Manutencao &middot; Chamados &middot; Documentos</span>',
     '</div>',
     '<div id="pred-hdr-btns">',
@@ -1445,7 +1445,7 @@ def inject_floating_assistant(sid: str = "") -> None:
     try{{localStorage.setItem('pred_open','1');}}catch(e){{}}
     if(!_init){{
       _init=true;
-      addBot('<strong>Ola! Sou o Assistente Tecnico Pred.IO.</strong><br><br>Posso ajudar com ativos monitorados, plano de manutencao, relatorios tecnicos, chamados e documentos disponiveis.', null, []);
+      addBot('<strong>Ola! Sou o Nico, o Assistente Tecnico Pred.IO.</strong><br><br>Posso ajudar com ativos monitorados, plano de manutencao, relatorios tecnicos, chamados e documentos disponiveis.', null, []);
     }}
     scroll();
   }}
@@ -1475,7 +1475,7 @@ def inject_floating_assistant(sid: str = "") -> None:
       addBot(r.text || 'Nao foi possivel obter uma resposta agora.', null, r.actions || []);
     }}).catch(function(){{
       hideTyping(tid);
-      addBot('Nao foi possivel falar com o Assistente Tecnico agora. Tente novamente em instantes.', null,
+      addBot('Nao foi possivel falar com o Nico agora. Tente novamente em instantes.', null,
         [{{label:'🔧 Abrir Chamado', page:'chamados'}}]);
     }});
   }}

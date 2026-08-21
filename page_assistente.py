@@ -88,7 +88,7 @@ def _titulo_automatico(pergunta: str) -> str:
 
 
 def render() -> None:
-    page_header("🤖 Assistente Técnico Pred.IO",
+    page_header("🤖 Nico — Assistente Técnico Pred.IO",
                 "Tire dúvidas sobre seus equipamentos e relatórios")
 
     # SEGURANÇA: client_id sempre da sessão — nunca do front-end
@@ -294,7 +294,7 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
     current_report_id = st.session_state.get(_KEY_CUR_REPORT, "")
     current_document_id = st.session_state.get(_KEY_CUR_DOC, "")
     ativo_id_contexto = st.session_state.get("assistente_ativo_id_contexto", "")
-    with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
+    with st.spinner("Consultando o Nico…"):
         lookup = assistant_lookup.rotear_pergunta(
             pergunta, client_id, current_report_id, current_document_id,
             ativo_id=ativo_id_contexto,
@@ -304,7 +304,7 @@ def _processar_pergunta(pergunta: str, client_id: str, email: str, empresa: str)
         st.rerun()
         return
 
-    with st.spinner("Consultando o Assistente Técnico Pred.IO…"):
+    with st.spinner("Consultando o Nico…"):
         # IA chamada server-side — client_id da sessão, nunca do front-end
         result = query_ai(client_id, pergunta)
 

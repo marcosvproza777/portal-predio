@@ -2605,7 +2605,7 @@ def _build_response(intent: str, ctx: dict, pergunta: str = "", ativo_id: str = 
     # ── Identidade do Assistente ──────────────────────────────────────────────
     if intent == "identidade":
         return _resp(
-            "Sou o <strong>Assistente Técnico Pred.IO</strong> — respondo com base "
+            "Sou o <strong>Nico</strong>, o Assistente Técnico Pred.IO — respondo com base "
             "apenas nos dados autorizados do seu portal (ativos, manutenção, "
             "relatórios, chamados, alertas e biblioteca técnica).\n\nFonte: Pred.IO",
         )
@@ -2869,7 +2869,7 @@ def _sintetizar_com_ia(pergunta: str, contexto_web: str) -> str:
                 model="claude-haiku-4-5-20251001",
                 max_tokens=600,
                 system=(
-                    "Você é o Assistente Técnico Pred.IO. Responda SEMPRE em português do Brasil. "
+                    "Você é o Nico, o Assistente Técnico Pred.IO. Responda SEMPRE em português do Brasil. "
                     "Dê UMA resposta direta e objetiva. Máximo 3 frases. "
                     "Se souber a resposta exata, dê ela diretamente (ex: 'O rolamento é o 6314'). "
                     "Nunca mencione URLs, PDFs, nomes de sites ou fontes. "
