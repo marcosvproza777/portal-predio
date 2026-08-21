@@ -473,8 +473,8 @@ def query_ai(
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1500,
+            model="claude-sonnet-5",
+            max_tokens=4096,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
@@ -489,6 +489,46 @@ def query_ai(
     except Exception:
         # Falha na API: fallback controlado
         return _fallback_engine(client_id, pergunta, ativo_id)
+
+
+def answer_about_report(pergunta: str, contexto_relatorio: str) -> str | None:
+    """Responde uma pergunta específica sobre UM relatório já localizado
+    (por assistant_lookup.rotear_pergunta) — mesmo motor/prompt de domínio
+    de query_ai(), mas com contexto pequeno e focado (só os campos desse
+    relatório, já organizados por summarize_technical_report na ordem de
+    prioridade certa) em vez do contexto completo do cliente. Existe pra
+    trocar a resposta por concatenação de campos (rasa) por uma síntese de
+    verdade, sem perder a vantagem de já saber qual relatório é o certo.
+
+    Retorna None se a IA não estiver configurada ou a chamada falhar — quem
+    chama deve usar o texto determinístico já calculado como reserva."""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    user_message = (
+        f"RELATÓRIO TÉCNICO (dados autorizados, já localizado pelo sistema "
+        f"como o relatório relevante para esta pergunta):\n\n"
+        f"{contexto_relatorio}\n\n"
+        f"---\n"
+        f"PERGUNTA DO CLIENTE: {pergunta}\n\n"
+        f"Responda com base EXCLUSIVAMENTE nos dados do relatório acima. "
+        f"Retorne SOMENTE JSON válido no formato especificado."
+    )
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=2048,
+            system=_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        raw = message.content[0].text
+        result = _parse_ai_response(raw, {})
+        return result.get("answer") or None
+    except Exception:
+        return None
 
 
 def is_critical_question(pergunta: str) -> bool:

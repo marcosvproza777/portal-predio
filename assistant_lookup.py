@@ -381,7 +381,7 @@ def _chamar_claude_resumo(system_prompt: str, conteudo: str, tipo_resumo: str) -
         client = anthropic.Anthropic(api_key=api_key)
         instrucao = _PROMPTS_RESUMO.get(tipo_resumo, _PROMPTS_RESUMO["curto"])
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-5",
             max_tokens=800,
             system=system_prompt,
             messages=[{"role": "user", "content": f"{conteudo}\n\n---\nINSTRUÇÃO: {instrucao}"}],
@@ -396,7 +396,23 @@ Você é o Assistente Técnico Pred.IO. Resuma SOMENTE com base no conteúdo
 fornecido nesta mensagem — nunca invente dado técnico, especificação,
 prazo ou recomendação que não esteja no conteúdo. A fonte é sempre
 "Pred.IO". Responda em português, texto simples (sem markdown de título),
-pronto para exibição direta no chat."""
+pronto para exibição direta no chat.
+
+Mesmas regras de domínio do Assistente Técnico principal, quando o assunto
+aparecer no documento:
+- 20.000 horas (MYCOM) é referência técnica, nunca gatilho automático de
+  overhaul/desmontagem/kit revisão.
+- MYCOLD AB 68 foi descontinuado — substituído por MYCOLD PAO, o óleo
+  homologado atual.
+- Seleção de óleo depende de fluido/classe/aplicação/condição operacional e
+  da Tabela de Óleos Homologados MAYEKAWA/MYCOM — nunca recomendar troca sem
+  validação técnica.
+- Nomenclatura correta é sempre "Mypro Touch"/"Mypro Touch AD" — nunca
+  variações com "+". O Assistente não executa comando na máquina, só orienta.
+- Compressor alternativo: referência de temperatura de descarga 80-140°C;
+  parafuso: até 90°C.
+- Documentos com visibilidade "Apenas equipe Pred.IO" e observações internas
+  nunca podem ser mencionados ou revelados ao cliente."""
 
 
 def summarize_technical_report(report_id: str, client_id: str, tipo_resumo: str = "curto") -> dict:
@@ -600,11 +616,22 @@ def _extrair_assunto(texto: str) -> str:
     return " ".join(termos)
 
 
-def _resumir_relatorio_atual(report_id: str, client_id: str) -> dict:
+def _resumir_relatorio_atual(report_id: str, client_id: str, pergunta: str = "") -> dict:
     r = summarize_technical_report(report_id, client_id)
     if not r["ok"]:
         return {"tipo": "nao_encontrado", "mensagem": r["erro"]}
-    return {"tipo": "resumo", "texto": r["resumo"], "current_report_id": report_id}
+    texto = r["resumo"]
+    # Com a pergunta original, troca a resposta por concatenação (texto de
+    # summarize_technical_report) por uma síntese de verdade da IA — usando
+    # o mesmo texto já organizado por prioridade como contexto focado. Sem
+    # pergunta (chamadas internas sem uma pergunta em linguagem natural) ou
+    # se a IA falhar/não estiver configurada, mantém o texto determinístico.
+    if pergunta:
+        from ai_assistant import answer_about_report
+        resposta_ia = answer_about_report(pergunta, r["resumo"])
+        if resposta_ia:
+            texto = resposta_ia
+    return {"tipo": "resumo", "texto": texto, "current_report_id": report_id}
 
 
 def _resumir_documento_atual(document_id: str, client_id: str) -> dict:
@@ -614,11 +641,11 @@ def _resumir_documento_atual(document_id: str, client_id: str) -> dict:
     return {"tipo": "resumo", "texto": r["resumo"], "current_document_id": document_id}
 
 
-def _resolver_e_resumir_relatorios(reps: list[dict], client_id: str, periodo) -> dict:
+def _resolver_e_resumir_relatorios(reps: list[dict], client_id: str, periodo, pergunta: str = "") -> dict:
     if not reps:
         return {"tipo": "nao_encontrado", "mensagem": "Não encontrei nenhum relatório publicado com esses critérios."}
     if len(reps) == 1:
-        return _resumir_relatorio_atual(reps[0]["id"], client_id)
+        return _resumir_relatorio_atual(reps[0]["id"], client_id, pergunta)
     if periodo:
         return _resumo_consolidado_relatorios(reps, client_id)
     return {"tipo": "ambiguo", "itens": reps, "mensagem": "Encontrei mais de um relatório. Qual você quer resumir?"}
@@ -783,7 +810,7 @@ def rotear_pergunta(
         if is_doc and current_document_id:
             return _resumir_documento_atual(current_document_id, client_id)
         if current_report_id:
-            return _resumir_relatorio_atual(current_report_id, client_id)
+            return _resumir_relatorio_atual(current_report_id, client_id, pergunta)
         if current_document_id:
             return _resumir_documento_atual(current_document_id, client_id)
         return {
@@ -799,7 +826,7 @@ def rotear_pergunta(
             docs = localizar_documentos(client_id, texto=pergunta, ativo_id=ativo_id, limit=5)
             return _resolver_e_resumir_documentos(docs, client_id)
         reps = localizar_relatorios(client_id, tipo=tipo_rel, ativo_id=ativo_id, periodo=periodo, limit=10)
-        return _resolver_e_resumir_relatorios(reps, client_id, periodo)
+        return _resolver_e_resumir_relatorios(reps, client_id, periodo, pergunta)
 
     # Busca por conteúdo — "quais relatórios falam sobre desalinhamento?"
     if quer_conteudo:
