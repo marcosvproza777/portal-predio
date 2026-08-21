@@ -415,10 +415,77 @@ def assistant_query(payload: AssistantQueryPayload):
         _log("assistente_balao", "-", "permitido", client_id=client_id, detalhe="via query_ai")
         return {"text": ai_result.get("answer", ""), "actions": ai_result.get("suggested_actions", [])}
 
-    # rotear_pergunta() devolve {"tipo": ..., "texto"/"mensagem": ...} —
-    # normaliza pro formato {text, actions} que o JS do balão já espera.
-    texto = resultado.get("texto") or resultado.get("mensagem") or ""
-    actions = [{"label": "📋 Ver Relatórios", "page": "relatorios"}] if resultado.get("tipo") == "nao_encontrado" else []
+    texto, actions = _formatar_resposta_balao(resultado)
     _log("assistente_balao", "-", "permitido", client_id=client_id,
          detalhe=f"via rotear_pergunta tipo={resultado.get('tipo')}")
     return {"text": texto, "actions": actions}
+
+
+def _fmt_item_relatorio(r: dict) -> str:
+    partes = [f"<strong>{r.get('titulo') or 'Relatório'}</strong>"]
+    meta = [m for m in (r.get("tipo_servico"), r.get("data"), r.get("ativo_nome")) if m]
+    if meta:
+        partes.append(" &middot; ".join(meta))
+    return "<br>".join(partes)
+
+
+def _fmt_item_documento(d: dict) -> str:
+    partes = [f"<strong>{d.get('titulo') or 'Documento'}</strong>"]
+    meta = [m for m in (d.get("tipo_documento"), d.get("fabricante"), d.get("modelo")) if m]
+    if meta:
+        partes.append(" &middot; ".join(meta))
+    return "<br>".join(partes)
+
+
+def _fmt_lista_itens(itens: list) -> str:
+    """Formata uma lista de relatórios OU documentos (nunca mistura os
+    dois — cada resultado de rotear_pergunta() é de um tipo só). Mesma
+    heurística de page_assistente.py._render_lookup_msg pra distinguir:
+    relatório sempre tem 'tipo_servico', documento nunca tem."""
+    if not itens:
+        return ""
+    fmt = _fmt_item_relatorio if "tipo_servico" in itens[0] else _fmt_item_documento
+    return "<br>".join(f"&bull; {fmt(it)}" for it in itens)
+
+
+def _formatar_resposta_balao(resultado: dict) -> tuple[str, list]:
+    """Normaliza qualquer um dos formatos que assistant_lookup.rotear_pergunta()
+    devolve pro {text, actions} que o JS do balão espera. rotear_pergunta()
+    já filtra tudo por client_id — aqui só formata pra exibição."""
+    tipo = resultado.get("tipo", "")
+
+    if tipo in ("resumo", "resumo_consolidado", "cruzamento"):
+        return resultado.get("texto", ""), []
+
+    if tipo == "nao_encontrado":
+        return resultado.get("mensagem", ""), [{"label": "📋 Ver Relatórios", "page": "relatorios"}]
+
+    if tipo == "relatorio_card":
+        return _fmt_item_relatorio(resultado.get("item", {})), \
+            [{"label": "📋 Ver Relatório Completo", "page": "relatorios"}]
+
+    if tipo == "documento_card":
+        return _fmt_item_documento(resultado.get("item", {})), \
+            [{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}]
+
+    if tipo == "lista_relatorios":
+        itens = resultado.get("itens", [])
+        texto = f"Encontrei {len(itens)} relatório(s):<br><br>" + _fmt_lista_itens(itens)
+        return texto, [{"label": "📋 Ver Relatórios", "page": "relatorios"}]
+
+    if tipo == "lista_documentos":
+        itens = resultado.get("itens", [])
+        texto = f"Encontrei {len(itens)} documento(s):<br><br>" + _fmt_lista_itens(itens)
+        return texto, [{"label": "📚 Abrir Biblioteca Técnica", "page": "biblioteca"}]
+
+    if tipo == "ambiguo":
+        itens = resultado.get("itens", [])
+        texto = resultado.get("mensagem", "")
+        lista_txt = _fmt_lista_itens(itens)
+        if lista_txt:
+            texto = f"{texto}<br><br>{lista_txt}"
+        return texto, []
+
+    # Formato desconhecido — nunca devolve bolha vazia.
+    return resultado.get("texto") or resultado.get("mensagem") or \
+        "Não consegui montar uma resposta pra isso agora.", []
