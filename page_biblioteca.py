@@ -39,7 +39,8 @@ def render() -> None:
     )
 
     # ── Busca documentos autorizados ──────────────────────────────────────────
-    docs = _carregar_documentos(client_id)
+    with st.spinner("Carregando biblioteca técnica..."):
+        docs = _carregar_documentos(client_id)
 
     if not docs:
         st.info(

@@ -342,3 +342,71 @@ async def publicar_relatorio(
     if aviso:
         resp["aviso"] = aviso
     return resp
+
+
+# ── Assistente Técnico — balão flutuante do Portal ────────────────────────────
+# Autenticação por SESSÃO do Portal (sid), NUNCA pelo INTEGRATION_API_TOKEN —
+# esse token é fixo e não pode ir para o navegador do cliente (ficaria
+# público). client_id vem exclusivamente de sheets.get_session(sid), que já
+# valida expiração e a coluna Ativo — nunca do corpo da requisição.
+
+import time as _time
+from collections import defaultdict as _defaultdict
+
+_RATE_LIMIT_WINDOW_S = 60
+_RATE_LIMIT_MAX_REQ = 12
+_rate_limit_state: dict[str, list] = _defaultdict(list)
+
+
+def _rate_limited(sid: str) -> bool:
+    """Limite simples por sid (em memória — suficiente pra uma instância;
+    reinicia a cada deploy). Evita abuso de custo agora que a rota é
+    alcançável direto do navegador, sem o token de integração."""
+    agora = _time.monotonic()
+    janela = _rate_limit_state[sid]
+    janela[:] = [t for t in janela if agora - t < _RATE_LIMIT_WINDOW_S]
+    if len(janela) >= _RATE_LIMIT_MAX_REQ:
+        return True
+    janela.append(agora)
+    return False
+
+
+class AssistantQueryPayload(BaseModel):
+    sid: str
+    pergunta: str
+
+
+@app.post("/api/assistant/query")
+def assistant_query(payload: AssistantQueryPayload):
+    """Resposta do balão flutuante com IA real — mesma engine do Assistente
+    Técnico de tela cheia (rotear_pergunta -> query_ai), pra não duplicar
+    lógica nem divergir de comportamento entre os dois."""
+    sid = payload.sid.strip()
+    pergunta = payload.pergunta.strip()
+    if not sid or not pergunta:
+        raise HTTPException(status_code=422, detail="sid e pergunta são obrigatórios.")
+
+    session = sheets.get_session(sid)
+    if not session or not session.get("client_id"):
+        raise HTTPException(status_code=401, detail="Sessão inválida ou expirada.")
+    client_id = session["client_id"]
+
+    if _rate_limited(sid):
+        raise HTTPException(status_code=429, detail="Muitas perguntas em pouco tempo — aguarde um instante.")
+
+    from assistant_lookup import rotear_pergunta
+    from ai_assistant import query_ai
+
+    resultado = rotear_pergunta(pergunta, client_id)
+    if resultado is None:
+        ai_result = query_ai(client_id, pergunta)
+        _log("assistente_balao", "-", "permitido", client_id=client_id, detalhe="via query_ai")
+        return {"text": ai_result.get("answer", ""), "actions": ai_result.get("suggested_actions", [])}
+
+    # rotear_pergunta() devolve {"tipo": ..., "texto"/"mensagem": ...} —
+    # normaliza pro formato {text, actions} que o JS do balão já espera.
+    texto = resultado.get("texto") or resultado.get("mensagem") or ""
+    actions = [{"label": "📋 Ver Relatórios", "page": "relatorios"}] if resultado.get("tipo") == "nao_encontrado" else []
+    _log("assistente_balao", "-", "permitido", client_id=client_id,
+         detalhe=f"via rotear_pergunta tipo={resultado.get('tipo')}")
+    return {"text": texto, "actions": actions}

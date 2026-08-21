@@ -360,6 +360,23 @@ def inject_global_css() -> None:
         background: rgba(239,68,68,0.05) !important;
         border-bottom-color: transparent !important;
     }}
+
+    /* ── Indicador de carregamento — reforça o indicador nativo do Streamlit
+       (canto superior direito, aparece em TODO clique que dispara rerun:
+       navegação, botões, formulários) pra ficar visível, não só um
+       pontinho pequeno fácil de não notar. */
+    [data-testid="stStatusWidget"] {{
+        transform: scale(1.55);
+        transform-origin: top right;
+        filter: drop-shadow(0 2px 8px rgba(37,99,235,.4));
+    }}
+    [data-testid="stStatusWidget"] svg {{
+        animation: predio-loading-pulse 0.9s ease-in-out infinite;
+    }}
+    @keyframes predio-loading-pulse {{
+        0%, 100% {{ opacity: 1; }}
+        50% {{ opacity: 0.4; }}
+    }}
     </style>""", unsafe_allow_html=True)
 
 
@@ -1184,36 +1201,27 @@ def remove_floating_assistant() -> None:
 </body></html>""", height=0)
 
 
-def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
+def inject_floating_assistant(sid: str = "") -> None:
     """Injeta o Assistente Tecnico Pred.IO como botao flutuante no portal.
 
-    Usa components.html() + injecao no parent.document.
-    Dados do cliente (ativos, manutencoes, relatorios etc.) sao buscados
-    server-side via assistant_engine.get_client_context() e embutidos no JS
-    como PRED_CONTEXT — o client_id nunca e exposto ao front-end.
+    Usa components.html() + injecao no parent.document. Cada pergunta faz
+    fetch() para POST /api/assistant/query no servico de integracao
+    (integration_api.py) — o mesmo motor (assistant_lookup.rotear_pergunta
+    -> ai_assistant.query_ai) usado pelo Assistente Tecnico de tela cheia.
+    Autenticacao e a sessao do proprio Portal (_sid), validada no servidor
+    via sheets.get_session() — client_id nunca sai do backend.
 
     SECURITY:
-      - client_id vem da sessao/autenticacao, NUNCA do front-end.
-      - PRED_CONTEXT contem apenas dados autorizados para o cliente logado.
-      - Documentos internos nao aparecem para cliente.
-      - Dados da Supervisao Pred.IO nao aparecem aqui.
-
-    FUTURE API: POST /api/assistant/technical-query
-      Quando a IA real for integrada, o JS fara fetch() para esse endpoint
-      em vez de usar PRED_CONTEXT local. O endpoint chamara query_assistant()
-      de assistant_engine.py com o client_id da sessao do servidor.
+      - client_id vem da sessao (sid), NUNCA do front-end.
+      - Nenhum dado do cliente e embutido na pagina antecipadamente — cada
+        pergunta busca dado fresco no servidor no momento em que e feita.
     """
-    import json as _json
+    import os as _os
     import streamlit.components.v1 as _comp
-    from assistant_engine import get_client_context
 
-    # Busca dados autorizados server-side. client_id ja validado pela sessao.
-    try:
-        _ctx = get_client_context(client_id) if client_id else {}
-    except Exception:
-        _ctx = {}
-
-    _ctx_json = _json.dumps(_ctx, ensure_ascii=False)
+    _api_base = _os.environ.get(
+        "INTEGRATIONS_API_URL", "https://portal-predio-integrations-api.onrender.com"
+    ).rstrip("/")
 
     # --- icones SVG em branco ---
     ROBOT_SVG = (
@@ -1415,12 +1423,9 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
   ].join('');
   pd.body.appendChild(chat);
 
-  var _open=false, _init=false, _sid='{sid}', _tc=0;
+  var _open=false, _init=false, _sid='{sid}', _apiBase='{_api_base}', _tc=0;
 
 """
-
-    # PRED_CONTEXT e injetado aqui como JSON puro, fora do f-string para nao conflitar com {{ }}
-    html_ctx = "  var PRED_CONTEXT = __CTX_JSON__;\n\n".replace("__CTX_JSON__", _ctx_json)
 
     html_bot = f"""  function predToggle(){{ _open ? predClose() : predOpen(); }}
 
@@ -1447,13 +1452,21 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     inp.value=''; addUser(t);
     var sg=pd.getElementById('pred-sugg'); if(sg)sg.style.display='none';
     var tid=showTyping();
-    // Simula latencia de API — quando endpoint real estiver pronto,
-    // substituir este setTimeout por fetch('/api/assistant/technical-query', ...)
-    setTimeout(function(){{
+    fetch(_apiBase+'/api/assistant/query', {{
+      method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{sid:_sid, pergunta:t}})
+    }}).then(function(resp){{
+      if(!resp.ok) throw new Error('http '+resp.status);
+      return resp.json();
+    }}).then(function(r){{
       hideTyping(tid);
-      var r = getResp(t);
-      addBot(r.text, null, r.actions);
-    }}, 500 + Math.floor(Math.random() * 400));
+      addBot(r.text || 'Nao foi possivel obter uma resposta agora.', null, r.actions || []);
+    }}).catch(function(){{
+      hideTyping(tid);
+      addBot('Nao foi possivel falar com o Assistente Tecnico agora. Tente novamente em instantes.', null,
+        [{{label:'🔧 Abrir Chamado', page:'chamados'}}]);
+    }});
   }}
 
   function addUser(t){{
@@ -1512,561 +1525,6 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
     try{{ p.location.href='?'+params.toString(); }}catch(_){{}}
   }}
 
-  /* ── Motor de intenção JS — espelha assistant_engine.py ─────────────────
-     Usa PRED_CONTEXT embutido server-side (dados autorizados do cliente).
-     Quando POST /api/assistant/technical-query estiver ativo, este bloco
-     sera substituido por um fetch() para o endpoint Python. */
-  function getResp(q) {{
-    var ctx = PRED_CONTEXT;
-    var ql  = q.toLowerCase();
-
-    /* Normaliza texto para busca sem acentos */
-    var norm = function(s) {{
-      return (s||'').toLowerCase()
-        .replace(/[ãâàáä]/g,'a').replace(/[êèéë]/g,'e')
-        .replace(/[îìíï]/g,'i').replace(/[õôòóö]/g,'o')
-        .replace(/[ûùúü]/g,'u').replace(/ç/g,'c');
-    }};
-    /* Normaliza ql para que todos os regex funcionem sem acento */
-    ql = norm(ql);
-
-    /* Busca em chunks indexados — retorna hit ou null */
-    var searchChunks = function(extraWords) {{
-      var qn = norm(ql);
-      var baseWords = qn.split(/ +/).filter(function(w) {{ return w.length > 2; }});
-      var words = baseWords.concat((extraWords || []).map(norm));
-      if (!words.length) return null;
-      var best = null, bestScore = 0;
-      (ctx.documentos || []).forEach(function(doc) {{
-        (doc.chunks || []).forEach(function(chunk) {{
-          var hay = norm([chunk.titulo_secao, chunk.conteudo, chunk.palavras_chave].join(' '));
-          var score = words.filter(function(w) {{ return hay.indexOf(w) >= 0; }}).length;
-          if (score > bestScore) {{
-            bestScore = score;
-            best = {{ docTitulo: doc.titulo, docId: doc.id, docUrl: doc.arquivo_url || '', secao: chunk.titulo_secao || '', conteudo: chunk.conteudo || '', pagina: chunk.pagina_inicio || '' }};
-          }}
-        }});
-      }});
-      return bestScore > 0 ? best : null;
-    }};
-
-    /* Formata resposta com atribuicao de fonte */
-    var fmtChunk = function(hit) {{
-      var src = 'Com base no documento <strong>' + hit.docTitulo + '</strong>';
-      if (hit.secao) src += ' (Secao: ' + hit.secao + ')';
-      if (hit.pagina) src += ' &mdash; pag. ' + hit.pagina;
-      var urlLink = (hit.docUrl && hit.docUrl.indexOf('/mock/') < 0)
-        ? '<br><a href="' + hit.docUrl + '" target="_blank" style="color:#2563EB;font-weight:600;font-size:.78rem;">📂 Abrir documento</a>'
-        : '';
-      return src + ', encontrei:<br><br>' + hit.conteudo + urlLink;
-    }};
-
-    /* MYCOLD AB / MYCOLD PAO */
-    if (/mycold|oleo.*mycom|mycom.*oleo/.test(ql)) {{
-      if (/ab.*68|ab68|mycold ab/.test(ql)) {{
-        return {{ text: 'O <strong>MYCOLD AB 68</strong> foi descontinuado. No Portal Pred.IO, a referencia atual deve ser <strong>MYCOLD PAO</strong>. O MYCOLD AB 68 pode aparecer apenas como referencia historica/inativa, nunca como oleo atual.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'Com base na Tabela de Oleos Homologados MAYEKAWA/MYCOM, o oleo MYCOM homologado atual na base Pred.IO e <strong>MYCOLD PAO</strong> (ISO VG 68, PAO sintetico, NH3/R22, 53 cSt @ 40°C). A referencia antiga MYCOLD AB 68 foi descontinuada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos Homologados', page:'biblioteca'}}] }};
-    }}
-
-    /* OLEO HOMOLOGADO (Tabela MAYEKAWA) */
-    if (/homologado|tabela.*oleo|reflo|rab 68|gargoyle|eal arctic|icematic|capella|pao|poe|oleo.*r134a|oleo.*nh3|oleo.*amonia|qualquer.*oleo|qual.*oleo usar/.test(ql)) {{
-      if (/qualquer/.test(ql)) {{
-        return {{ text: 'Nao. A viscosidade ISO VG 68 e apenas um dos criterios. A selecao do oleo deve considerar o fluido refrigerante, a classe do lubrificante (PAO, POE, mineral), a aplicacao, a condicao operacional e a tabela homologada MAYEKAWA/MYCOM.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos Homologados', page:'biblioteca'}}] }};
-      }}
-      if (/r134a|r404a|hfc/.test(ql)) {{
-        return {{ text: 'Para R134a/R404a, os oleos homologados na base Pred.IO sao POE ISO VG 68: <strong>MOBIL EAL ARCTIC 68</strong>, <strong>ICEMATIC SW 68</strong> e <strong>CAPELLA HFC 68</strong>. Validar conforme fluido, equipamento e orientacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos Homologados', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/amonia|nh3/.test(ql)) {{
-        return {{ text: 'Para Amonia/NH3, os oleos homologados na base Pred.IO incluem (ISO VG 68): REFLO 68A, RAB 68, R 200, MOBIL GARGOYLE ARCTIC SHC 226 E, MOBIL GARGOYLE ARCTIC EH, ESSO REFRIGERATION 68, CAPELLA 68 e <strong>MYCOLD PAO</strong>.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos Homologados', page:'biblioteca'}}] }};
-      }}
-      var oleos = (ctx.oleos_homologados || []).filter(function(o) {{ return o.status === 'Homologado'; }});
-      if (oleos.length) {{
-        var nomes = oleos.map(function(o) {{ return o.nome; }}).join(', ');
-        return {{ text: 'Os oleos homologados na base Pred.IO (ISO VG 68) sao: <strong>' + nomes + '</strong>. A selecao depende do fluido refrigerante, classe e validacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos Homologados', page:'biblioteca'}}] }};
-      }}
-      return {{ text: 'Consulte a Tabela de Oleos Homologados MAYEKAWA/MYCOM na Biblioteca Tecnica ou abra um chamado para validacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Tabela de Oleos', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* REVISAO CONDICAO — 20.000 horas, overhaul, desmontagem, kit revisao */
-    if (/20\\.?000.*hora|20000.*hora|bienal|desmontagem|desmontar|kit revis|revis.o geral|revisao geral|overhaul|preciso revisar/.test(ql)) {{
-      return {{ text: 'No Portal Pred.IO, 20.000 horas e referencia tecnica, nao gatilho automatico de desmontagem ou overhaul. A decisao deve considerar a saude real da maquina: analise de vibracao, analise de oleo, termografia, historico operacional, tendencia de score, falhas recorrentes e avaliacao tecnica Pred.IO.<br><br><strong>20.000 horas e referencia tecnica, nao gatilho automatico de overhaul. A decisao depende da saude real da maquina.</strong><br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'📚 Ver Manual', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-    }}
-
-    /* MYPRO TOUCH / MYPRO TOUCH AD */
-    if (/mypro.touch|painel mypro|login.*mypro|senha.*mypro|senha.*painel|login.*painel|level 1|level 2|nivel 1|nivel 2|como ligar.*compressor|como parar.*compressor|tecla partida|tecla parar|set point|cut in|cut out|alterar.*capacidade|capacidade manual|limpar alarme|resetar alarme|reset.*alarme|alarme.*voltou|alarme.*varias|alarme.*recorrente|alarme vermelho|alarme azul|estado.*compressor|onde.*vejo.*alarme|onde.*ver.*alarme|registrar.*falha|o que.*registrar/.test(ql)) {{
-      if (/level 2|nivel 2|supervisor|xyz|2222/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, o acesso <strong>Level 2 — Supervisor/Administrador</strong> do painel Mypro Touch e:<br><br>Login: <code>XYZ</code> / Senha: <code>2222</code><br><br>⚠️ Use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/level 1|nivel 1|operador.*login|login.*operador|abc|1111/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, o acesso <strong>Level 1 — Operador</strong> do painel Mypro Touch e:<br><br>Login: <code>ABC</code> / Senha: <code>1111</code><br><br>⚠️ Use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/login|senha|level|nivel|acesso/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, os acessos do painel <strong>Mypro Touch</strong> sao:<br><br>&bull; <strong>Level 1 — Operador:</strong> Login: <code>ABC</code> / Senha: <code>1111</code><br>&bull; <strong>Level 2 — Supervisor/Administrador:</strong> Login: <code>XYZ</code> / Senha: <code>2222</code><br><br>⚠️ Use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ligar|partir|partida/.test(ql)) {{
-        return {{ text: 'No painel <strong>Mypro Touch</strong>, pressione a tecla <strong>PARTIDA</strong> por alguns segundos ate que ela fique verde. Acompanhe a janela <em>Condicao Atual</em> &rarr; <em>Estado do Compressor</em>: indica <em>Preparar para Partir</em> e depois <em>Compressor Ligado</em>.<br><br>⚠️ Use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/parar|parada|desligar/.test(ql)) {{
-        return {{ text: 'No painel <strong>Mypro Touch</strong>, pressione a tecla <strong>PARAR</strong> por alguns instantes ate que o <em>Estado do Compressor</em> apresente <em>Recolhimento do Sistema</em>.<br><br>⚠️ Use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/voltou|varias vezes|recorrente/.test(ql)) {{
-        return {{ text: 'Alarme recorrente nao deve ser tratado apenas com reset. Registre as condicoes operacionais, verifique a tendencia, correlacione com pressoes, temperaturas, oleo, vibracao e historico, e <strong>abra um chamado tecnico</strong> para analise da equipe Pred.IO.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-      }}
-      if (/limpar alarme|resetar|reset.*alarme|limpar falha/.test(ql)) {{
-        return {{ text: 'No painel <strong>Mypro Touch</strong>, primeiro resolva a causa da falha. Depois, acione o botao de limpeza ou reconhecimento. Nao e recomendado limpar alarme sem tratar a causa — isso pode mascarar uma condicao insegura.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/alarme azul|azul/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, alarme em <strong>azul</strong> indica condicao reconhecida apos a tratativa. Ainda assim, garanta que a causa foi resolvida.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/alarme vermelho|vermelho/.test(ql)) {{
-        return {{ text: 'Falha em <strong>vermelho</strong> no painel Mypro Touch indica uma falha ativa que exige atencao. A causa deve ser solucionada antes de reconhecer ou limpar.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/cut in/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, <strong>SET POINT CUT IN</strong> define a pressao em que o compressor <strong>liga automaticamente</strong>.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/cut out/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, <strong>SET POINT CUT OUT</strong> define a pressao em que o compressor <strong>desliga automaticamente</strong> por baixa pressao.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/set point.*1|#1/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, <strong>Set Point #1</strong> e referencia para <strong>-10 °C</strong>.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/set point.*2|#2/.test(ql)) {{
-        return {{ text: 'Na base Pred.IO, <strong>Set Point #2</strong> e referencia para <strong>-40 °C</strong>.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/alterar.*set|mudar.*set|como.*alterar.*set/.test(ql)) {{
-        return {{ text: 'Para alterar set point no painel <strong>Mypro Touch</strong>: clique no icone de usuario, informe login e senha, clique em <em>LOG ON</em>, aguarde a luz verde e acesse os campos de set point.<br><br>⚠️ Use apenas se voce for operador autorizado. Parametros incorretos podem causar instabilidade e danos.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/alterar.*capacidade|capacidade manual/.test(ql)) {{
-        return {{ text: 'Para alterar capacidade no painel <strong>Mypro Touch</strong>: acesse <em>MENU &gt; CONTROLE</em> e altere o limite desejado.<br><br>⚠️ Use apenas se voce for operador autorizado. Nao altere sem validacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/o que.*registrar|registrar.*falha|registrar.*quando/.test(ql)) {{
-        return {{ text: 'Quando ocorrer uma falha no painel <strong>Mypro Touch</strong>, registrar:<br>&bull; Data, hora, ativo e modelo<br>&bull; Horimetro e estado do compressor<br>&bull; Alarme/falha exibida<br>&bull; Pressao de succao, descarga e oleo<br>&bull; Temperatura de descarga e do oleo<br>&bull; Corrente, capacidade e frequencia<br>&bull; Vibracao e condicoes do processo<br>&bull; Acao realizada e responsavel<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/onde.*alarme|onde.*falha|estado.*compressor|condicao atual/.test(ql)) {{
-        return {{ text: 'No painel <strong>Mypro Touch</strong>, alarmes e falhas aparecem na janela <em>Alarmes/Falhas</em>. Falhas ativas em <strong>vermelho</strong>, reconhecidas em <strong>azul</strong>. Para ver se o compressor esta ligado, verifique a janela <em>Condicao Atual</em>.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/mypro touch ad|touch ad/.test(ql)) {{
-        return {{ text: 'O <strong>Mypro Touch AD</strong> e uma nomenclatura utilizada na base Pred.IO para painel/interface de operacao MYCOM conforme o projeto da unidade. Deve ser tratado como variacao do painel Mypro Touch.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'O <strong>Mypro Touch</strong> e um painel/interface de operacao utilizado em unidades MYCOM, que permite visualizar o estado do compressor, alarmes, falhas, set points e comandos operacionais conforme a configuracao do sistema.<br><br>Para partida, parada, reset de alarme, set point ou capacidade: use apenas se voce for operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* COMUNICACAO / MONITORAMENTO REMOTO */
-    if (/modbus|comunicacao.*ethernet|ethernet.*industrial|expor.*painel|painel.*internet|monitoramento.*pode|portal.*pode.*buscar|portal.*pode.*comandar|quais.*dados.*portal|comando remoto|partida remota|parada remota/.test(ql)) {{
-      if (/modbus/.test(ql)) {{
-        return {{ text: 'Modbus e um protocolo de comunicacao industrial que pode permitir leitura de dados do painel ou controlador. Para o Portal Pred.IO, recomenda-se iniciar com leitura e monitoramento de variaveis, sem comandos de escrita.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/ethernet/.test(ql)) {{
-        return {{ text: 'Comunicacao Ethernet e uma forma de conexao em rede que pode permitir integracao entre painel, CLP, supervisorio ou portal. Deve ser feita com rede segura, permissoes e validacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/expor.*painel|painel.*internet/.test(ql)) {{
-        return {{ text: 'Nao e recomendado expor o painel industrial diretamente na internet. O acesso deve ser protegido por rede segura, VPN, firewall, credenciais e politica de acesso.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/pode.*comandar|partida remota|parada remota|comando remoto/.test(ql)) {{
-        return {{ text: 'Nao nesta fase. O Portal Pred.IO prioriza monitoramento, alertas e historico tecnico. Comandos remotos so devem ser considerados em fase futura, com autenticacao forte, intertravamentos, auditoria e validacao de seguranca operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/quais.*dados|dados.*portal/.test(ql)) {{
-        return {{ text: 'O Portal Pred.IO deve priorizar dados de leitura: estado do compressor, alarmes, falhas, pressoes, temperaturas, corrente, capacidade, frequencia, horimetro, niveis, vibracao e historico de eventos.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      return {{ text: 'Sim, desde que exista comunicacao configurada e segura. O Portal Pred.IO prioriza leitura de dados como estado do compressor, alarmes, pressoes, temperaturas, horimetro e variaveis operacionais disponiveis no painel Mypro Touch ou Mypro Touch AD.<br><br><strong>Fonte: Pred.IO</strong>' }};
-    }}
-
-    /* MYCOM MANUAL — temperatura de descarga por tipo, pressoes, compressor types */
-    if (/mycom|chiller|sistema chiller|fluxostato|soft.starter|compressor parafuso|compressor alternativo|temperatura.*descarga|descarga.*normal|pressao.*descarga|pressao de descarga|pressao.*succao|pressao de succao|pressao.*oleo|oleo.*baix|maquina.*pressao|filtro coalescente|alinhamento|inspec.o di.ria|inspec.o semanal|inspec.o mensal|inspec.o trimestral|inspec.o semestral|inspec.o anual|5\\.?000 hora|10\\.?000 hora|quando trocar filtro|quando conferir|quando fazer analise|analise de oleo|amostra.*oleo|o que.*unidade compressora|diferenca.*parafuso|dados.*importantes/.test(ql)) {{
-      if (/parafuso.*descarga|descarga.*parafuso|temperatura.*parafuso/.test(ql)) {{
-        if (/120/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 120 °C exige avaliacao tecnica imediata: verificar arrefecimento, pressao, oleo, filtros e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}
-        if (/95/.test(ql)) {{ return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e ate 90 °C. Uma leitura de 95 °C deve ser tratada como atencao e avaliada com pressao, oleo e carga operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }}; }}
-        return {{ text: 'Para compressor <strong>parafuso</strong>, a referencia Pred.IO e temperatura de descarga <strong>ate 90 °C</strong>. Leituras acima devem ser avaliadas tecnicamente.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/alternativo.*descarga|descarga.*alternativo|temperatura.*alternativo/.test(ql)) {{
-        return {{ text: 'Para compressor <strong>alternativo</strong>, a referencia Pred.IO e <strong>80 °C a 140 °C</strong>. A interpretacao deve considerar fluido, carga, pressao, oleo e historico operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/temperatura.*descarga|descarga.*normal/.test(ql)) {{
-        return {{ text: 'A temperatura de descarga depende do tipo de compressor:<br>&bull; <strong>Compressor alternativo:</strong> referencia Pred.IO de 80 °C a 140 °C<br>&bull; <strong>Compressor parafuso:</strong> referencia Pred.IO ate 90 °C<br><br>A avaliacao deve considerar fluido, carga, pressao, oleo e historico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/descarga.*alta|alta.*descarga/.test(ql)) {{
-        return {{ text: 'Pressao de descarga alta pode estar relacionada a: falta de agua de arrefecimento, temperatura elevada da agua, condensador sujo, excesso de refrigerante, ar no sistema ou oleo no condensador.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/descarga.*baixa|baixa.*descarga/.test(ql)) {{
-        return {{ text: 'Pressao de descarga baixa pode estar associada a: excesso de agua de arrefecimento, restriction na tubulacao, valvula de expansao muito aberta, falta de refrigerante ou vazamento interno.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/suc.*alta|alta.*suc/.test(ql)) {{
-        return {{ text: 'Pressao de succao alta pode indicar: excesso de abertura da valvula de expansao, aumento de carga termica ou queda de capacidade do compressor.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/suc.*baixa|baixa.*suc/.test(ql)) {{
-        return {{ text: 'Pressao de succao baixa pode estar relacionada a: valvula de expansao fechada, falta de refrigerante, oleo no evaporador, evaporador congelado ou filtro de succao obstruido.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/pressao.*oleo|oleo.*baixo|oleo.*baixa/.test(ql)) {{
-        return {{ text: 'Pressao de oleo abaixo do esperado pode estar relacionada a: viscosidade reduzida, filtro obstruido, oleo deteriorado ou bomba de oleo defeituosa. Se persistir ou houver alarme, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-      }}
-      if (/diferenca.*parafuso|parafuso.*alternativo|tipo.*compressor/.test(ql)) {{
-        return {{ text: 'O compressor <strong>parafuso</strong> realiza compressao por rotores. O compressor <strong>alternativo</strong> realiza compressao por pistoes e cilindros.<br><br>Temperatura de descarga de referencia Pred.IO:<br>&bull; Alternativo: 80 °C a 140 °C<br>&bull; Parafuso: ate 90 °C<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      if (/o que.*unidade compressora|unidade compressora mycom/.test(ql)) {{
-        return {{ text: 'Uma unidade compressora MYCOM e um conjunto industrial para refrigeracao ou processo, composto por compressor, motor, sistema de lubrificacao, separador de oleo, painel de controle, sensores, valvulas, instrumentos e dispositivos de seguranca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }};
-      }}
-      var hitMycom = searchChunks(['mycom', 'chiller', 'compressor', 'oleo', 'pressao']);
-      if (hitMycom) {{ return {{ text: fmtChunk(hitMycom), actions: [{{label:'📚 Abrir Manual MYCOM', page:'biblioteca'}}] }}; }}
-      return {{ text: 'Encontrei o <strong>Manual Operacional MYCOM - Sistema Chiller</strong> na base Pred.IO. Consulte a Biblioteca Tecnica para detalhes.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* META — sobre o proprio Assistente Tecnico */
-    if (/assistente.*substitui|substitui.*tecnico|assistente.*pode.*decidir|assistente.*pode.*parar|pode.*decidir.*parar/.test(ql)) {{
-      if (/substitui/.test(ql)) {{
-        return {{ text: 'Nao. O Assistente Tecnico Pred.IO ajuda a consultar informacoes tecnicas, explicar alarmes e orientar proximos passos, mas nao substitui avaliacao tecnica presencial, laudo especializado ou decisao operacional de seguranca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'Nao. O Assistente Tecnico Pred.IO nao executa comando na maquina. Ele pode orientar, indicar condicao de atencao ou sugerir abertura de chamado, mas a decisao de parada ou intervencao deve ser tomada por operador autorizado.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* OLEO — especificacao generica */
-    if (/qual.*leo|leo.*usar|especifica.*leo|recomend.*leo|viscosidade|lubrificante recomend/.test(ql)) {{
-      var spec = ctx.especificacoes && ctx.especificacoes.oleo;
-      if (spec) {{
-        return {{ text: 'O oleo recomendado para esta unidade e: <strong>' + spec + '</strong>.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Ver Manual', page:'biblioteca'}}] }};
-      }}
-      var hitOleo = searchChunks(['oleo', 'lubrificante', 'viscosidade', 'vdl', 'sintetico']);
-      if (hitOleo) {{
-        return {{ text: fmtChunk(hitOleo), actions: [{{label:'📚 Ver Manual Completo', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'Para selecao de oleo, consulte a Tabela de Oleos Homologados MAYEKAWA/MYCOM na Biblioteca Tecnica. O oleo MYCOM homologado atual na base Pred.IO e <strong>MYCOLD PAO</strong>.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* SSH — SUPERAQUECIMENTO DE SUCCAO */
-    if (/ssh|superaquecimento|succao.*superaquec|ssh.*alto|ssh.*baixo|calcular.*ssh|formula.*ssh|retorno.*liquido|liquido.*compressor|succao.*liquido|valvula.*expansao.*ssh/.test(ql)) {{
-      if (/o que.*ssh|ssh.*significa|o que.*superaquecimento/.test(ql)) {{
-        return {{ text: 'SSH significa <strong>Superaquecimento de Succao</strong>. E a diferenca entre a temperatura real do gas na succao e a temperatura de saturacao correspondente a pressao de succao. Indica quanto o vapor foi aquecido apos evaporar completamente.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/por que.*ssh|ssh.*import/.test(ql)) {{
-        return {{ text: 'O SSH (Superaquecimento de Succao) protege o compressor contra retorno de liquido e influencia temperatura de descarga, eficiencia e condicao operacional. SSH muito baixo indica risco de liquido na succao; SSH muito alto indica evaporador faminto ou pouca alimentacao de refrigerante.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ssh.*alto.*descarga|descarga.*ssh.*alto/.test(ql)) {{
-        return {{ text: 'Sim. SSH elevado (Superaquecimento de Succao alto) pode elevar a temperatura do gas de entrada no compressor e contribuir para aumento da temperatura de descarga, principalmente com alta taxa de compressao ou pressao de descarga elevada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ssh.*alto|alto.*ssh/.test(ql)) {{
-        return {{ text: 'SSH alto (Superaquecimento de Succao alto) pode indicar pouca alimentacao de refrigerante, valvula de expansao muito fechada, filtro ou linha obstruida, baixa carga de refrigerante, carga termica baixa ou restricao no evaporador. Tambem pode aumentar temperatura de descarga e consumo de energia. Se persistir, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ssh.*baixo|baixo.*ssh|retorno.*liquido|liquido.*compressor/.test(ql)) {{
-        return {{ text: 'SSH baixo (Superaquecimento de Succao baixo) pode indicar risco de retorno de liquido para o compressor. Liquido na succao pode causar danos mecanicos, diluicao do oleo e falha no compressor. Tratar como condicao critica e abrir chamado tecnico imediatamente.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-      }}
-      if (/calcular.*ssh|formula.*ssh|como.*calcular.*ssh/.test(ql)) {{
-        return {{ text: 'O SSH pode ser calculado pela diferenca entre a temperatura medida na linha de succao e a temperatura de saturacao correspondente a pressao de succao.<br><br><strong>Formula: SSH = Temperatura real da succao - Temperatura de saturacao da succao</strong><br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/onde.*medir.*ssh|medir.*superaquecimento/.test(ql)) {{
-        return {{ text: 'Medir pressao de succao para obter a temperatura de saturacao e medir a temperatura real da linha de succao com instrumento adequado, em ponto representativo proximo ao compressor.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/o que fazer.*ssh|ssh.*o que fazer|ssh.*alto.*fazer|ssh.*baixo.*fazer/.test(ql)) {{
-        return {{ text: 'Verificar carga de refrigerante, alimentacao do evaporador, valvula de expansao, filtro e linha de liquido, subresfriamento, carga termica, pressao de succao e temperatura de descarga. Se persistir, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ssh.*sozinho|analisar.*ssh.*sozinho/.test(ql)) {{
-        return {{ text: 'Nao. SSH deve ser analisado junto com pressao de succao, pressao de descarga, temperatura de descarga, subresfriamento, carga termica, condicao do evaporador, fluido refrigerante, analise de oleo e historico operacional.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      return {{ text: 'SSH e o <strong>Superaquecimento de Succao</strong>: diferenca entre a temperatura real do gas na succao e a temperatura de saturacao correspondente. SSH alto pode indicar pouca alimentacao; SSH baixo pode indicar risco de retorno de liquido. Em ambos, avaliar pressao, valvula, carga, temperatura e abrir chamado tecnico se persistir.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* MOTOR ELETRICO */
-    if (/motor.*ruido|ruido.*motor|motor.*aquecendo|motor.*quente|motor.*corrente|motor.*vibra|vibra.*motor|motor.*inversor|inversor.*motor|motor.*barulho|barulho.*motor|o que verificar.*motor|verificar.*motor|motor.*inspecao/.test(ql)) {{
-      if (/ruido.*motor|motor.*ruido|o que.*ruido.*motor|ruido.*anormal.*motor/.test(ql)) {{
-        return {{ text: 'Ruido anormal no motor pode estar relacionado a rolamento com desgaste, falta ou excesso de lubrificacao, desalinhamento, desbalanceamento, folga mecanica, base frouxa, problema no acoplamento, atrito interno, ventilador danificado ou anomalia eletrica. Recomenda-se analise de vibracao, inspecao de temperatura, inspecao visual e correlacao com corrente eletrica antes de qualquer decisao de troca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/motor.*aquecendo|motor.*aquec|aquecimento.*motor|motor.*quente/.test(ql)) {{
-        return {{ text: 'Aquecimento no motor pode estar relacionado a sobrecarga, ventilacao deficiente, sujeira nas aletas, rolamento com falha, lubrificacao inadequada, desalinhamento, tensao eletrica irregular, corrente elevada, harmonicos, problema no inversor ou ambiente com temperatura elevada. Verificar corrente, tensao, temperatura, vibracao, ventilacao e condicao dos rolamentos.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/corrente.*alta.*motor|motor.*corrente.*alta/.test(ql)) {{
-        return {{ text: 'Corrente alta no motor pode estar relacionada a sobrecarga, travamento parcial, rolamento danificado, desalinhamento, acoplamento forcado, compressor com carga elevada, pressao de descarga alta ou problema eletrico. Avaliar corrente, vibracao, temperatura e condicao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/motor.*inversor|inversor.*motor|inversor.*frequencia/.test(ql)) {{
-        return {{ text: 'Motores acionados por inversor de frequencia podem apresentar variacoes de rotacao, harmonicos, aquecimento adicional, corrente distorcida e possiveis efeitos nos rolamentos. A analise deve considerar frequencia de operacao, carga, temperatura, corrente, vibracao e historico do inversor.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/o que verificar.*motor|verificar.*motor.*inspecao|inspecao.*motor/.test(ql)) {{
-        return {{ text: 'Verificar temperatura, corrente, tensao, ruido, vibracao, ventilacao, limpeza, estado dos rolamentos, acoplamento, base, cabos, terminais, aterramento, condicao do inversor e historico de alarmes. Se houver alteracao de tendencia, abrir chamado ou antecipar analise preditiva.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'Problemas em motor eletrico devem ser investigados correlacionando ruido, corrente, temperatura, vibracao, lubrificacao, alinhamento, base e acoplamento. Recomenda-se analise de vibracao e, em caso de duvida critica, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* ROLAMENTO */
-    if (/rolamento|mancal|graxa.*rolamento|rolamento.*graxa|ruido.*rolamento|rolamento.*ruido|rolamento.*troca|troca.*rolamento|rolamento.*quente|rolamento.*falhando|falha.*rolamento|rolamento.*sinais|rolamento.*lubrifica|lubrifica.*rolamento|excesso.*graxa|falta.*graxa|graxa.*errada|graxa.*incompativel|misturar.*graxa/.test(ql)) {{
-      if (/sinais.*falha.*rolamento|falha.*rolamento.*sinais|o que.*indica.*rolamento/.test(ql)) {{
-        return {{ text: 'Sinais comuns de possivel falha de rolamento incluem ruido anormal, vibracao elevada, aumento de temperatura, alteracao de tendencia, cheiro de aquecimento, graxa escurecida, picos em alta frequencia, impactos no espectro de vibracao e recorrencia de alarmes. A confirmacao deve ser feita por analise de vibracao, termografia e inspecao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/rolamento.*troca.*ruido|ruido.*indica.*troca|troca.*automatica.*rolamento/.test(ql)) {{
-        return {{ text: 'Nao necessariamente. Ruido no rolamento e um sinal de alerta, mas nao deve gerar troca automatica. A decisao deve ser baseada em analise de vibracao, tendencia historica, temperatura, lubrificacao, condicao operacional, termografia e inspecao tecnica. Se o ruido for acompanhado de vibracao alta ou aquecimento, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/lubrificar.*rolamento.*ruido|posso.*lubrificar.*ruido|ruido.*lubrificar/.test(ql)) {{
-        return {{ text: 'Nao automaticamente. Lubrificar apenas porque ha ruido pode mascarar uma falha ou piorar o problema se houver excesso de graxa. Verificar plano de lubrificacao, tipo de graxa, quantidade, intervalo, temperatura, vibracao e condicao do rolamento.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/excesso.*graxa|graxa.*demais|graxa.*excesso/.test(ql)) {{
-        return {{ text: 'Sim. Excesso de graxa pode causar aumento de temperatura, agitacao do lubrificante, vazamento, esforco adicional e degradacao da graxa. A lubrificacao deve seguir quantidade e periodicidade corretas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/falta.*graxa|graxa.*pouca|pouca.*graxa/.test(ql)) {{
-        return {{ text: 'Sim. Falta de lubrificacao aumenta atrito, temperatura, desgaste e pode gerar ruido, vibracao e falha prematura. Correlacionar com temperatura, vibracao e historico de lubrificacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/graxa.*errada|graxa.*incompativel|misturar.*graxa|graxa.*incorreta/.test(ql)) {{
-        return {{ text: 'Sim. Graxa incompativel ou inadequada pode alterar viscosidade, separacao de oleo, resistencia a temperatura, estabilidade e protecao contra desgaste. Evite misturar graxas sem validacao tecnica.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/rolamento.*inicial.*falha|falha.*inicial.*rolamento|como saber.*rolamento.*falhando/.test(ql)) {{
-        return {{ text: 'Falhas iniciais de rolamento podem aparecer primeiro em alta frequencia, envelope, ultrassom, aumento discreto de temperatura ou pequenas alteracoes de tendencia. A analise de vibracao periodica detecta esses sinais antes da falha funcional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/quando.*trocar.*rolamento|troca.*rolamento.*tempo|troca.*rolamento.*horim/.test(ql)) {{
-        return {{ text: 'Na filosofia Pred.IO, a troca de rolamento deve ser preferencialmente por condicao, considerando analise de vibracao, termografia, ruido, temperatura, historico de lubrificacao, criticidade do ativo e tendencia. Tempo e calendario orientam inspecao, mas nao devem ser o unico criterio de troca.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ruido.*metalico.*rolamento|rolamento.*metalico|metalico.*rolamento/.test(ql)) {{
-        return {{ text: 'Ruido metalico em rolamento deve ser tratado como condicao de atencao. Pode indicar falha avancada, falta de lubrificacao, dano interno, folga, contaminacao ou contato indevido. Recomenda-se abrir chamado tecnico e realizar analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-      }}
-      if (/rolamento.*quente|rolamento.*aquecido|rolamento.*aquecendo|aquecimento.*rolamento/.test(ql)) {{
-        return {{ text: 'Rolamento aquecido e sinal de atencao. Pode vir de excesso de graxa, falta de graxa, desalinhamento, sobrecarga, corrente eletrica, ventilacao deficiente ou falha interna. Considerar temperatura, vibracao, ruido e tendencia. Nao trocar automaticamente sem diagnostico tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'Problemas em rolamento devem ser avaliados com analise de vibracao, termografia, historico de lubrificacao e inspecao tecnica. A recomendacao Pred.IO e nao decidir troca sem diagnostico. Em caso de ruido forte, aquecimento rapido ou vibracao crescente, abrir chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* RELATORIOS — checado ANTES de VIBRACAO/TERMOGRAFIA/MANUTENCAO: essas
-       palavras tambem disparam os blocos de FAQ preditiva abaixo (vibra/
-       termografia sao palavras-chave deles), entao uma pergunta como "resuma
-       o relatorio de vibracao" ou "o que diz o relatorio de termografia"
-       precisa ser resolvida aqui primeiro, senao cai sempre na resposta
-       educativa generica e nunca chega a olhar ctx.relatorios. */
-    if (/relat|laudo|resultado|publicado/.test(ql)) {{
-      var rels = ctx.relatorios || [];
-      if (!rels.length) {{
-        return {{ text: 'Nenhum relatorio tecnico publicado ainda para sua operacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
-      }}
-      var querResumo = /resum|diagnostic|conclus|recomend|o que diz|o que fala|o que mostra|o que consta|o que encontrou/.test(ql);
-      if (querResumo) {{
-        var achados = rels.filter(function(r) {{
-          var tipoWords = norm(r.tipo || '').split(/ +/).filter(function(w) {{ return w.length > 3; }});
-          return tipoWords.some(function(w) {{ return ql.indexOf(w) >= 0; }});
-        }});
-        if (!achados.length && rels.length === 1) {{ achados = rels; }}
-        if (achados.length === 1) {{
-          var rr = achados[0];
-          var corpo = rr.resumo || rr.diagnostico || rr.conclusao || '';
-          var partes = ['<strong>📋 Resumo do relatorio' + (rr.tipo ? ' de ' + rr.tipo : '') + '</strong>'];
-          if (rr.ativo) partes.push('Ativo: ' + rr.ativo);
-          if (rr.data) partes.push('Data: ' + rr.data);
-          if (rr.severidade) partes.push('Severidade: ' + rr.severidade);
-          if (corpo) {{ partes.push(''); partes.push('<strong>Resumo tecnico:</strong>'); partes.push(corpo); }}
-          if (rr.recomendacoes) {{ partes.push(''); partes.push('<strong>Principais recomendacoes:</strong>'); partes.push(rr.recomendacoes); }}
-          partes.push('');
-          partes.push('<strong>Fonte: Pred.IO</strong>');
-          return {{ text: partes.join('<br>'), actions: [{{label:'📋 Ver Relatorio Completo', page:'relatorios'}}] }};
-        }}
-        if (achados.length > 1) {{
-          var rlist3 = achados.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data + (r.ativo ? ' (' + r.ativo + ')' : ''); }}).join('<br>');
-          return {{ text: 'Encontrei mais de um relatorio compativel. Qual deles?<br><br>' + rlist3 + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
-        }}
-      }}
-      var rlist = rels.map(function(r) {{ return '&bull; ' + r.titulo + ' &mdash; ' + r.data; }}).join('<br>');
-      return {{ text: '<strong>📋 Relatorios tecnicos recentes:</strong><br><br>' + rlist + '<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios Tecnicos', page:'relatorios'}}] }};
-    }}
-
-    /* ANALISE DE VIBRACAO */
-    if (/analise.*vibracao|vibracao.*analise|espectro.*vibr|vibr.*espectro|tendencia.*vibr|vibr.*tendencia|o que.*envelope|envelope.*vibr|vibracao.*evita|desbalanceament|desalinhament|ressonanci|alinhamento.*laser|alinhar.*laser|base.*frouxa|quando.*antecipar.*vibracao|apos.*alinhar.*vibracao|apos.*lubrificar.*vibracao/.test(ql)) {{
-      if (/por que.*analise.*vibracao|para que.*vibracao|vibracao.*serve/.test(ql)) {{
-        return {{ text: 'A analise de vibracao detecta falhas mecanicas em estagio inicial: desalinhamento, desbalanceamento, folga, falhas de rolamento, problemas de acoplamento, base frouxa e ressonancia. Ajuda a planejar manutencao antes da quebra e evita troca desnecessaria de pecas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/vibracao.*evita.*parada|vibracao.*previne/.test(ql)) {{
-        return {{ text: 'A analise de vibracao reduz o risco de parada inesperada, pois permite acompanhar tendencia e detectar sinais de degradacao antes da falha funcional. Nao elimina todos os riscos, mas melhora a confiabilidade e o planejamento da manutencao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/quando.*antecipar.*vibracao|antecipar.*analise.*vibracao/.test(ql)) {{
-        return {{ text: 'Antecipar analise de vibracao quando houver ruido anormal, aumento de temperatura, vibracao perceptivel, alarme recorrente, falha de rolamento suspeita, alteracao de corrente, intervencao recente, troca de acoplamento, alinhamento recente, lubrificacao anormal ou mudanca de operacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/o que.*espectro|espectro.*mostra|analise.*espectral/.test(ql)) {{
-        return {{ text: 'A analise espectral separa as frequencias presentes na vibracao. Isso identifica padroes de desbalanceamento, desalinhamento, folga, engrenamento, falhas de rolamento, rotacao, harmonicos e outros defeitos.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/o que.*envelope|envelope.*vibracao/.test(ql)) {{
-        return {{ text: 'Envelope e uma tecnica para destacar impactos de alta frequencia, muito util para detectar falhas iniciais em rolamentos. Ela identifica defeitos antes que aparecam claramente na vibracao global.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/tendencia.*vibracao|o que.*tendencia.*vibr/.test(ql)) {{
-        return {{ text: 'Tendencia e o acompanhamento da evolucao da vibracao ao longo do tempo. Mais importante do que uma leitura isolada e observar se a vibracao esta aumentando, estabilizando ou reduzindo apos manutencao.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/frequencia.*analise.*vibracao|de quanto.*vibracao/.test(ql)) {{
-        return {{ text: 'No plano Pred.IO, a analise de vibracao pode ser realizada a cada 2 meses como rotina preditiva. A frequencia pode ser antecipada para ativos criticos, maquinas com historico de falha, alarmes recorrentes, vibracao elevada ou operacao severa.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/apos.*alinhar.*vibracao|vibracao.*apos.*alinhamento|depois.*alinhar.*vibracao/.test(ql)) {{
-        return {{ text: 'Sim. Apos alinhamento, a analise de vibracao confirma se a condicao melhorou e se ainda existem outras causas, como desbalanceamento, folga, base frouxa, rolamento ou ressonancia.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/apos.*lubrificar.*vibracao|vibracao.*apos.*lubrificacao|depois.*lubrificar.*vibracao/.test(ql)) {{
-        return {{ text: 'Sim. O acompanhamento apos lubrificacao ajuda a confirmar se houve melhora. Se a vibracao ou ruido permanecer, pode haver falha interna, excesso de graxa, graxa inadequada, desalinhamento ou outro problema.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/vibracao.*substitui.*oleo|oleo.*substitui.*vibracao/.test(ql)) {{
-        return {{ text: 'Nao. A analise de vibracao e a analise de oleo se complementam. A vibracao avalia condicao mecanica dinamica; a analise de oleo avalia lubrificante, contaminacao e desgaste interno. A melhor decisao vem da correlacao entre vibracao, oleo, termografia e operacao.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/vibracao.*substitui.*termografia|termografia.*substitui.*vibracao/.test(ql)) {{
-        return {{ text: 'Nao. A vibracao identifica comportamento dinamico e mecanico; a termografia identifica aquecimento anormal. Em motores, rolamentos e paineis, as duas tecnicas juntas aumentam a confiabilidade do diagnostico.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/desalinhamento.*sinal|sinal.*desalinhamento|o que.*indica.*desalinhamento/.test(ql)) {{
-        return {{ text: 'Sinais comuns de desalinhamento incluem vibracao elevada, aquecimento em mancais e rolamentos, desgaste em acoplamento, ruido, falhas recorrentes de rolamento e aumento de carga no motor. Confirmacao por analise de vibracao e alinhamento a laser.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/desbalanceamento.*causa|causa.*desbalanceamento|o que.*desbalanceamento/.test(ql)) {{
-        return {{ text: 'Desbalanceamento pode ser causado por acumulo de sujeira, desgaste, perda de material, montagem incorreta, polia ou rotor danificado, ventilador quebrado ou alteracao no conjunto rotativo. Avaliar por analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/base.*frouxa.*vibra|vibra.*base.*frouxa|fundacao.*vibra/.test(ql)) {{
-        return {{ text: 'Sim. Base frouxa, fundacao inadequada, parafusos soltos ou pe manco podem amplificar vibracao e gerar falhas recorrentes. Recomenda-se inspecao mecanica, reaperto controlado e analise de vibracao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/o que.*ressonancia|ressonancia.*causa/.test(ql)) {{
-        return {{ text: 'Ressonancia ocorre quando uma frequencia de excitacao coincide com uma frequencia natural da estrutura ou maquina, amplificando vibracao mesmo sem falha direta no componente. A analise de vibracao ajuda a identificar essa condicao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/quando.*alinhamento.*laser|alinhamento.*laser.*quando|quando.*alinhar/.test(ql)) {{
-        return {{ text: 'Alinhamento a laser deve ser realizado apos montagem, intervencao em motor ou compressor, troca de acoplamento, manutencao em base, vibracao por desalinhamento ou conforme plano de manutencao. Para unidade MYCOM, conferencia de alinhamento aparece como rotina associada a inspecao semestral ou 5.000 horas.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'A analise de vibracao e ferramenta preditiva essencial para detectar falhas em estagio inicial, acompanhar tendencias e evitar paradas inesperadas. No plano Pred.IO, e prevista como rotina a cada 2 meses e deve ser antecipada em caso de ruido, alarme, intervencao ou alteracao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* TERMOGRAFIA */
-    if (/termografia|imagem.*termica|termica.*imagem|infravermelho|ponto.*quente|quente.*ponto|delta.*t|o que.*termografia|por que.*termografia|quando.*termografia|termografia.*motor|termografia.*rolamento|termografia.*painel|termografia.*compressor/.test(ql)) {{
-      if (/o que.*termografia/.test(ql)) {{
-        return {{ text: 'Termografia e uma tecnica preditiva que usa imagem termica para identificar aquecimento anormal em componentes eletricos, mecanicos e operacionais. Detecta pontos quentes, sobrecarga, mau contato, atrito, falha de rolamento, problema de lubrificacao, desequilibrio eletrico e anomalias termicas antes de uma falha funcional.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/por que.*termografia|termografia.*serve|termografia.*ajuda.*por/.test(ql)) {{
-        return {{ text: 'A termografia identifica aquecimentos anormais que podem indicar falha eletrica, mau contato, sobrecarga, rolamento aquecido, lubrificacao inadequada, desalinhamento, problema em painel, conexao frouxa ou componente em degradacao. Permite agir antes de parada inesperada ou dano maior.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/termografia.*substitui.*vibracao|vibracao.*substitui.*termografia/.test(ql)) {{
-        return {{ text: 'Nao. A termografia identifica aquecimento anormal; a analise de vibracao identifica comportamento dinamico e mecanico como desalinhamento, desbalanceamento, folgas e falhas de rolamento. As duas tecnicas se complementam.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/termografia.*substitui.*oleo|oleo.*substitui.*termografia/.test(ql)) {{
-        return {{ text: 'Nao. A termografia avalia temperatura e aquecimento anormal. A analise de oleo avalia condicao do lubrificante, contaminacao, particulas, agua, oxidacao e metais de desgaste. Em unidade compressora, as duas analises devem ser correlacionadas.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/quando.*termografia|frequencia.*termografia|de quanto.*termografia/.test(ql)) {{
-        return {{ text: 'No plano Pred.IO, a termografia pode ser realizada a cada 4 meses como rotina preditiva. Tambem deve ser antecipada quando houver aquecimento anormal, corrente elevada, ruido, vibracao, alarme recorrente, falha eletrica, cheiro de aquecimento ou alteracao operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/termografia.*motor|motor.*termografia/.test(ql)) {{
-        return {{ text: 'A termografia pode mostrar aquecimento anormal no corpo do motor, rolamentos, mancais, tampa, ventilacao, caixa de ligacao, cabos e conexoes. Correlacionar com corrente eletrica, carga, vibracao, limpeza, ventilacao e historico operacional.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/termografia.*rolamento|rolamento.*termografia/.test(ql)) {{
-        return {{ text: 'Rolamento quente na termografia e sinal de atencao, mas a decisao de troca deve considerar analise de vibracao, ruido, lubrificacao, tendencia de temperatura, carga, alinhamento e criticidade do ativo. Nao indicar troca automaticamente apenas pela termografia.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/termografia.*painel|painel.*termografia/.test(ql)) {{
-        return {{ text: 'A termografia verifica aquecimento anormal em conexoes, barramentos, disjuntores, contatores, fusibles, bornes, cabos, inversores, soft-starters, reles e componentes eletricos. Pontos quentes podem indicar mau contato, sobrecarga, desequilibrio de fase ou componente em degradacao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/ponto.*quente.*conexao|conexao.*ponto.*quente|termografia.*conexao/.test(ql)) {{
-        return {{ text: 'Ponto quente em conexao eletrica pode indicar mau contato, aperto inadequado, oxidacao, sobrecarga ou desequilibrio. Deve ser tratado com prioridade conforme intensidade, carga, criticidade e tendencia. A intervencao deve ser feita por equipe autorizada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/inversor.*termografia|soft.starter.*termografia|termografia.*inversor|termografia.*soft.starter/.test(ql)) {{
-        return {{ text: 'Inversores e soft-starters geram calor em operacao, mas aquecimento excessivo pode indicar sobrecarga, ventilacao obstruida, filtros sujos, ambiente quente ou falha interna. A avaliacao deve considerar carga, ventilacao, corrente, alarmes e historico termico. Intervencao apenas por equipe autorizada.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/termografia.*compressor|compressor.*termografia|onde.*termografia.*unidade/.test(ql)) {{
-        return {{ text: 'Na unidade compressora, a termografia pode ser aplicada em motor, mancais, rolamentos, acoplamento, compressor, sistema de oleo, bomba de oleo, filtros, tubulacoes, painel eletrico, inversor, soft-starter, conexoes e pontos com suspeita de aquecimento anormal.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/termografia.*ssh|ssh.*termografia|succao.*termografia|termografia.*succao/.test(ql)) {{
-        return {{ text: 'A termografia pode apoiar a inspecao termica da linha de succao, mas o SSH (Superaquecimento de Succao) deve ser calculado pela diferenca entre a temperatura real de succao e a temperatura de saturacao correspondente a pressao de succao. A termografia e apoio, nao substituto do calculo.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      if (/o que.*delta.*t|delta.*t.*termografia|delta t/.test(ql)) {{
-        return {{ text: '<strong>Delta T</strong> e a diferenca de temperatura entre dois pontos comparaveis, como uma fase e outra, um rolamento e outro, ou o componente analisado e uma referencia semelhante. Ajuda a identificar anomalias termicas relativas na termografia.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/erro.*termografia|o que.*gera.*erro.*termografia/.test(ql)) {{
-        return {{ text: 'Erros na termografia podem ocorrer por emissividade incorreta, reflexo de superficies metalicas, foco inadequado, distancia, angulo de medicao, vento, carga baixa, equipamento fora de operacao, sujeira, isolamento termico ou interpretacao sem comparacao adequada.<br><br><strong>Fonte: Pred.IO</strong>' }};
-      }}
-      if (/relatorio.*termografia|o que.*relatorio.*termografia/.test(ql)) {{
-        return {{ text: 'Um relatorio de termografia deve conter ativo, componente, data, condicao operacional, carga e corrente quando aplicavel, imagem termica, imagem visual, temperatura medida, referencia comparativa, Delta T, criticidade, provavel causa, recomendacao tecnica e prazo sugerido para acao.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📋 Ver Relatorios', page:'relatorios'}}] }};
-      }}
-      if (/termografia.*ponto.*quente.*o que|o que fazer.*termografia/.test(ql)) {{
-        return {{ text: 'Registrar imagem, temperatura, localizacao, condicao operacional, carga, corrente e historico. Classificar criticidade, correlacionar com vibracao, eletrica ou oleo conforme o caso, e abrir chamado tecnico se houver risco ou tendencia de piora.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      return {{ text: 'A termografia identifica aquecimento anormal em componentes eletricos, mecanicos e operacionais. No plano Pred.IO, e prevista como rotina preditiva a cada 4 meses e deve ser antecipada em caso de aquecimento, alarme, corrente elevada ou alteracao operacional. Sempre correlacionar com carga, corrente, vibracao, oleo e historico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* MANUTENCAO */
-    if (/manuten|plano|preventiva|preditiva|vibra|termografia|hor.metro|filtro|inspec|lubrifica|pr.xima|proxima|vencimento|analise de|analise d/.test(ql)) {{
-      if (/como.*vibra.*ajuda|vibra.*ajuda/.test(ql)) {{
-        return {{ text: 'A analise de vibracao ajuda a identificar tendencias de desalinhamento, desbalanceamento, folgas, falhas em rolamentos, problemas de acoplamento, base frouxa e alteracoes mecanicas. No Portal Pred.IO, e prevista como rotina preditiva a cada 2 meses.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      if (/como.*termografia.*ajuda|termografia.*ajuda/.test(ql)) {{
-        return {{ text: 'A termografia ajuda a identificar aquecimento anormal em motor, paineis, conexoes eletricas, rolamentos, mancais e componentes criticos. No Portal Pred.IO, e prevista como rotina preditiva a cada 4 meses.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-      }}
-      var mans = ctx.manutencoes || [];
-      if (!mans.length) {{
-        return {{ text: 'Nao encontrei planos de manutencao cadastrados. Recomendo abrir um chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      var itens = mans.map(function(m) {{
-        var prazo = m.vencimento_data || (m.vencimento_horas ? m.vencimento_horas + ' horas' : 'a definir');
-        return '&bull; ' + m.acao + ' &mdash; ' + prazo;
-      }}).join('<br>');
-      return {{ text: '<strong>📅 Proximas manutencoes programadas:</strong><br><br>' + itens + '<br><br>Acesse o plano completo para ver checklists e intervalos detalhados.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'📅 Ver Plano de Manutencao', page:'manutencao'}}] }};
-    }}
-
-    /* DOCUMENTOS / MANUAIS */
-    if (/manual|datasheet|documento|especifica|cat.logo|biblioteca|pdf|procedimento|guia|instru/.test(ql)) {{
-      var docs = ctx.documentos || [];
-      if (!docs.length) {{
-        return {{ text: 'Nao encontrei manual tecnico cadastrado. Recomendo solicitar o documento pela area de Chamados Tecnicos.', actions: [{{label:'🔧 Abrir Chamado', page:'chamados'}}, {{label:'📚 Abrir Biblioteca', page:'biblioteca'}}] }};
-      }}
-      var hitDoc = searchChunks([]);
-      if (hitDoc) {{
-        return {{ text: fmtChunk(hitDoc), actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
-      }}
-      var qn2 = norm(ql);
-      var words2 = qn2.split(/ +/).filter(function(w) {{ return w.length > 2; }});
-      var matched = docs.filter(function(d) {{
-        var hay = norm([d.titulo, d.modelo, d.fabricante, d.tipo_documento, d.palavras_chave, d.resumo, d.ativo].join(' '));
-        return words2.some(function(w) {{ return hay.indexOf(w) >= 0; }});
-      }});
-      var show = matched.length ? matched : docs;
-      var prefix2 = matched.length
-        ? 'Encontrei ' + (matched.length === 1 ? 'o documento tecnico vinculado ao seu ativo' : matched.length + ' documentos disponiveis') + ':'
-        : 'Documentacao tecnica disponivel na Biblioteca:';
-      var dlist = show.map(function(d) {{
-        var lnk = (d.arquivo_url && d.arquivo_url.indexOf('/mock/') < 0)
-          ? ' <a href="' + d.arquivo_url + '" target="_blank" style="color:#2563EB;font-size:.75rem;font-weight:600;">📂 Abrir</a>'
-          : '';
-        return '&bull; <strong>' + d.titulo + '</strong>'
-          + (d.tipo_documento ? ' <span style="font-size:.75rem;color:#64748B;">(' + d.tipo_documento + ')</span>' : '')
-          + (d.modelo ? ' &mdash; ' + d.modelo : '')
-          + lnk;
-      }}).join('<br>');
-      return {{ text: '<strong>📚 ' + prefix2 + '</strong><br><br>' + dlist + '<br><br>Acesse a Biblioteca Tecnica para visualizar e baixar.', actions: [{{label:'📚 Abrir Biblioteca Tecnica', page:'biblioteca'}}] }};
-    }}
-
-    /* STATUS ATIVO — score, atencao, critico */
-    if (/status|condi|sa.de|score|cr.tico|aten|bomba|compressor|motor|ativo|equipamento|falha|alarme|sensor/.test(ql)) {{
-      if (/score.*saude|saude.*ativo|o que.*score|o que e score/.test(ql)) {{
-        return {{ text: 'Score de saude e uma representacao resumida da condicao do ativo, calculada a partir de dados como vibracao, oleo, termografia, alarmes, chamados, manutencao, historico operacional e criticidade. Nao substitui laudo tecnico, mas ajuda a priorizar acompanhamento.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'⚙️ Ver Ativos', page:'ativos'}}] }};
-      }}
-      if (/em atencao|o que.*atencao|atencao significa/.test(ql)) {{
-        return {{ text: 'Ativo em <strong>atencao</strong> indica que ha sinais de acompanhamento necessario, como tendencia de piora, manutencao proxima, alerta recorrente, anomalia em oleo, vibracao ou temperatura. Nao significa parada imediata, mas exige monitoramento e analise.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'⚙️ Ver Ativos', page:'ativos'}}] }};
-      }}
-      if (/ativo.*critico|o que.*critico|critico significa/.test(ql)) {{
-        return {{ text: 'Ativo <strong>critico</strong> indica condicao com maior prioridade tecnica: risco de falha, componente com score baixo, alarme critico ou tendencia acelerada de degradacao. Recomenda-se abertura ou acompanhamento de chamado tecnico.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'⚙️ Ver Ativos', page:'ativos'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-      }}
-      var ativos = ctx.ativos || [];
-      if (!ativos.length) {{
-        return {{ text: 'Nenhum ativo monitorado cadastrado ainda para sua operacao.', actions: [{{label:'⚙️ Ver Ativos', page:'ativos'}}] }};
-      }}
-      var av = ativos[0];
-      var criticos = (av.componentes || []).filter(function(c) {{ return c.status === 'Critico' || c.status === 'Crítico'; }});
-      var txt = '<strong>⚙️ Status dos ativos monitorados:</strong><br><br>A <strong>' + av.nome + '</strong> esta com status <strong>' + av.status + '</strong> e score de saude <strong>' + av.score + '/100</strong>.';
-      if (criticos.length) {{
-        txt += '<br><br>Componente(s) critico(s): ' + criticos.map(function(c){{return '<strong>'+c.nome+'</strong>';}}).join(', ') + '.';
-      }}
-      return {{ text: txt, actions: [{{label:'⚙️ Ver Ativos Monitorados', page:'ativos'}}] }};
-    }}
-
-    /* CHAMADOS */
-    if (/chamado|abrir chamado|solicita|atendimento|suporte|problema|defeito|urgente|t.cnico|quando abrir/.test(ql)) {{
-      var chams = ctx.chamados || [];
-      var txt2 = 'Voce pode abrir ou acompanhar solicitacoes pela area de Chamados Tecnicos.';
-      if (chams.length) {{ txt2 += ' Chamado em aberto: <strong>' + chams[0].titulo + '</strong> (' + chams[0].status + ').'; }}
-      return {{ text: '<strong>🔧 Chamados Tecnicos:</strong><br><br>' + txt2, actions: [{{label:'🔧 Abrir Chamados Tecnicos', page:'chamados'}}] }};
-    }}
-
-    /* ALERTAS */
-    if (/alerta|aviso|notifica|ponto de aten/.test(ql)) {{
-      var als = ctx.alertas || [];
-      if (!als.length) {{
-        return {{ text: 'Nenhum alerta ativo no momento para sua operacao.', actions: [{{label:'🔔 Ver Alertas', page:'alertas'}}] }};
-      }}
-      var alist = als.map(function(a){{return '&bull; '+a.titulo+' ('+a.prioridade+')';}}).join('<br>');
-      return {{ text: '<strong>🔔 Alertas ativos:</strong><br><br>' + alist, actions: [{{label:'🔔 Ver Alertas', page:'alertas'}}] }};
-    }}
-
-    /* Busca generica em chunks antes do fallback */
-    var hitGeral = searchChunks([]);
-    if (hitGeral) {{
-      return {{ text: fmtChunk(hitGeral), actions: [{{label:'📚 Ver Manual', page:'biblioteca'}}, {{label:'🔧 Abrir Chamado', page:'chamados'}}] }};
-    }}
-
-    /* Fallback */
-    return {{ text: 'Nao encontrei informacao suficiente na base Pred.IO para responder com seguranca. Recomendo abrir um chamado tecnico para avaliacao da equipe Pred.IO.<br><br><strong>Fonte: Pred.IO</strong>', actions: [{{label:'🔧 Abrir Chamado Tecnico', page:'chamados'}}] }};
-  }}
 
   fab.addEventListener('click', predToggle);
   pd.getElementById('pred-min-btn').addEventListener('click', predMin);
@@ -2083,7 +1541,7 @@ def inject_floating_assistant(sid: str = "", client_id: str = "") -> None:
 </script>
 </body></html>"""
 
-    html = html_top + html_ctx + html_bot
+    html = html_top + html_bot
     _comp.html(html, height=0)
 
 

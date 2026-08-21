@@ -65,20 +65,21 @@ def render() -> None:
 
     import pandas as pd
 
-    # Carrega relatórios da aba legacy "Relatorios"
-    df_legacy = get_relatorios(client_id, {k: v for k, v in filtros.items() if v})
+    with st.spinner("Carregando relatórios..."):
+        # Carrega relatórios da aba legacy "Relatorios"
+        df_legacy = get_relatorios(client_id, {k: v for k, v in filtros.items() if v})
 
-    # Carrega relatórios publicados da nova aba "TechnicalReports"
-    try:
-        df_tech = get_technical_reports(client_id=client_id, staff=False)
-    except Exception:
-        df_tech = pd.DataFrame()
+        # Carrega relatórios publicados da nova aba "TechnicalReports"
+        try:
+            df_tech = get_technical_reports(client_id=client_id, staff=False)
+        except Exception:
+            df_tech = pd.DataFrame()
 
-    # Carrega relatórios executivos publicados — SOMENTE status=Publicado, sem obs_interna
-    try:
-        df_exec = get_relatorios_executivos_publicados(client_id)
-    except Exception:
-        df_exec = pd.DataFrame()
+        # Carrega relatórios executivos publicados — SOMENTE status=Publicado, sem obs_interna
+        try:
+            df_exec = get_relatorios_executivos_publicados(client_id)
+        except Exception:
+            df_exec = pd.DataFrame()
 
     # Audit log — acesso permitido
     try:

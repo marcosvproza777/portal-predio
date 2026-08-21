@@ -1006,7 +1006,8 @@ def _load(client_id: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 def render() -> None:
     client_id = current_client_id()
-    ativos, mock = _load(client_id)
+    with st.spinner("Carregando ativos..."):
+        ativos, mock = _load(client_id)
 
     detalhe_id = st.session_state.get(_DETALHE_KEY)
     if detalhe_id:
